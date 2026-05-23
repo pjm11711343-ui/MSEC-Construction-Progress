@@ -19,6 +19,7 @@ export interface BuildingData {
   materialDates?: Record<string, string>; // process id -> arrival date (ISO string)
   minFloor?: number;
   maxFloor?: number;
+  photos?: Record<string, string[]>; // process id/name -> array of base64 photos
 }
 
 export interface CommonFacility {
@@ -57,6 +58,13 @@ export interface ProgressSnapshot {
   averageProgress: number;
 }
 
+export interface DailyReport {
+  date: string;
+  weather: string;
+  manpower: string;
+  notes: string;
+}
+
 export interface AppState {
   id: string; // Site ID
   settings: ProjectSettings;
@@ -68,6 +76,9 @@ export interface AppState {
     managerSigned: boolean;
   };
   history?: ProgressSnapshot[];
+  dailyReports?: DailyReport[];
+  dashboardNotes?: string;
+  aiDiagnosis?: string;
 }
 
 export interface MultiProjectData {

@@ -60,7 +60,7 @@ export default function CalendarView({ buildings, theme, activeTheme, getFloorTe
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
+    <div className="space-y-6">
       <div className="flex items-center justify-between no-print">
         <h2 className={`text-xl font-black uppercase tracking-tight ${theme === 'industrial' ? 'text-white' : 'text-slate-900'}`}>자재 입고 예정표</h2>
         <div className={`flex items-center gap-4 bg-white dark:bg-slate-800 p-2 rounded-xl border ${activeTheme.border} shadow-sm`}>

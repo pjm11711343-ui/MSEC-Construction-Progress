@@ -1,6 +1,6 @@
 {
   "name": "Apartment Construction Progress Tracker",
   "description": "A professional construction management tool for tracking apartment project progress, featuring building-by-building status, automated signature workflows, and A4-optimized reporting.",
-  "requestFramePermissions": [],
+  "requestFramePermissions": ["camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

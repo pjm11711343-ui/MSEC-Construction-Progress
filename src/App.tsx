@@ -26,7 +26,9 @@ import {
   User,
   Calendar,
   AlertTriangle,
-  Link as LinkIcon
+  Link as LinkIcon,
+  ClipboardList,
+  CloudSun
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -38,10 +40,24 @@ import {
   Tooltip, 
   ResponsiveContainer, 
   AreaChart, 
-  Area 
+  Area,
+  BarChart,
+  Bar,
+  Cell
 } from 'recharts';
 import LoginModal from './components/LoginModal';
 import CalendarView from './components/CalendarView';
+import DailyReportView from './components/DailyReportView';
+import CameraModal from './components/CameraModal';
+import ReactMarkdown from 'react-markdown';
+import { 
+  Sparkles, 
+  MessageSquare,
+  Send,
+  Loader2,
+  Camera, 
+  Image as ImageIcon 
+} from 'lucide-react';
 import { 
   AppState, 
   BuildingData, 
@@ -50,7 +66,8 @@ import {
   INITIAL_FACILITIES, 
   FACILITY_PROCESSES,
   UserRole,
-  MultiProjectData
+  MultiProjectData,
+  DailyReport
 } from './types';
 
 const STORAGE_KEY = 'apt_construction_multi_data';
@@ -86,7 +103,8 @@ const createNewSite = (name: string): AppState => ({
     staffSigned: false,
     managerSigned: false
   },
-  history: []
+  history: [],
+  dailyReports: []
 });
 
 export default function App() {
@@ -98,10 +116,22 @@ export default function App() {
   
   const [data, setData] = useState<AppState>(createNewSite('스마트 아파트 현장'));
   const [processes, setProcesses] = useState<string[]>(DEFAULT_PROCESSES);
-  const [viewMode, setViewMode] = useState<'grid' | 'table' | 'settings' | 'analytics' | 'calendar'>('table');
+  const [viewMode, setViewMode] = useState<'grid' | 'table' | 'settings' | 'analytics' | 'calendar' | 'daily_report'>('table');
   const [isAutoSaving, setIsAutoSaving] = useState(false);
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
   const [storageWarning, setStorageWarning] = useState<string | null>(null);
+  const [isAddingSite, setIsAddingSite] = useState(false);
+  const [newSiteName, setNewSiteName] = useState('');
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [processToDelete, setProcessToDelete] = useState<string | null>(null);
+  const [buildingToDelete, setBuildingToDelete] = useState<number | null>(null);
+  const [newProcessInput, setNewProcessInput] = useState(false);
+  const [newProcessName, setNewProcessName] = useState('');
+  const [cameraTarget, setCameraTarget] = useState<{ buildingId: number, processName: string } | null>(null);
+  const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
+  const [hoveredProgress, setHoveredProgress] = useState<{ buildingId: number, processName: string, x: number, y: number } | null>(null);
+  const [isDiagnosing, setIsDiagnosing] = useState(false);
 
   const checkStorageUsage = () => {
     try {
@@ -256,52 +286,46 @@ export default function App() {
 
   const copySiteLink = () => {
     const url = `${window.location.origin}${window.location.pathname}?site=${data.id}`;
+    setShareUrl(url);
     
-    // Fallback for non-secure contexts (if clipboard API is blocked)
     if (navigator.clipboard && window.isSecureContext) {
-      navigator.clipboard.writeText(url).then(() => {
-        alert(`현장 고유 링크가 복사되었습니다:\n${data.settings.projectName}`);
-      }).catch(() => {
-        prompt('링크를 드래그하여 복사하세요:', url);
-      });
-    } else {
-      prompt('링크를 드래그하여 복사하세요:', url);
+      navigator.clipboard.writeText(url).catch(() => {});
     }
   };
 
   const addNewSite = () => {
-    const name = prompt('새 현장 이름을 입력하세요:');
-    if (name) {
-      const newSite = createNewSite(name);
-      setMultiData(prev => {
-        const nextMulti = {
-          ...prev,
-          sites: [...prev.sites, newSite],
-          activeSiteId: newSite.id
-        };
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(nextMulti));
-        return nextMulti;
-      });
-      setData(newSite);
-      setProcesses(DEFAULT_PROCESSES);
-      setViewMode('table');
-    }
+    if (!newSiteName.trim()) return;
+    const newSite = createNewSite(newSiteName);
+    setMultiData(prev => {
+      const nextMulti = {
+        ...prev,
+        sites: [...prev.sites, newSite],
+        activeSiteId: newSite.id
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(nextMulti));
+      return nextMulti;
+    });
+    setData(newSite);
+    setProcesses(DEFAULT_PROCESSES);
+    setViewMode('table');
+    setIsAddingSite(false);
+    setNewSiteName('');
+    
+    // Update URL
+    const newUrl = window.location.pathname + `?site=${newSite.id}`;
+    window.history.pushState({}, '', newUrl);
   };
 
   const deleteSite = (id: string) => {
-    if (multiData.sites.length <= 1) {
-      alert('최소 하나의 현장은 유지되어야 합니다.');
-      return;
-    }
-    const siteToDelete = multiData.sites.find(s => s.id === id);
-    if (!confirm(`'${siteToDelete?.settings.projectName}' 현장을 삭제하시겠습니까? 데이터가 모두 소실됩니다.`)) return;
-
+    if (multiData.sites.length <= 1) return;
+    
     setMultiData(prev => {
       const filtered = prev.sites.filter(s => s.id !== id);
       const nextActive = filtered[0].id;
       const nextData = filtered[0];
       
       setData(nextData);
+      setDeleteConfirmId(null);
       return { activeSiteId: nextActive, sites: filtered };
     });
   };
@@ -392,8 +416,36 @@ export default function App() {
     }));
   };
 
-  const addProcess = (name: string) => {
-    if (processes.includes(name)) return;
+  const handleUpdateDashboardNotes = (notes: string) => {
+    setData(prev => ({ ...prev, dashboardNotes: notes }));
+  };
+
+  const handleRunAIDiagnosis = async () => {
+    if (isDiagnosing) return;
+    setIsDiagnosing(true);
+    try {
+      const response = await fetch('/api/diagnosis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectData: data }),
+      });
+      const result = await response.json();
+      if (result.diagnosis) {
+        setData(prev => ({ ...prev, aiDiagnosis: result.diagnosis }));
+      } else if (result.error) {
+        alert(result.error);
+      }
+    } catch (error) {
+      console.error("AI Diagnosis failed:", error);
+      alert("AI 진단 요청에 실패했습니다.");
+    } finally {
+      setIsDiagnosing(false);
+    }
+  };
+
+  const addProcess = () => {
+    if (!newProcessName.trim() || processes.includes(newProcessName)) return;
+    const name = newProcessName.trim();
     const newProcesses = [...processes, name];
     setProcesses(newProcesses);
     setData(prev => ({
@@ -403,10 +455,12 @@ export default function App() {
         processes: { ...b.processes, [name]: 0 }
       }))
     }));
+    setNewProcessName('');
+    setNewProcessInput(false);
   };
 
-  const deleteProcess = (name: string) => {
-    if (!confirm(`'${name}' 공종을 삭제하시겠습니까? 모든 동의 데이터가 소실됩니다.`)) return;
+  const deleteProcess = (name: string | null) => {
+    if (!name) return;
     setProcesses(processes.filter(p => p !== name));
     setData(prev => ({
       ...prev,
@@ -415,6 +469,7 @@ export default function App() {
         return { ...b, processes: rest };
       })
     }));
+    setProcessToDelete(null);
   };
 
   const moveProcess = (index: number, direction: 'left' | 'right') => {
@@ -443,11 +498,8 @@ export default function App() {
     });
   };
 
-  const deleteBuilding = (id: number) => {
-    // For safety in some environments, confirm might not work well, 
-    // but we'll try to provide a fallback or ensure state updates clearly.
-    if (!window.confirm('정말 이 동을 삭제하시겠습니까?')) return;
-    
+  const deleteBuilding = (id: number | null) => {
+    if (id === null) return;
     setData(prev => {
       const filtered = prev.buildings.filter(b => b.id !== id);
       return {
@@ -459,6 +511,7 @@ export default function App() {
         }
       };
     });
+    setBuildingToDelete(null);
   };
 
   const renameBuilding = (id: number, newName: string) => {
@@ -479,6 +532,22 @@ export default function App() {
     setData(prev => ({
       ...prev,
       facilities: prev.facilities.filter(f => f.id !== id)
+    }));
+  };
+  
+  const handleAddDailyReport = (report: DailyReport) => {
+    setData(prev => ({
+      ...prev,
+      dailyReports: [report, ...(prev.dailyReports || [])].filter((r, i, self) => 
+        i === self.findIndex(t => t.date === r.date)
+      )
+    }));
+  };
+
+  const handleDeleteDailyReport = (date: string) => {
+    setData(prev => ({
+      ...prev,
+      dailyReports: (prev.dailyReports || []).filter(r => r.date !== date)
     }));
   };
 
@@ -525,8 +594,45 @@ export default function App() {
     });
   };
 
+  const handleCapturePhoto = (base64: string) => {
+    if (!cameraTarget) return;
+    const { buildingId, processName } = cameraTarget;
+    setData(prev => ({
+      ...prev,
+      buildings: prev.buildings.map(b => 
+        b.id === buildingId 
+          ? { 
+              ...b, 
+              photos: { 
+                ...(b.photos || {}), 
+                [processName]: [base64, ...(b.photos?.[processName] || [])].slice(0, 10) // Limit to 10 photos per process
+              } 
+            } 
+          : b
+      )
+    }));
+    setCameraTarget(null);
+  };
+
+  const handleDeletePhoto = (buildingId: number, processName: string, photoIndex: number) => {
+    setData(prev => ({
+      ...prev,
+      buildings: prev.buildings.map(b => 
+        b.id === buildingId 
+          ? { 
+              ...b, 
+              photos: { 
+                ...(b.photos || {}), 
+                [processName]: (b.photos?.[processName] || []).filter((_, i) => i !== photoIndex)
+              } 
+            } 
+          : b
+      )
+    }));
+  };
+
   const handleSign = (type: 'staff' | 'manager') => {
-    if (role !== 'ADMIN') return;
+    if (role === 'GUEST') return;
     setData(prev => ({
       ...prev,
       approval: {
@@ -723,16 +829,16 @@ export default function App() {
                     <LinkIcon className={`w-3.5 h-3.5 ${activeTheme.text} group-hover:scale-110 transition-transform`} />
                   </button>
                   <button 
-                    onClick={addNewSite}
+                    onClick={() => setIsAddingSite(true)}
                     className={`p-1.5 hover:bg-white dark:hover:bg-slate-700 rounded-md transition-all group`}
                     title="새 현장 추가"
                     disabled={role === 'GUEST'}
                   >
                     <Plus className={`w-4 h-4 ${activeTheme.text} group-hover:scale-110 transition-transform`} />
                   </button>
-                  {role === 'ADMIN' && multiData.sites.length > 1 && (
+                  {role !== 'GUEST' && multiData.sites.length > 1 && (
                     <button 
-                      onClick={() => deleteSite(data.id)}
+                      onClick={() => setDeleteConfirmId(data.id)}
                       className={`p-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-md transition-all group`}
                       title="현재 현장 삭제"
                     >
@@ -762,12 +868,18 @@ export default function App() {
                 자재 입고 달력
               </button>
               <button 
+                onClick={() => setViewMode('daily_report')}
+                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${viewMode === 'daily_report' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                현장 일보
+              </button>
+              <button 
                 onClick={() => setViewMode('analytics')}
                 className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${viewMode === 'analytics' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
               >
                 분석 리포트
               </button>
-              {role === 'ADMIN' && (
+              {role !== 'GUEST' && (
                 <button 
                   onClick={() => setViewMode('settings')}
                   className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${viewMode === 'settings' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
@@ -844,8 +956,16 @@ export default function App() {
           </div>
         </div>
 
-        {viewMode === 'settings' && role === 'ADMIN' && (
-          <div className={`${activeTheme.card} rounded-2xl shadow-sm border ${activeTheme.border} p-8 space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500`}>
+        <AnimatePresence mode="wait">
+          {viewMode === 'settings' && role !== 'GUEST' && (
+            <motion.div
+              key="settings"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.2 }}
+            >
+              <div className={`${activeTheme.card} rounded-2xl shadow-sm border ${activeTheme.border} p-8 space-y-8`}>
              <div className={`flex items-center gap-2 mb-6 ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'}`}>
                 <SettingsIcon className={`w-6 h-6 ${activeTheme.text}`} />
                 <h2 className="text-xl font-bold">프로젝트 설정</h2>
@@ -962,19 +1082,35 @@ export default function App() {
                 </div>
              </div>
           </div>
+          </motion.div>
         )}
 
         {viewMode === 'calendar' && (
-          <CalendarView 
-            buildings={data.buildings} 
-            theme={data.settings.theme} 
-            activeTheme={activeTheme} 
-            getFloorText={getFloorText}
-          />
+          <motion.div
+            key="calendar"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2 }}
+          >
+            <CalendarView 
+              buildings={data.buildings} 
+              theme={data.settings.theme} 
+              activeTheme={activeTheme} 
+              getFloorText={getFloorText}
+            />
+          </motion.div>
         )}
 
         {viewMode === 'table' && (
-          <div className={`${activeTheme.card} rounded-2xl shadow-sm border ${activeTheme.border} overflow-hidden overflow-x-auto animate-in fade-in duration-700`}>
+          <motion.div
+            key="table"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2 }}
+          >
+            <div className={`${activeTheme.card} rounded-2xl shadow-sm border ${activeTheme.border} overflow-hidden overflow-x-auto`}>
             <table className="w-full border-collapse table-condensed min-w-[2000px] print:min-w-0">
               <thead>
                 <tr className={`${activeTheme.header} text-white sticky top-0 z-20`}>
@@ -992,7 +1128,7 @@ export default function App() {
                       <div className="flex flex-col gap-1">
                         <div className="flex items-center justify-between gap-1">
                           <span className="text-[10px] font-bold leading-tight break-keep select-none">{p}</span>
-                          {role === 'ADMIN' && (
+                          {role !== 'GUEST' && (
                             <div className="no-print flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                               <button 
                                 onClick={() => {
@@ -1024,7 +1160,7 @@ export default function App() {
                     </th>
                   ))}
                   <th className={`text-center font-bold px-2 py-3 w-20 ${data.settings.theme === 'industrial' ? 'bg-emerald-900' : 'bg-blue-900'}`}>평균</th>
-                  {role === 'ADMIN' && <th className="border-l border-slate-700 w-16 text-center font-bold px-1 py-3 no-print">삭제</th>}
+                  {role !== 'GUEST' && <th className="border-l border-slate-700 w-16 text-center font-bold px-1 py-3 no-print">삭제</th>}
                 </tr>
               </thead>
               <tbody className={`divide-y ${data.settings.theme === 'industrial' ? 'divide-slate-800' : 'divide-slate-100'}`}>
@@ -1042,7 +1178,7 @@ export default function App() {
                         <div className="flex flex-col items-center justify-center p-2 gap-1">
                           <input type="text" value={b.name} disabled={role === 'GUEST'} onChange={(e) => renameBuilding(b.id, e.target.value)} className="w-full text-center bg-transparent border-none focus:ring-0 p-0 font-black text-sm" />
                           
-                          {role === 'ADMIN' && (
+                          {role !== 'GUEST' && (
                             <div className="flex items-center gap-1 no-print">
                               <div className="flex items-center gap-0.5">
                                 <span className="text-[8px] text-slate-400 font-bold">지하</span>
@@ -1090,7 +1226,14 @@ export default function App() {
                         
                         return (
                           <td key={p} className={`border-r ${activeTheme.border} p-0 relative`}>
-                            <div className="p-2 space-y-1.5">
+                            <div 
+                              className="p-2 space-y-1.5"
+                              onMouseEnter={(e) => {
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                setHoveredProgress({ buildingId: b.id, processName: p, x: rect.left, y: rect.top });
+                              }}
+                              onMouseLeave={() => setHoveredProgress(null)}
+                            >
                               {/* Construction Progress */}
                               <div className="flex flex-col gap-0.5">
                                 <div className="flex items-center gap-1">
@@ -1110,7 +1253,30 @@ export default function App() {
                                       ))}
                                       <option value={100}>완료</option>
                                     </select>
-                                  <span className="ml-auto text-[8px] font-bold text-slate-400 opacity-60 pointer-events-none">{bProcesses[p] === -1 ? '-' : `${bProcesses[p] ?? 0}%`}</span>
+                                  <div className="ml-auto flex items-center gap-1">
+                                    <span className="text-[8px] font-bold text-slate-400 opacity-60 pointer-events-none">{bProcesses[p] === -1 ? '-' : `${bProcesses[p] ?? 0}%`}</span>
+                                    <div className="flex items-center gap-0.5 no-print">
+                                      <button 
+                                        onClick={() => setCameraTarget({ buildingId: b.id, processName: p })}
+                                        className="p-0.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded text-slate-400 hover:text-blue-500 transition-colors"
+                                        title="사진 촬영"
+                                      >
+                                        <Camera className="w-3 h-3" />
+                                      </button>
+                                      {(b.photos?.[p] || []).length > 0 && (
+                                        <button 
+                                          onClick={() => setSelectedPhoto(b.photos?.[p][0])}
+                                          className="p-0.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded text-blue-500 transition-colors relative"
+                                          title="사진 보기"
+                                        >
+                                          <ImageIcon className="w-3 h-3" />
+                                          <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[5px] min-w-[8px] h-[8px] px-0.5 rounded-full flex items-center justify-center font-black">
+                                            {(b.photos?.[p] || []).length}
+                                          </span>
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
                                 </div>
                                 <div className={`w-full h-[3px] rounded-full overflow-hidden ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-100'}`}>
                                   {bProcesses[p] !== -1 && (
@@ -1169,7 +1335,7 @@ export default function App() {
                         );
                       })}
                       <td className={`text-center font-black text-sm ${activeTheme.text} ${data.settings.theme === 'industrial' ? 'bg-slate-900/50' : 'bg-blue-50/50'}`}>{avg}%</td>
-                      {role === 'ADMIN' && (
+                      {role !== 'GUEST' && (
                         <td className={`border-l ${activeTheme.border} text-center no-print px-1 py-2`}>
                           <button 
                             onClick={() => deleteBuilding(b.id)} 
@@ -1186,10 +1352,76 @@ export default function App() {
               </tbody>
             </table>
           </div>
+          <section className={`${activeTheme.card} rounded-2xl shadow-sm border ${activeTheme.border} p-8 space-y-6 mt-8`}>
+            <div className="flex items-center justify-between">
+               <div className="flex items-center gap-2">
+                  <LayoutGrid className={`w-5 h-5 ${activeTheme.text}`} />
+                  <h2 className={`text-lg font-bold ${data.settings.theme === 'industrial' ? 'text-white underline decoration-emerald-500/30' : 'text-slate-900 underline decoration-blue-500/30'} decoration-4 underline-offset-4`}>부대시설 및 주민공동시설 현황</h2>
+               </div>
+               <p className="text-xs text-slate-400 font-medium">* 클릭하여 상태 변경</p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+               {data.facilities.map(f => {
+                 const avgProgress = getFacilityAverage(f);
+                 return (
+                   <div key={f.id} className={`${activeTheme.card} rounded-2xl shadow-sm border ${activeTheme.border} p-5 space-y-4`}>
+                     <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-3 h-3 rounded-full ${f.status === 'COMPLETED' ? 'bg-green-500' : f.status === 'IN_PROGRESS' ? 'bg-blue-500' : 'bg-slate-300'}`} />
+                          <h3 className={`font-bold ${data.settings.theme === 'industrial' ? 'text-slate-200' : 'text-slate-800'}`}>{f.name}</h3>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-xs font-black ${avgProgress === 100 ? 'text-green-500' : activeTheme.text}`}>{avgProgress}%</span>
+                          <button onClick={() => handleUpdateFacilityStatus(f.id)} className={`text-[10px] font-bold px-2 py-1 rounded-full ${f.status === 'COMPLETED' ? 'bg-green-100 text-green-700' : f.status === 'IN_PROGRESS' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>
+                            {f.status === 'COMPLETED' ? '완료' : f.status === 'IN_PROGRESS' ? '진행중' : '대기'}
+                          </button>
+                        </div>
+                     </div>
+
+                     <div className={`w-full h-1.5 rounded-full ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-100'} overflow-hidden`}>
+                       <div className={`h-full transition-all duration-500 ${avgProgress === 100 ? 'bg-green-500' : activeTheme.accent}`} style={{ width: `${avgProgress}%` }} />
+                     </div>
+                     
+                     <div className="grid grid-cols-2 gap-2">
+                        {FACILITY_PROCESSES.map(fp => {
+                          const prog = f.processes?.[fp] ?? 0;
+                          return (
+                            <div key={fp} className="space-y-1">
+                              <div className="flex items-center justify-between px-1">
+                                <span className="text-[9px] text-slate-400 font-bold">{fp}</span>
+                                <span className={`text-[9px] font-black ${prog === 100 ? 'text-green-500' : 'text-slate-500'}`}>{prog}%</span>
+                              </div>
+                              <input 
+                                type="range"
+                                min="0"
+                                max="100"
+                                step="10"
+                                value={prog}
+                                disabled={role === 'GUEST'}
+                                onChange={(e) => handleUpdateFacilitySubProcess(f.id, fp, Number(e.target.value))}
+                                className="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                              />
+                            </div>
+                          );
+                        })}
+                     </div>
+                   </div>
+                 );
+               })}
+            </div>
+          </section>
+          </motion.div>
         )}
 
         {viewMode === 'grid' && (
-          <div className="space-y-8 animate-in fade-in duration-700">
+          <motion.div
+            key="grid"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2 }}
+          >
+            <div className="space-y-8">
             {/* Quick Stats Chart Header */}
             {data.history && data.history.length > 0 && (
               <div className={`${activeTheme.card} rounded-2xl shadow-sm border ${activeTheme.border} p-6 h-64`}>
@@ -1312,27 +1544,34 @@ export default function App() {
                                       <div className={`${progressVal === 100 ? 'bg-green-500' : activeTheme.accent} h-full`} style={{ width: `${progressVal}%` }} />
                                    </div>
                                    {materialVal !== 0 && materialVal !== -1 && (
-                                     <div className={`h-1 rounded-full overflow-hidden ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-100'}`}>
-                                        <div className={`bg-blue-400 h-full`} style={{ width: `${materialVal}%` }} />
-                                     </div>
-                                   )}
-                                 </div>
-                                 <span className="font-bold min-w-[24px] text-right">{progressVal}%</span>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {viewMode === 'analytics' && (
-          <div className="space-y-8 animate-in fade-in duration-700">
+                                      <div className={`h-1 rounded-full overflow-hidden ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-100'}`}>
+                                         <div className={`bg-blue-400 h-full`} style={{ width: `${materialVal}%` }} />
+                                      </div>
+                                    )}
+                                  </div>
+                                  <span className="font-bold min-w-[24px] text-right">{progressVal}%</span>
+                               </div>
+                             </div>
+                           </div>
+                         );
+                       })}
+                     </div>
+                   </div>
+                 );
+               })}
+             </div>
+           </div>
+           </motion.div>
+         )}
+         {viewMode === 'analytics' && (
+          <motion.div
+            key="analytics"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2 }}
+          >
+            <div className="space-y-8">
              <div className={`${activeTheme.card} rounded-2xl shadow-sm border ${activeTheme.border} p-8`}>
                 <div className="flex items-center justify-between mb-8">
                   <div className="flex items-center gap-3">
@@ -1341,7 +1580,7 @@ export default function App() {
                     </div>
                     <div>
                       <h2 className={`text-2xl font-bold ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'}`}>건설 공정 분석</h2>
-                      <p className="text-slate-400 text-sm font-medium">프로젝트 전체 진행률 추이 및 동별 수치 분석</p>
+                      <p className="text-slate-400 text-sm font-medium">프로젝트 전체 진행률 추이 및 공정별 상세 분석</p>
                     </div>
                   </div>
                 </div>
@@ -1398,7 +1637,7 @@ export default function App() {
                     <h3 className="text-sm font-bold text-slate-500 uppercase tracking-widest">요약 통계</h3>
                     <div className="grid grid-cols-1 gap-4">
                        <div className={`${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-50'} p-4 rounded-2xl border ${activeTheme.border}`}>
-                          <div className="text-xs font-bold text-slate-400 mb-1">전체 동 평균</div>
+                          <div className="text-xs font-bold text-slate-400 mb-1">전체 동 평균 진행률</div>
                           <div className={`text-3xl font-black ${activeTheme.text}`}>
                              {Math.round(data.buildings.reduce((acc, b) => {
                                const processesValues = Object.values(b.processes) as number[];
@@ -1406,10 +1645,10 @@ export default function App() {
                                return acc + buildingAvg;
                              }, 0) / (data.buildings.length || 1))}%
                           </div>
-                          <div className="text-[10px] text-green-500 font-bold mt-1">+2.4% vs last snapshot</div>
+                          <div className="text-[10px] text-green-500 font-bold mt-1">데이터 분석 기반 예측</div>
                        </div>
                        <div className={`${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-50'} p-4 rounded-2xl border ${activeTheme.border}`}>
-                          <div className="text-xs font-bold text-slate-400 mb-1">최고 진행 동</div>
+                          <div className="text-xs font-bold text-slate-400 mb-1">최고 선행동 (Leading)</div>
                           {(() => {
                              const sorted = [...data.buildings].sort((a,b) => {
                                const processesA = Object.values(a.processes) as number[];
@@ -1418,101 +1657,352 @@ export default function App() {
                                const avgB = processesB.length > 0 ? processesB.reduce((s, v) => s + v, 0) / processesB.length : 0;
                                return avgB - avgA;
                              });
+                             const topAvg = (Object.values(sorted[0]?.processes || {}) as number[]).reduce((s, v) => s + v, 0) / (processes.length || 1);
                              return (
                                <>
                                  <div className={`text-xl font-black ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'}`}>{sorted[0]?.name || '-'}</div>
-                                 <div className="text-[10px] text-slate-500 font-bold mt-1">완료율: {Math.round((Object.values(sorted[0]?.processes || {}) as number[]).reduce((s, v) => s + v, 0) / (processes.length || 1))}%</div>
+                                 <div className="text-[10px] text-slate-500 font-bold mt-1">완료율: {Math.round(topAvg)}% (현장 전체 모범 사례)</div>
                                </>
                              );
                           })()}
                        </div>
                        <div className={`${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-50'} p-4 rounded-2xl border ${activeTheme.border}`}>
-                          <div className="text-xs font-bold text-slate-400 mb-1">공통시설 완료율</div>
-                          <div className={`text-2xl font-black text-emerald-500`}>
-                             {Math.round((data.facilities.filter(f => f.status === 'COMPLETED').length / data.facilities.length) * 100)}%
-                          </div>
-                          <div className="text-[10px] text-slate-500 font-bold mt-1">{data.facilities.filter(f => f.status === 'COMPLETED').length} / {data.facilities.length} 시설 완료</div>
+                          <div className="text-xs font-bold text-slate-400 mb-1">진행 지연 우려 공종 (Bottleneck)</div>
+                          {(() => {
+                             const processProgress = processes.map(p => {
+                               const buildingVals = data.buildings.map(b => b.processes[p] ?? 0);
+                               const avg = buildingVals.length > 0 ? buildingVals.reduce((s, v) => s + v, 0) / buildingVals.length : 0;
+                               return { name: p, avg };
+                             }).sort((a, b) => a.avg - b.avg);
+                             
+                             const lowest = processProgress[0];
+                             return (
+                               <>
+                                 <div className={`text-xl font-black text-amber-500`}>{lowest?.name || '-'}</div>
+                                 <div className="text-[10px] text-slate-500 font-bold mt-1">평균 진행률: {Math.round(lowest?.avg || 0)}% (자재 입고 및 인원 투입 확인 필요)</div>
+                               </>
+                             );
+                          })()}
                        </div>
                     </div>
                   </div>
                 </div>
-             </div>
-          </div>
-        )}
 
-        {viewMode !== 'calendar' && (
-          <section className={`${activeTheme.card} rounded-2xl shadow-sm border ${activeTheme.border} p-8 space-y-6`}>
-            <div className="flex items-center justify-between">
-               <div className="flex items-center gap-2">
-                  <LayoutGrid className={`w-5 h-5 ${activeTheme.text}`} />
-                  <h2 className={`text-lg font-bold ${data.settings.theme === 'industrial' ? 'text-white underline decoration-emerald-500/30' : 'text-slate-900 underline decoration-blue-500/30'} decoration-4 underline-offset-4`}>부대시설 및 주민공동시설 현황</h2>
-               </div>
-               <p className="text-xs text-slate-400 font-medium">* 클릭하여 상태 변경</p>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-               {data.facilities.map(f => {
-                 const avgProgress = getFacilityAverage(f);
-                 return (
-                   <div key={f.id} className={`${activeTheme.card} rounded-2xl shadow-sm border ${activeTheme.border} p-5 space-y-4`}>
-                     <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-3 h-3 rounded-full ${f.status === 'COMPLETED' ? 'bg-green-500' : f.status === 'IN_PROGRESS' ? 'bg-blue-500' : 'bg-slate-300'}`} />
-                          <h3 className={`font-bold ${data.settings.theme === 'industrial' ? 'text-slate-200' : 'text-slate-800'}`}>{f.name}</h3>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className={`text-xs font-black ${avgProgress === 100 ? 'text-green-500' : activeTheme.text}`}>{avgProgress}%</span>
-                          <button onClick={() => handleUpdateFacilityStatus(f.id)} className={`text-[10px] font-bold px-2 py-1 rounded-full ${f.status === 'COMPLETED' ? 'bg-green-100 text-green-700' : f.status === 'IN_PROGRESS' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>
-                            {f.status === 'COMPLETED' ? '완료' : f.status === 'IN_PROGRESS' ? '진행중' : '대기'}
-                          </button>
-                        </div>
-                     </div>
-
-                     <div className={`w-full h-1.5 rounded-full ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-100'} overflow-hidden`}>
-                       <div className={`h-full transition-all duration-500 ${avgProgress === 100 ? 'bg-green-500' : activeTheme.accent}`} style={{ width: `${avgProgress}%` }} />
-                     </div>
-                     
-                     <div className="grid grid-cols-2 gap-2">
-                        {FACILITY_PROCESSES.map(fp => {
-                          const prog = f.processes?.[fp] ?? 0;
-                          return (
-                            <div key={fp} className="space-y-1">
-                              <div className="flex items-center justify-between px-1">
-                                <span className="text-[9px] text-slate-400 font-bold">{fp}</span>
-                                <span className={`text-[9px] font-black ${prog === 100 ? 'text-green-500' : 'text-slate-500'}`}>{prog}%</span>
-                              </div>
-                              <input 
-                                type="range"
-                                min="0"
-                                max="100"
-                                step="10"
-                                value={prog}
-                                disabled={role === 'GUEST'}
-                                onChange={(e) => handleUpdateFacilitySubProcess(f.id, fp, Number(e.target.value))}
-                                className="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
-                              />
+                {/* Detailed Process Breakdown */}
+                <div className="mt-12 space-y-6">
+                   <div className="flex items-center justify-between">
+                     <h3 className="text-sm font-bold text-slate-500 uppercase tracking-widest">전체 공정별 세부 지표</h3>
+                     <span className="text-[10px] text-slate-400 font-medium">총 {processes.length}개 공종 분석</span>
+                   </div>
+                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                      {processes.map(p => {
+                         const buildingVals = data.buildings.map(b => b.processes[p] ?? 0);
+                         const avg = buildingVals.length > 0 ? buildingVals.reduce((s, v) => s + v, 0) / buildingVals.length : 0;
+                         const completedCount = buildingVals.filter(v => v === 100).length;
+                         const progressCount = buildingVals.filter(v => v > 0 && v < 100).length;
+                         
+                         return (
+                            <div key={p} className={`${data.settings.theme === 'industrial' ? 'bg-slate-800/50' : 'bg-slate-50/50'} p-4 rounded-xl border ${activeTheme.border} space-y-3`}>
+                               <div className="flex items-center justify-between">
+                                  <span className={`text-[11px] font-black truncate max-w-[120px] ${data.settings.theme === 'industrial' ? 'text-slate-300' : 'text-slate-700'}`}>{p}</span>
+                                  <span className={`text-[11px] font-black ${avg === 100 ? 'text-green-500' : activeTheme.text}`}>{Math.round(avg)}%</span>
+                               </div>
+                               <div className="h-1.5 w-full bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                                  <motion.div 
+                                    initial={{ width: 0 }}
+                                    animate={{ width: `${avg}%` }}
+                                    className={`h-full ${avg === 100 ? 'bg-green-500' : activeTheme.accent}`} 
+                                  />
+                               </div>
+                               <div className="flex items-center justify-between text-[9px] font-bold text-slate-400">
+                                  <span>완료: {completedCount}개동</span>
+                                  <span>진행: {progressCount}개동</span>
+                               </div>
                             </div>
-                          );
-                        })}
+                         );
+                      })}
+                   </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-12">
+                   {/* Special Notes / Memo */}
+                   <div className={`${activeTheme.card} rounded-2xl shadow-sm border ${activeTheme.border} p-6 flex flex-col`}>
+                     <div className="flex items-center gap-2 mb-4">
+                       <MessageSquare className={`w-5 h-5 ${activeTheme.text}`} />
+                       <h3 className={`font-black ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'}`}>현장 특이사항 및 메모</h3>
+                     </div>
+                     <textarea
+                       value={data.dashboardNotes || ''}
+                       onChange={(e) => handleUpdateDashboardNotes(e.target.value)}
+                       placeholder="현장의 주요 이슈, 자재 수급 상황, 특이 기상 등을 기록해 주세요..."
+                       className={`flex-1 w-full min-h-[200px] p-4 rounded-xl border ${activeTheme.border} ${data.settings.theme === 'industrial' ? 'bg-slate-900/50 text-slate-300' : 'bg-slate-50 text-slate-700'} focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-sm leading-relaxed custom-scrollbar`}
+                     />
+                   </div>
+
+                   {/* AI Diagnosis */}
+                   <div className={`${activeTheme.card} rounded-2xl shadow-sm border ${activeTheme.border} p-6 flex flex-col`}>
+                     <div className="flex items-center justify-between mb-4">
+                       <div className="flex items-center gap-2">
+                         <Sparkles className="w-5 h-5 text-amber-500" />
+                         <h3 className={`font-black ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'}`}>AI 현장 정밀 진단</h3>
+                       </div>
+                       <button
+                         onClick={handleRunAIDiagnosis}
+                         disabled={isDiagnosing}
+                         className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs transition-all ${isDiagnosing ? 'bg-slate-100 text-slate-400' : 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-500/20 hover:scale-105 active:scale-95'}`}
+                       >
+                         {isDiagnosing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+                         {isDiagnosing ? '분석 중...' : '진단 시작'}
+                       </button>
+                     </div>
+                     <div className={`flex-1 w-full min-h-[200px] p-4 rounded-xl border ${activeTheme.border} ${data.settings.theme === 'industrial' ? 'bg-slate-900/50' : 'bg-slate-50'} overflow-y-auto custom-scrollbar`}>
+                       {data.aiDiagnosis ? (
+                         <div className={`markdown-body text-sm ${data.settings.theme === 'industrial' ? 'text-slate-300' : 'text-slate-700'}`}>
+                           <ReactMarkdown>{data.aiDiagnosis}</ReactMarkdown>
+                         </div>
+                       ) : (
+                         <div className="h-full flex flex-col items-center justify-center text-center space-y-4 opacity-40">
+                           <Sparkles className="w-12 h-12" />
+                           <p className="text-xs font-bold font-mono">데이터 기반 공정 분석 및 리스크 예측을 시작해 보세요.</p>
+                         </div>
+                       )}
                      </div>
                    </div>
-                 );
-               })}
-            </div>
-          </section>
+                </div>
+              </div>
+           </div>
+          </motion.div>
         )}
+
+        {viewMode === 'daily_report' && (
+          <motion.div
+            key="daily_report"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2 }}
+          >
+            <DailyReportView 
+              reports={data.dailyReports || []} 
+              onAddReport={handleAddDailyReport} 
+              onDeleteReport={handleDeleteDailyReport}
+              theme={data.settings.theme}
+              activeTheme={activeTheme}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
         <div className="hidden print:flex justify-between items-end mt-12 text-[10px] text-slate-400 font-medium border-t pt-4">
           <p>Construction Analytics Platform | {new Date().toLocaleDateString()}</p>
           <p>Project: {data.settings.projectName} | Site Manager: {data.settings.managerName}</p>
           <p>Page 1 / 1</p>
         </div>
+
+        {/* Share Link Modal */}
+        <AnimatePresence>
+          {shareUrl && (
+            <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4 no-print">
+              <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="bg-white dark:bg-slate-900 p-8 rounded-3xl shadow-2xl max-w-lg w-full space-y-6">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xl font-black uppercase tracking-tight flex items-center gap-2 italic">
+                    <LinkIcon className={`w-5 h-5 ${activeTheme.text}`} />
+                    Share Site
+                  </h3>
+                  <button onClick={() => setShareUrl(null)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"><Plus className="w-5 h-5 rotate-45" /></button>
+                </div>
+                <p className="text-sm text-slate-500 font-medium leading-relaxed">아래 링크를 공유하여 다른 사용자가 이 현장의 데이터를 조회하게 할 수 있습니다.</p>
+                <div className="flex gap-2">
+                  <input readOnly value={shareUrl} className="flex-1 bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-mono text-blue-600 truncate" />
+                  <button onClick={() => { navigator.clipboard.writeText(shareUrl); }} className="bg-blue-600 text-white px-6 font-black rounded-xl">복사</button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* Add Site Modal */}
+        <AnimatePresence>
+          {isAddingSite && (
+            <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4 no-print">
+              <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="bg-white dark:bg-slate-900 p-8 rounded-3xl shadow-2xl max-w-md w-full space-y-6">
+                <h3 className="text-xl font-black uppercase tracking-tight italic">New Site Add</h3>
+                <div className="space-y-4">
+                  <input autoFocus placeholder="현장 이름을 입력하세요..." value={newSiteName} onChange={e => setNewSiteName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addNewSite()} className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-bold" />
+                  <div className="flex gap-3">
+                    <button onClick={() => { setIsAddingSite(false); setNewSiteName(''); }} className="flex-1 bg-slate-100 dark:bg-slate-800 text-slate-500 py-3 rounded-xl font-bold">취소</button>
+                    <button onClick={addNewSite} className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-bold">현장 생성</button>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* Delete Site Modal */}
+        <AnimatePresence>
+          {deleteConfirmId && (
+            <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4 no-print">
+              <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="bg-white dark:bg-slate-900 p-8 rounded-3xl shadow-2xl max-w-sm w-full space-y-6 text-center">
+                <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 text-red-600 rounded-full flex items-center justify-center mx-auto">
+                  <AlertTriangle className="w-8 h-8" />
+                </div>
+                <div className="space-y-2">
+                  <h3 className="text-xl font-black italic uppercase">Delete Site?</h3>
+                  <p className="text-sm text-slate-500">정말 이 현장을 삭제하시겠습니까?<br/>모든 데이터가 영구적으로 소실됩니다.</p>
+                </div>
+                <div className="flex gap-3">
+                  <button onClick={() => setDeleteConfirmId(null)} className="flex-1 bg-slate-100 dark:bg-slate-800 text-slate-500 py-3 rounded-xl font-bold">취소</button>
+                  <button onClick={() => deleteSite(deleteConfirmId)} className="flex-1 bg-red-600 text-white py-3 rounded-xl font-bold">삭제 실행</button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
       </main>
 
       {viewMode !== 'calendar' && (
         <div className="fixed bottom-6 right-6 no-print flex flex-col gap-3">
-           <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => { const name = prompt('새로운 공종을 입력하세요:'); if (name) addProcess(name); }} className={`${activeTheme.button} text-white p-4 rounded-full shadow-xl ${activeTheme.shadow} flex items-center justify-center`}><Plus className="w-6 h-6" /></motion.button>
+           <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => setNewProcessInput(true)} className={`${activeTheme.button} text-white p-4 rounded-full shadow-xl ${activeTheme.shadow} flex items-center justify-center`}><Plus className="w-6 h-6" /></motion.button>
         </div>
       )}
+
+      {/* Add Process Modal */}
+      <AnimatePresence>
+        {newProcessInput && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4 no-print">
+            <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="bg-white dark:bg-slate-900 p-8 rounded-3xl shadow-2xl max-w-md w-full space-y-6">
+              <h3 className="text-xl font-black uppercase tracking-tight italic">Add Construction Process</h3>
+              <div className="space-y-4">
+                <input autoFocus placeholder="새로운 공종명을 입력하세요..." value={newProcessName} onChange={e => setNewProcessName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addProcess()} className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-bold" />
+                <div className="flex gap-3">
+                  <button onClick={() => setNewProcessInput(false)} className="flex-1 bg-slate-100 dark:bg-slate-800 text-slate-500 py-3 rounded-xl font-bold">취소</button>
+                  <button onClick={addProcess} className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-bold">공종 추가</button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+      
+      {/* Camera Modal */}
+      <AnimatePresence>
+        {cameraTarget && (
+          <CameraModal 
+            onCapture={handleCapturePhoto} 
+            onClose={() => setCameraTarget(null)} 
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Photo View Modal */}
+      <AnimatePresence>
+        {selectedPhoto && (
+          <div 
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[300] flex items-center justify-center p-4 cursor-pointer no-print"
+            onClick={() => setSelectedPhoto(null)}
+          >
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9 }} 
+              animate={{ opacity: 1, scale: 1 }} 
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="relative max-w-4xl w-full"
+              onClick={e => e.stopPropagation()}
+            >
+              <img src={selectedPhoto} alt="Captured progress" className="w-full h-auto rounded-2xl shadow-2xl border-4 border-white" />
+              <button 
+                onClick={() => setSelectedPhoto(null)}
+                className="absolute -top-4 -right-4 w-12 h-12 bg-white text-black rounded-full flex items-center justify-center shadow-xl hover:scale-110 transition-transform"
+              >
+                <Plus className="w-8 h-8 rotate-45" />
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Progress detail tooltip */}
+      <AnimatePresence>
+        {hoveredProgress && (
+          <motion.div
+            initial={{ opacity: 0, y: 5, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 5, scale: 0.95 }}
+            className="fixed z-[500] pointer-events-none no-print"
+            style={{ 
+              left: hoveredProgress.x, 
+              top: hoveredProgress.y - 180 // Position above the cell
+            }}
+          >
+            {(() => {
+              const b = data.buildings.find(building => building.id === hoveredProgress.buildingId);
+              if (!b) return null;
+              
+              const p = hoveredProgress.processName;
+              const percent = b.processes[p] ?? 0;
+              const currentFloor = percentToFloor(percent, b);
+              const floors = getFloorList(b);
+              
+              const basementFloors = floors.filter(f => f < 0);
+              const groundFloors = floors.filter(f => f > 0);
+              
+              const basementCompleted = percent === 100 ? basementFloors.length : (percent <= 0 || percent === -1 ? 0 : basementFloors.filter(f => f <= currentFloor).length);
+              const groundCompleted = percent === 100 ? groundFloors.length : (percent <= 0 || percent === -1 ? 0 : groundFloors.filter(f => f <= currentFloor && f > 0).length);
+              
+              const chartData = [
+                { name: '지하', value: basementFloors.length > 0 ? Math.round((basementCompleted / basementFloors.length) * 100) : 0, visible: basementFloors.length > 0 },
+                { name: '지상', value: groundFloors.length > 0 ? Math.round((groundCompleted / groundFloors.length) * 100) : 0, visible: groundFloors.length > 0 }
+              ].filter(d => d.visible);
+
+              return (
+                <div className={`p-4 rounded-2xl border ${activeTheme.border} ${data.settings.theme === 'industrial' ? 'bg-slate-900 shadow-emerald-900/20' : 'bg-white shadow-blue-900/20'} shadow-2xl min-w-[160px]`}>
+                  <div className="flex flex-col gap-1 mb-3">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">{b.name} / {p}</span>
+                    <div className="flex items-center justify-between">
+                      <span className={`text-xs font-black ${activeTheme.text}`}>지점 상세 현황</span>
+                      <span className={`text-xs font-black px-1.5 py-0.5 rounded-md ${percent === 100 ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-600'}`}>
+                        {percent === -1 ? 'N/A' : `${percent}%`}
+                      </span>
+                    </div>
+                  </div>
+                  
+                  <div className="h-28 w-full border-y border-slate-50 dark:border-slate-800 py-2">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={chartData} margin={{ top: 5, right: 5, left: -35, bottom: 0 }}>
+                        <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 'black', fill: '#94a3b8' }} />
+                        <YAxis domain={[0, 100]} hide />
+                        <Bar dataKey="value" radius={[6, 6, 0, 0]} barSize={25}>
+                          {chartData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.name === '지하' ? '#3b82f6' : '#10b981'} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                  
+                  <div className="mt-3 space-y-1.5">
+                    {chartData.map(d => (
+                      <div key={d.name} className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <div className={`w-1.5 h-1.5 rounded-full ${d.name === '지하' ? 'bg-blue-500' : 'bg-emerald-500'}`} />
+                          <span className="text-[10px] font-bold text-slate-500">{d.name}층 공정</span>
+                        </div>
+                        <span className={`text-[10px] font-black ${d.name === '지하' ? 'text-blue-500' : 'text-emerald-500'}`}>{d.value}%</span>
+                      </div>
+                    ))}
+                    {currentFloor !== -1 && percent > 0 && percent < 100 && (
+                      <div className="pt-2 mt-2 border-t border-slate-50 dark:border-slate-800">
+                        <span className="text-[9px] font-bold text-slate-400">현재 작업층: </span>
+                        <span className={`text-[9px] font-black ${activeTheme.text}`}>{formatFloor(currentFloor)}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <style>{`
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
