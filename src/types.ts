@@ -56,6 +56,8 @@ export interface ProjectSettings {
 export interface ProgressSnapshot {
   date: string;
   averageProgress: number;
+  buildings?: BuildingData[];
+  facilities?: CommonFacility[];
 }
 
 export interface DailyReport {

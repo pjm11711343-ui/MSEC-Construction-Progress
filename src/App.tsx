@@ -22,6 +22,7 @@ import {
   LayoutGrid,
   Settings as SettingsIcon,
   Download,
+  Upload,
   ShieldCheck,
   User,
   Calendar,
@@ -49,6 +50,7 @@ import LoginModal from './components/LoginModal';
 import CalendarView from './components/CalendarView';
 import DailyReportView from './components/DailyReportView';
 import CameraModal from './components/CameraModal';
+import GalleryModal from './components/GalleryModal';
 import ReactMarkdown from 'react-markdown';
 import { 
   Sparkles, 
@@ -114,10 +116,13 @@ export default function App() {
     sites: []
   });
   
-  const [data, setData] = useState<AppState>(createNewSite('스마트 아파트 현장'));
+  const [storageState, setStorageState] = useState<AppState>(createNewSite('스마트 아파트 현장'));
+  const setData = setStorageState;
   const [processes, setProcesses] = useState<string[]>(DEFAULT_PROCESSES);
   const [viewMode, setViewMode] = useState<'grid' | 'table' | 'settings' | 'analytics' | 'calendar' | 'daily_report'>('table');
+  const [viewDate, setViewDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [isAutoSaving, setIsAutoSaving] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
   const [storageWarning, setStorageWarning] = useState<string | null>(null);
   const [isAddingSite, setIsAddingSite] = useState(false);
@@ -129,6 +134,7 @@ export default function App() {
   const [newProcessInput, setNewProcessInput] = useState(false);
   const [newProcessName, setNewProcessName] = useState('');
   const [cameraTarget, setCameraTarget] = useState<{ buildingId: number, processName: string } | null>(null);
+  const [galleryTarget, setGalleryTarget] = useState<{ buildingId: number, processName: string } | null>(null);
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
   const [hoveredProgress, setHoveredProgress] = useState<{ buildingId: number, processName: string, x: number, y: number } | null>(null);
   const [isDiagnosing, setIsDiagnosing] = useState(false);
@@ -205,11 +211,11 @@ export default function App() {
   useEffect(() => {
     checkStorageUsage();
     const contentToCompare = JSON.stringify({
-      id: data.id,
-      settings: data.settings,
-      buildings: data.buildings,
-      facilities: data.facilities,
-      approval: data.approval
+      id: storageState.id,
+      settings: storageState.settings,
+      buildings: storageState.buildings,
+      facilities: storageState.facilities,
+      approval: storageState.approval
     });
 
     if (contentToCompare === lastSavedContent.current) return;
@@ -221,7 +227,7 @@ export default function App() {
       }
     }, 5000);
     return () => clearTimeout(timer);
-  }, [data, role]);
+  }, [storageState, role]);
 
   const saveData = () => {
     setIsAutoSaving(true);
@@ -241,14 +247,25 @@ export default function App() {
       const today = new Date().toISOString().split('T')[0];
       let newHistory = [...(prev.history || [])];
       const existingIndex = newHistory.findIndex(h => h.date === today);
+
+      // Snapshot without photos to save space
+      const snapshot = {
+        date: today,
+        averageProgress: overallAverage,
+        buildings: prev.buildings.map(b => {
+          const { photos, ...rest } = b;
+          return rest;
+        }),
+        facilities: prev.facilities
+      };
       
       if (existingIndex >= 0) {
-        newHistory[existingIndex] = { date: today, averageProgress: overallAverage };
+        newHistory[existingIndex] = snapshot;
       } else {
-        newHistory.push({ date: today, averageProgress: overallAverage });
+        newHistory.push(snapshot);
       }
 
-      const updatedData = { ...prev, lastSaved: new Date().toLocaleString(), history: newHistory.slice(-60) };
+      const updatedData = { ...prev, lastSaved: new Date().toLocaleString(), history: newHistory.slice(-100) };
       
       // Update multiSite record
       setMultiData(mPrev => {
@@ -331,7 +348,7 @@ export default function App() {
   };
 
   const handleUpdateProgress = (buildingId: number, processName: string, value: number) => {
-    if (role === 'GUEST') return;
+    if (role === 'GUEST' || (data as any).isHistorical) return;
     setData(prev => ({
       ...prev,
       buildings: prev.buildings.map(b => 
@@ -343,7 +360,7 @@ export default function App() {
   };
 
   const handleUpdateMaterialProgress = (buildingId: number, processName: string, value: number) => {
-    if (role === 'GUEST') return;
+    if (role === 'GUEST' || (data as any).isHistorical) return;
     setData(prev => ({
       ...prev,
       buildings: prev.buildings.map(b => 
@@ -358,7 +375,7 @@ export default function App() {
   };
 
   const handleUpdateMaterialDate = (buildingId: number, processName: string, date: string) => {
-    if (role === 'GUEST') return;
+    if (role === 'GUEST' || (data as any).isHistorical) return;
     setData(prev => ({
       ...prev,
       buildings: prev.buildings.map(b => 
@@ -373,7 +390,7 @@ export default function App() {
   };
 
   const handleUpdateFacilityStatus = (facilityId: string) => {
-    if (role === 'GUEST') return;
+    if (role === 'GUEST' || (data as any).isHistorical) return;
     const statusOrder: CommonFacility['status'][] = ['NOT_STARTED', 'IN_PROGRESS', 'COMPLETED'];
     setData(prev => ({
       ...prev,
@@ -389,7 +406,7 @@ export default function App() {
   };
 
   const handleUpdateFacilitySubProcess = (facilityId: string, processName: string, value: number) => {
-    if (role === 'GUEST') return;
+    if (role === 'GUEST' || (data as any).isHistorical) return;
     setData(prev => ({
       ...prev,
       facilities: prev.facilities.map(f => {
@@ -417,7 +434,43 @@ export default function App() {
   };
 
   const handleUpdateDashboardNotes = (notes: string) => {
+    if (viewDate !== new Date().toISOString().split('T')[0]) return;
     setData(prev => ({ ...prev, dashboardNotes: notes }));
+  };
+
+  const handleExportData = () => {
+    const dataStr = JSON.stringify(multiData, null, 2);
+    const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+    const exportFileDefaultName = `construction_backup_${new Date().toISOString().split('T')[0]}.json`;
+    const linkElement = document.createElement('a');
+    linkElement.setAttribute('href', dataUri);
+    linkElement.setAttribute('download', exportFileDefaultName);
+    linkElement.click();
+  };
+
+  const handleImportData = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const json = JSON.parse(e.target?.result as string);
+        if (json.sites && json.activeSiteId) {
+          setMultiData(json);
+          const active = json.sites.find((s: any) => s.id === json.activeSiteId) || json.sites[0];
+          setData(active);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(json));
+          alert('데이터 복원이 완료되었습니다.');
+        } else {
+          alert('올바르지 않은 백업 파일 형식입니다.');
+        }
+      } catch (err) {
+        console.error(err);
+        alert('파일을 읽는 중 오류가 발생했습니다.');
+      }
+    };
+    reader.readAsText(file);
   };
 
   const handleRunAIDiagnosis = async () => {
@@ -717,6 +770,24 @@ export default function App() {
     }
   };
 
+  const displayData = React.useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    if (viewDate === today) return { ...storageState, isHistorical: false };
+    
+    const snapshot = storageState.history?.find((h: any) => h.date === viewDate);
+    if (snapshot && snapshot.buildings && snapshot.facilities) {
+      return {
+        ...storageState,
+        buildings: snapshot.buildings,
+        facilities: snapshot.facilities,
+        isHistorical: true
+      };
+    }
+    
+    return { ...storageState, isHistorical: true, isMissing: true };
+  }, [storageState, viewDate]);
+
+  const data = displayData;
   const activeTheme = THEMES[data.settings.theme] || THEMES.slate;
 
   // Helper Logic
@@ -800,7 +871,18 @@ export default function App() {
             </div>
             <div>
               <h1 className={`font-black text-lg leading-tight uppercase tracking-tight ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'}`}>{data.settings.projectName}</h1>
-              <p className="text-slate-400 text-xs font-medium">{data.settings.companyName} | {new Date().toLocaleDateString('ko-KR')}</p>
+              <div className="flex items-center gap-2 mt-1">
+                <p className="text-slate-400 text-[10px] font-medium uppercase tracking-wider">{data.settings.companyName}</p>
+                <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700">
+                  <Calendar className="w-3 h-3 text-blue-500" />
+                  <input 
+                    type="date" 
+                    value={viewDate}
+                    onChange={(e) => setViewDate(e.target.value)}
+                    className="bg-transparent border-none p-0 text-[10px] font-black focus:ring-0 cursor-pointer text-slate-600 dark:text-slate-300"
+                  />
+                </div>
+              </div>
             </div>
           </div>
 
@@ -922,6 +1004,34 @@ export default function App() {
       {/* Main Content */}
       <main className="max-w-[1600px] mx-auto p-4 md:p-8 space-y-8">
         
+        {(data as any).isHistorical && (
+          <div className="no-print mb-8">
+            <motion.div 
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className={`flex items-center justify-between p-4 rounded-2xl border font-bold text-sm shadow-xl ${ (data as any).isMissing ? 'bg-red-50 border-red-200 text-red-600 shadow-red-900/5' : 'bg-blue-50 border-blue-200 text-blue-600 shadow-blue-900/5' }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-xl ${(data as any).isMissing ? 'bg-red-100' : 'bg-blue-100'}`}>
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-base">{(data as any).isMissing ? '저장된 데이터 없음' : `${viewDate} 공정 현황 조회 중`}</p>
+                  <p className={`text-[10px] font-medium opacity-70`}>
+                    {(data as any).isMissing ? '선택하신 날짜에는 기록된 공정 데이터가 존재하지 않습니다.' : '과거 데이터를 조회 중입니다. 수정은 오늘 공정에서만 가능합니다.'}
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setViewDate(new Date().toISOString().split('T')[0])}
+                className={`px-6 py-2.5 rounded-xl font-black transition-all hover:scale-105 active:scale-95 shadow-lg ${ (data as any).isMissing ? 'bg-red-600 text-white shadow-red-500/20' : 'bg-blue-600 text-white shadow-blue-500/20' }`}
+              >
+                오늘로 돌아가기
+              </button>
+            </motion.div>
+          </div>
+        )}
+
         {/* Printable Header */}
         <div className="hidden print:block mb-6">
           <div className="flex justify-between items-start border-b-2 border-black pb-4 mb-4">
@@ -1228,11 +1338,6 @@ export default function App() {
                           <td key={p} className={`border-r ${activeTheme.border} p-0 relative`}>
                             <div 
                               className="p-2 space-y-1.5"
-                              onMouseEnter={(e) => {
-                                const rect = e.currentTarget.getBoundingClientRect();
-                                setHoveredProgress({ buildingId: b.id, processName: p, x: rect.left, y: rect.top });
-                              }}
-                              onMouseLeave={() => setHoveredProgress(null)}
                             >
                               {/* Construction Progress */}
                               <div className="flex flex-col gap-0.5">
@@ -1265,9 +1370,9 @@ export default function App() {
                                       </button>
                                       {(b.photos?.[p] || []).length > 0 && (
                                         <button 
-                                          onClick={() => setSelectedPhoto(b.photos?.[p][0])}
+                                          onClick={() => setGalleryTarget({ buildingId: b.id, processName: p })}
                                           className="p-0.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded text-blue-500 transition-colors relative"
-                                          title="사진 보기"
+                                          title="갤러리 보기"
                                         >
                                           <ImageIcon className="w-3 h-3" />
                                           <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[5px] min-w-[8px] h-[8px] px-0.5 rounded-full flex items-center justify-center font-black">
@@ -1770,6 +1875,55 @@ export default function App() {
                    </div>
                 </div>
               </div>
+
+              {/* Backup & Restore */}
+              <div className={`mt-8 pt-8 border-t ${activeTheme.border}`}>
+                <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4">데이터 관리 (백업 및 복원)</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className={`p-6 rounded-2xl border ${activeTheme.border} ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-50'} space-y-3`}>
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className="p-2 bg-blue-100 text-blue-600 rounded-lg">
+                        <Download className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-sm">데이터 백업</h4>
+                        <p className="text-[10px] text-slate-400 font-medium">전체 현장 데이터를 JSON 파일로 내보냅니다.</p>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={handleExportData}
+                      className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-blue-500/20"
+                    >
+                      백업 파일 다운로드
+                    </button>
+                  </div>
+
+                  <div className={`p-6 rounded-2xl border ${activeTheme.border} ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-50'} space-y-3`}>
+                    <div className="flex items-center gap-3 mb-2">
+                       <div className="p-2 bg-emerald-100 text-emerald-600 rounded-lg">
+                        <Upload className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-sm">데이터 복원</h4>
+                        <p className="text-[10px] text-slate-400 font-medium">백업된 JSON 파일을 불러와 현재 데이터를 교체합니다.</p>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => fileInputRef.current?.click()}
+                      className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-emerald-500/20"
+                    >
+                      백업 파일 불러오기
+                    </button>
+                    <input 
+                      type="file" 
+                      ref={fileInputRef} 
+                      onChange={handleImportData} 
+                      className="hidden" 
+                      accept=".json"
+                    />
+                  </div>
+                </div>
+              </div>
            </div>
           </motion.div>
         )}
@@ -1895,6 +2049,20 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* Gallery Modal */}
+      <AnimatePresence>
+        {galleryTarget && (
+          <GalleryModal
+            buildingName={data.buildings.find(b => b.id === galleryTarget.buildingId)?.name || ''}
+            processName={galleryTarget.processName}
+            photos={data.buildings.find(b => b.id === galleryTarget.buildingId)?.photos?.[galleryTarget.processName] || []}
+            onClose={() => setGalleryTarget(null)}
+            onDelete={(index) => handleDeletePhoto(galleryTarget.buildingId, galleryTarget.processName, index)}
+            onViewPhoto={(photo) => setSelectedPhoto(photo)}
+          />
+        )}
+      </AnimatePresence>
+
       {/* Photo View Modal */}
       <AnimatePresence>
         {selectedPhoto && (
@@ -1918,89 +2086,6 @@ export default function App() {
               </button>
             </motion.div>
           </div>
-        )}
-      </AnimatePresence>
-
-      {/* Progress detail tooltip */}
-      <AnimatePresence>
-        {hoveredProgress && (
-          <motion.div
-            initial={{ opacity: 0, y: 5, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 5, scale: 0.95 }}
-            className="fixed z-[500] pointer-events-none no-print"
-            style={{ 
-              left: hoveredProgress.x, 
-              top: hoveredProgress.y - 180 // Position above the cell
-            }}
-          >
-            {(() => {
-              const b = data.buildings.find(building => building.id === hoveredProgress.buildingId);
-              if (!b) return null;
-              
-              const p = hoveredProgress.processName;
-              const percent = b.processes[p] ?? 0;
-              const currentFloor = percentToFloor(percent, b);
-              const floors = getFloorList(b);
-              
-              const basementFloors = floors.filter(f => f < 0);
-              const groundFloors = floors.filter(f => f > 0);
-              
-              const basementCompleted = percent === 100 ? basementFloors.length : (percent <= 0 || percent === -1 ? 0 : basementFloors.filter(f => f <= currentFloor).length);
-              const groundCompleted = percent === 100 ? groundFloors.length : (percent <= 0 || percent === -1 ? 0 : groundFloors.filter(f => f <= currentFloor && f > 0).length);
-              
-              const chartData = [
-                { name: '지하', value: basementFloors.length > 0 ? Math.round((basementCompleted / basementFloors.length) * 100) : 0, visible: basementFloors.length > 0 },
-                { name: '지상', value: groundFloors.length > 0 ? Math.round((groundCompleted / groundFloors.length) * 100) : 0, visible: groundFloors.length > 0 }
-              ].filter(d => d.visible);
-
-              return (
-                <div className={`p-4 rounded-2xl border ${activeTheme.border} ${data.settings.theme === 'industrial' ? 'bg-slate-900 shadow-emerald-900/20' : 'bg-white shadow-blue-900/20'} shadow-2xl min-w-[160px]`}>
-                  <div className="flex flex-col gap-1 mb-3">
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">{b.name} / {p}</span>
-                    <div className="flex items-center justify-between">
-                      <span className={`text-xs font-black ${activeTheme.text}`}>지점 상세 현황</span>
-                      <span className={`text-xs font-black px-1.5 py-0.5 rounded-md ${percent === 100 ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-600'}`}>
-                        {percent === -1 ? 'N/A' : `${percent}%`}
-                      </span>
-                    </div>
-                  </div>
-                  
-                  <div className="h-28 w-full border-y border-slate-50 dark:border-slate-800 py-2">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={chartData} margin={{ top: 5, right: 5, left: -35, bottom: 0 }}>
-                        <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 'black', fill: '#94a3b8' }} />
-                        <YAxis domain={[0, 100]} hide />
-                        <Bar dataKey="value" radius={[6, 6, 0, 0]} barSize={25}>
-                          {chartData.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={entry.name === '지하' ? '#3b82f6' : '#10b981'} />
-                          ))}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                  
-                  <div className="mt-3 space-y-1.5">
-                    {chartData.map(d => (
-                      <div key={d.name} className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5">
-                          <div className={`w-1.5 h-1.5 rounded-full ${d.name === '지하' ? 'bg-blue-500' : 'bg-emerald-500'}`} />
-                          <span className="text-[10px] font-bold text-slate-500">{d.name}층 공정</span>
-                        </div>
-                        <span className={`text-[10px] font-black ${d.name === '지하' ? 'text-blue-500' : 'text-emerald-500'}`}>{d.value}%</span>
-                      </div>
-                    ))}
-                    {currentFloor !== -1 && percent > 0 && percent < 100 && (
-                      <div className="pt-2 mt-2 border-t border-slate-50 dark:border-slate-800">
-                        <span className="text-[9px] font-bold text-slate-400">현재 작업층: </span>
-                        <span className={`text-[9px] font-black ${activeTheme.text}`}>{formatFloor(currentFloor)}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })()}
-          </motion.div>
         )}
       </AnimatePresence>
 
