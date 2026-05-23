@@ -49,7 +49,6 @@ import {
 import LoginModal from './components/LoginModal';
 import CalendarView from './components/CalendarView';
 import DailyReportView from './components/DailyReportView';
-import CameraModal from './components/CameraModal';
 import GalleryModal from './components/GalleryModal';
 import ReactMarkdown from 'react-markdown';
 import { 
@@ -57,8 +56,9 @@ import {
   MessageSquare,
   Send,
   Loader2,
-  Camera, 
-  Image as ImageIcon 
+  Image as ImageIcon,
+  Undo2,
+  Trash
 } from 'lucide-react';
 import { 
   AppState, 
@@ -85,7 +85,11 @@ const createNewSite = (name: string): AppState => ({
     buildingCount: 10,
     maxFloor: 29,
     minFloor: -2,
-    theme: 'slate'
+    theme: 'slate',
+    fontSize: 12,
+    tableSpacing: 4,
+    headerColor: '',
+    textColor: ''
   },
   buildings: Array.from({ length: 10 }, (_, i) => ({
     id: i + 1,
@@ -123,21 +127,26 @@ export default function App() {
   const [viewDate, setViewDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [isAutoSaving, setIsAutoSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
+  const photoUploadRef = useRef<HTMLInputElement>(null);
   const [storageWarning, setStorageWarning] = useState<string | null>(null);
   const [isAddingSite, setIsAddingSite] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(false);
   const [newSiteName, setNewSiteName] = useState('');
   const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [isCopied, setIsCopied] = useState(false);
+  const [isLockedToSite, setIsLockedToSite] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [processToDelete, setProcessToDelete] = useState<string | null>(null);
   const [buildingToDelete, setBuildingToDelete] = useState<number | null>(null);
   const [newProcessInput, setNewProcessInput] = useState(false);
   const [newProcessName, setNewProcessName] = useState('');
-  const [cameraTarget, setCameraTarget] = useState<{ buildingId: number, processName: string } | null>(null);
+  const [photoTarget, setPhotoTarget] = useState<{ buildingId: number, processName: string } | null>(null);
   const [galleryTarget, setGalleryTarget] = useState<{ buildingId: number, processName: string } | null>(null);
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
   const [hoveredProgress, setHoveredProgress] = useState<{ buildingId: number, processName: string, x: number, y: number } | null>(null);
   const [isDiagnosing, setIsDiagnosing] = useState(false);
+  const [trash, setTrash] = useState<any[]>([]);
+  const [showTrash, setShowTrash] = useState(false);
 
   const checkStorageUsage = () => {
     try {
@@ -163,9 +172,61 @@ export default function App() {
       try {
         const parsed: MultiProjectData = JSON.parse(saved);
         if (parsed && parsed.sites && parsed.sites.length > 0) {
+          // Migration: Ensure all sites use the new 21 processes
+          let migrationNeeded = false;
+          let updatedSites = parsed.sites.map(site => {
+            const firstB = site.buildings[0];
+            const currentProcesses = firstB?.processes ? Object.keys(firstB.processes) : [];
+            
+            if (currentProcesses.length !== DEFAULT_PROCESSES.length || currentProcesses[0] !== DEFAULT_PROCESSES[0]) {
+              migrationNeeded = true;
+              return {
+                ...site,
+                buildings: site.buildings.map(b => {
+                  const newProcesses: Record<string, number> = {};
+                  DEFAULT_PROCESSES.forEach(p => {
+                    let val = b.processes[p] ?? 0;
+                    // Handle migration from non-numbered names or splits
+                    if (val === 0) {
+                      const coreName = p.replace(/^\d+\.\s*/, '');
+                      val = b.processes[coreName] ?? 0;
+                      
+                      if (val === 0) {
+                        if (coreName === "스리브" || coreName === "이중관배관") {
+                          val = (b.processes as any)["스리브&이중관배관"] ?? 0;
+                        }
+                      }
+                    }
+                    newProcesses[p] = val;
+                  });
+                  return { ...b, processes: newProcesses };
+                })
+              };
+            }
+            return site;
+          });
+
+          // Ensure we have at least 10 sites total if requested
+          if (updatedSites.length < 10) {
+            const needed = 10 - updatedSites.length;
+            const additional = Array.from({ length: needed }, (_, i) => createNewSite(`신규 현장 ${updatedSites.length + i + 1}`));
+            updatedSites = [...updatedSites, ...additional];
+            migrationNeeded = true;
+          }
+
+          if (migrationNeeded) {
+            parsed.sites = updatedSites;
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+          }
+
           setMultiData(parsed);
+          if (parsed.trash) setTrash(parsed.trash);
           
-          // Priority: 1. URL Param 2. Saved activeSiteId 3. First site
+          if (siteParam) {
+            setIsLockedToSite(true);
+            // If locked to site via link, we might want to default the role if not set
+          }
+
           const targetId = siteParam || parsed.activeSiteId;
           const activeSite = parsed.sites.find(s => s.id === targetId) || parsed.sites[0];
           
@@ -174,25 +235,28 @@ export default function App() {
             setProcesses(Object.keys(activeSite.buildings[0].processes));
           }
           
-          // Clear param if it was invalid or just keep it? 
-          // Let's ensure the URL reflects the active site for future reloads
-          if (siteParam !== activeSite.id) {
+          if (siteParam && siteParam !== activeSite.id) {
             const newUrl = window.location.pathname + `?site=${activeSite.id}`;
             window.history.replaceState({}, '', newUrl);
           }
         } else {
-          // Migration from old single-site format if needed
+          // Migration or first run
           const oldSaved = localStorage.getItem('apt_construction_data');
           if (oldSaved) {
             const oldParsed = JSON.parse(oldSaved);
             const initialSite = { ...oldParsed, id: 'default-site' };
-            const mData = { activeSiteId: 'default-site', sites: [initialSite] };
+            const additionalSites = Array.from({ length: 9 }, (_, i) => createNewSite(`신규 현장 ${i + 1}`));
+            const mData = { activeSiteId: 'default-site', sites: [initialSite, ...additionalSites] };
             setMultiData(mData);
             setData(initialSite);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(mData));
           } else {
             const initialSite = createNewSite('전체 공사 현장');
-            setMultiData({ activeSiteId: initialSite.id, sites: [initialSite] });
+            const additionalSites = Array.from({ length: 9 }, (_, i) => createNewSite(`신규 현장 ${i + 1}`));
+            const mData = { activeSiteId: initialSite.id, sites: [initialSite, ...additionalSites] };
+            setMultiData(mData);
             setData(initialSite);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(mData));
           }
         }
       } catch (e) {
@@ -200,8 +264,11 @@ export default function App() {
       }
     } else {
       const initialSite = createNewSite('전체 공사 현장');
-      setMultiData({ activeSiteId: initialSite.id, sites: [initialSite] });
+      const additionalSites = Array.from({ length: 9 }, (_, i) => createNewSite(`신규 현장 ${i + 1}`));
+      const mData = { activeSiteId: initialSite.id, sites: [initialSite, ...additionalSites] };
+      setMultiData(mData);
       setData(initialSite);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(mData));
     }
   }, []);
 
@@ -270,7 +337,7 @@ export default function App() {
       // Update multiSite record
       setMultiData(mPrev => {
         const updatedSites = mPrev.sites.map(s => s.id === updatedData.id ? updatedData : s);
-        const nextMulti = { ...mPrev, sites: updatedSites };
+        const nextMulti = { ...mPrev, sites: updatedSites, trash: trash.filter(t => Date.now() - t.deletedAt < 3600000) };
         
         try {
           localStorage.setItem(STORAGE_KEY, JSON.stringify(nextMulti));
@@ -301,13 +368,44 @@ export default function App() {
     }
   };
 
+  const copyToClipboard = (text: string) => {
+    const handleSuccess = () => {
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 2000);
+    };
+
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(handleSuccess).catch(() => {
+        // Fallback to execCommand if clipboard API fails
+        copyFallback(text, handleSuccess);
+      });
+    } else {
+      copyFallback(text, handleSuccess);
+    }
+  };
+
+  const copyFallback = (text: string, callback: () => void) => {
+    const textArea = document.createElement("textarea");
+    textArea.value = text;
+    textArea.style.position = "fixed";
+    textArea.style.left = "-9999px";
+    textArea.style.top = "0";
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    try {
+      const successful = document.execCommand('copy');
+      if (successful) callback();
+    } catch (err) {
+      console.error('Fallback copy failed', err);
+    }
+    document.body.removeChild(textArea);
+  };
+
   const copySiteLink = () => {
     const url = `${window.location.origin}${window.location.pathname}?site=${data.id}`;
     setShareUrl(url);
-    
-    if (navigator.clipboard && window.isSecureContext) {
-      navigator.clipboard.writeText(url).catch(() => {});
-    }
+    copyToClipboard(url);
   };
 
   const addNewSite = () => {
@@ -327,14 +425,30 @@ export default function App() {
     setViewMode('table');
     setIsAddingSite(false);
     setNewSiteName('');
+    setIsLockedToSite(false);
     
     // Update URL
     const newUrl = window.location.pathname + `?site=${newSite.id}`;
     window.history.pushState({}, '', newUrl);
   };
 
+  const addToTrash = (type: string, data: any, siteId?: string) => {
+    const newItem = {
+      id: Math.random().toString(36).substr(2, 9),
+      type,
+      data,
+      deletedAt: Date.now(),
+      siteId: siteId || storageState.id
+    };
+    setTrash(prev => [newItem, ...prev].slice(0, 50));
+  };
+
   const deleteSite = (id: string) => {
     if (multiData.sites.length <= 1) return;
+    if (!window.confirm('정말 이 현장을 삭제하시겠습니까? 1시간 이내에 설정에서 복구 가능합니다.')) return;
+
+    const siteToDelete = multiData.sites.find(s => s.id === id);
+    if (siteToDelete) addToTrash('site', siteToDelete);
     
     setMultiData(prev => {
       const filtered = prev.sites.filter(s => s.id !== id);
@@ -343,8 +457,66 @@ export default function App() {
       
       setData(nextData);
       setDeleteConfirmId(null);
-      return { activeSiteId: nextActive, sites: filtered };
+      return { activeSiteId: nextActive, sites: filtered, trash: [
+        ...(prev.trash || []),
+        { id: Math.random().toString(36).substr(2, 9), type: 'site', data: siteToDelete, deletedAt: Date.now() }
+      ]};
     });
+  };
+
+  const restoreItem = (item: any) => {
+    if (Date.now() - item.deletedAt > 3600000) {
+      alert('삭제된 지 1시간이 지나 복구할 수 없습니다.');
+      setTrash(prev => prev.filter(t => t.id !== item.id));
+      return;
+    }
+
+    if (item.type === 'site') {
+      setMultiData(prev => ({
+        ...prev,
+        sites: [...prev.sites, item.data]
+      }));
+    } else if (item.type === 'building') {
+      if (item.siteId === storageState.id) {
+        setData(prev => ({
+          ...prev,
+          buildings: [...prev.buildings, item.data],
+          settings: { ...prev.settings, buildingCount: prev.buildings.length + 1 }
+        }));
+      } else {
+        alert('이 항목은 다른 현장에서 삭제되었습니다.');
+        return;
+      }
+    } else if (item.type === 'process') {
+      if (item.siteId === storageState.id) {
+        const { name, buildings } = item.data;
+        if (processes.includes(name)) {
+          alert('이미 동일한 이름의 공정이 존재합니다.');
+          return;
+        }
+        setProcesses(prev => [...prev, name]);
+        setData(prev => ({
+          ...prev,
+          buildings: prev.buildings.map(b => {
+             const restoredVal = buildings.find((rb: any) => rb.id === b.id)?.progress ?? 0;
+             return { ...b, processes: { ...b.processes, [name]: restoredVal } };
+          })
+        }));
+      } else {
+        alert('이 항목은 다른 현장에서 삭제되었습니다.');
+        return;
+      }
+    } else if (item.type === 'facility') {
+       if (item.siteId === storageState.id) {
+         setData(prev => ({ ...prev, facilities: [...prev.facilities, item.data] }));
+       } else {
+        alert('이 항목은 다른 현장에서 삭제되었습니다.');
+        return;
+       }
+    }
+
+    setTrash(prev => prev.filter(t => t.id !== item.id));
+    alert('복구되었습니다.');
   };
 
   const handleUpdateProgress = (buildingId: number, processName: string, value: number) => {
@@ -415,8 +587,11 @@ export default function App() {
           const nextProcesses = { ...currentProcesses, [processName]: value };
           
           // Auto-update main status based on sub-progress
-          const vals = Object.values(nextProcesses) as number[];
-          const avg = vals.reduce((s, v) => s + (v || 0), 0) / FACILITY_PROCESSES.length;
+          const activeFacilityProcesses = FACILITY_PROCESSES.filter(fp => !(f.inactiveProcesses || []).includes(fp));
+          const avg = activeFacilityProcesses.length > 0 
+            ? activeFacilityProcesses.reduce((s, fp) => s + (nextProcesses[fp] || 0), 0) / activeFacilityProcesses.length
+            : 0;
+            
           let nextStatus: CommonFacility['status'] = f.status;
           if (avg === 100) nextStatus = 'COMPLETED';
           else if (avg > 0) nextStatus = 'IN_PROGRESS';
@@ -433,18 +608,63 @@ export default function App() {
     }));
   };
 
+  const toggleFacilityProcess = (facilityId: string, processName: string) => {
+    if (role === 'GUEST' || (data as any).isHistorical) return;
+    setData(prev => ({
+      ...prev,
+      facilities: prev.facilities.map(f => {
+        if (f.id === facilityId) {
+          const inactive = f.inactiveProcesses || [];
+          const isInactive = inactive.includes(processName);
+          const nextInactive = isInactive 
+            ? inactive.filter(p => p !== processName)
+            : [...inactive, processName];
+            
+          // Recalculate average and status with new active processes
+          const currentProcesses = f.processes || {};
+          const activeFacilityProcesses = FACILITY_PROCESSES.filter(fp => !nextInactive.includes(fp));
+          const avg = activeFacilityProcesses.length > 0 
+            ? activeFacilityProcesses.reduce((s, fp) => s + (currentProcesses[fp] || 0), 0) / activeFacilityProcesses.length
+            : 0;
+            
+          let nextStatus: CommonFacility['status'] = f.status;
+          if (avg === 100) nextStatus = 'COMPLETED';
+          else if (avg > 0) nextStatus = 'IN_PROGRESS';
+          else nextStatus = 'NOT_STARTED';
+
+          return {
+            ...f,
+            inactiveProcesses: nextInactive,
+            status: nextStatus
+          };
+        }
+        return f;
+      })
+    }));
+  };
+
   const handleUpdateDashboardNotes = (notes: string) => {
     if (viewDate !== new Date().toISOString().split('T')[0]) return;
     setData(prev => ({ ...prev, dashboardNotes: notes }));
   };
 
   const handleExportData = () => {
-    const dataStr = JSON.stringify(multiData, null, 2);
+    let exportData;
+    let fileName;
+    
+    if (isLockedToSite) {
+      exportData = { sites: [data], activeSiteId: data.id };
+      fileName = `${data.settings.projectName}_backup_${new Date().toISOString().split('T')[0]}.json`;
+    } else {
+      exportData = multiData;
+      fileName = `construction_all_backup_${new Date().toISOString().split('T')[0]}.json`;
+    }
+
+    const dataStr = JSON.stringify(exportData, null, 2);
     const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
-    const exportFileDefaultName = `construction_backup_${new Date().toISOString().split('T')[0]}.json`;
     const linkElement = document.createElement('a');
     linkElement.setAttribute('href', dataUri);
-    linkElement.setAttribute('download', exportFileDefaultName);
+    linkElement.setAttribute('download', fileName);
     linkElement.click();
   };
 
@@ -456,14 +676,39 @@ export default function App() {
     reader.onload = (e) => {
       try {
         const json = JSON.parse(e.target?.result as string);
-        if (json.sites && json.activeSiteId) {
-          setMultiData(json);
-          const active = json.sites.find((s: any) => s.id === json.activeSiteId) || json.sites[0];
-          setData(active);
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(json));
-          alert('데이터 복원이 완료되었습니다.');
+        
+        if (isLockedToSite) {
+          let siteToImport = null;
+          if (json.sites && Array.isArray(json.sites)) {
+            siteToImport = json.sites.find((s: any) => s.id === data.id);
+          } else if (json.id === data.id) {
+            siteToImport = json;
+          }
+          
+          if (siteToImport) {
+            if (window.confirm(`'${data.settings.projectName}' 현장의 데이터를 복원하시겠습니까?`)) {
+              setData(siteToImport);
+              setMultiData(prev => ({
+                ...prev,
+                sites: prev.sites.map(s => s.id === data.id ? siteToImport : s)
+              }));
+              alert('현장 데이터 복원이 완료되었습니다.');
+            }
+          } else {
+            alert('현재 현장과 일치하는 데이터를 찾을 수 없습니다.');
+          }
         } else {
-          alert('올바르지 않은 백업 파일 형식입니다.');
+          if (json.sites && json.activeSiteId) {
+            if (window.confirm('전체 데이터를 복원하시겠습니까? 기존의 모든 현장 데이터가 교체됩니다.')) {
+              setMultiData(json);
+              const active = json.sites.find((s: any) => s.id === json.activeSiteId) || json.sites[0];
+              setData(active);
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(json));
+              alert('전체 데이터 복원이 완료되었습니다.');
+            }
+          } else {
+            alert('올바르지 않은 백업 파일 형식입니다.');
+          }
         }
       } catch (err) {
         console.error(err);
@@ -471,6 +716,7 @@ export default function App() {
       }
     };
     reader.readAsText(file);
+    if (event.target) event.target.value = '';
   };
 
   const handleRunAIDiagnosis = async () => {
@@ -512,8 +758,52 @@ export default function App() {
     setNewProcessInput(false);
   };
 
+  const renameProcess = (oldName: string, newName: string) => {
+    const trimmedNewName = newName.trim();
+    if (!trimmedNewName || oldName === trimmedNewName) return;
+    
+    if (processes.includes(trimmedNewName)) {
+      alert('이미 존재하는 공종명입니다.');
+      return;
+    }
+
+    setProcesses(prev => prev.map(p => p === oldName ? trimmedNewName : p));
+    setData(prev => ({
+      ...prev,
+      buildings: prev.buildings.map(b => {
+        const currentProcesses = b.processes || {};
+        const progress = currentProcesses[oldName];
+        const { [oldName]: _, ...restProcesses } = currentProcesses;
+        
+        const currentMatProcesses = b.materialProcesses || {};
+        const matProgress = currentMatProcesses[oldName];
+        const { [oldName]: __, ...restMatProcesses } = currentMatProcesses;
+        
+        const currentMatDates = b.materialDates || {};
+        const matDate = currentMatDates[oldName];
+        const { [oldName]: ___, ...restMatDates } = currentMatDates;
+        
+        const currentPhotos = b.photos || {};
+        const photos = currentPhotos[oldName];
+        const { [oldName]: ____, ...restPhotos } = currentPhotos;
+        
+        return {
+          ...b,
+          processes: { ...restProcesses, [trimmedNewName]: progress ?? 0 },
+          materialProcesses: { ...restMatProcesses, [trimmedNewName]: matProgress ?? 0 },
+          materialDates: { ...restMatDates, [trimmedNewName]: matDate ?? '' },
+          photos: { ...restPhotos, [trimmedNewName]: photos || [] }
+        };
+      })
+    }));
+  };
+
   const deleteProcess = (name: string | null) => {
     if (!name) return;
+    if (!window.confirm(`'${name}' 공정을 삭제하시겠습니까?`)) return;
+
+    addToTrash('process', { name, buildings: storageState.buildings.map(b => ({ id: b.id, progress: b.processes[name] })) });
+
     setProcesses(processes.filter(p => p !== name));
     setData(prev => ({
       ...prev,
@@ -553,6 +843,11 @@ export default function App() {
 
   const deleteBuilding = (id: number | null) => {
     if (id === null) return;
+    const bToDelete = storageState.buildings.find(b => b.id === id);
+    if (!window.confirm(`'${bToDelete?.name}'를 삭제하시겠습니까?`)) return;
+
+    if (bToDelete) addToTrash('building', bToDelete);
+
     setData(prev => {
       const filtered = prev.buildings.filter(b => b.id !== id);
       return {
@@ -582,6 +877,10 @@ export default function App() {
   };
 
   const deleteFacility = (id: string) => {
+    const fToDelete = storageState.facilities.find(f => f.id === id);
+    if (!window.confirm(`'${fToDelete?.name}' 시설을 삭제하시겠습니까?`)) return;
+    if (fToDelete) addToTrash('facility', fToDelete);
+
     setData(prev => ({
       ...prev,
       facilities: prev.facilities.filter(f => f.id !== id)
@@ -647,24 +946,32 @@ export default function App() {
     });
   };
 
-  const handleCapturePhoto = (base64: string) => {
-    if (!cameraTarget) return;
-    const { buildingId, processName } = cameraTarget;
-    setData(prev => ({
-      ...prev,
-      buildings: prev.buildings.map(b => 
-        b.id === buildingId 
-          ? { 
-              ...b, 
-              photos: { 
-                ...(b.photos || {}), 
-                [processName]: [base64, ...(b.photos?.[processName] || [])].slice(0, 10) // Limit to 10 photos per process
+  const handleUploadPhoto = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !photoTarget) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const base64 = e.target?.result as string;
+      const { buildingId, processName } = photoTarget;
+      setData(prev => ({
+        ...prev,
+        buildings: prev.buildings.map(b => 
+          b.id === buildingId 
+            ? { 
+                ...b, 
+                photos: { 
+                  ...(b.photos || {}), 
+                  [processName]: [base64, ...(b.photos?.[processName] || [])].slice(0, 10)
+                } 
               } 
-            } 
-          : b
-      )
-    }));
-    setCameraTarget(null);
+            : b
+        )
+      }));
+      setPhotoTarget(null);
+    };
+    reader.readAsDataURL(file);
+    if (photoUploadRef.current) photoUploadRef.current.value = '';
   };
 
   const handleDeletePhoto = (buildingId: number, processName: string, photoIndex: number) => {
@@ -706,26 +1013,8 @@ export default function App() {
     }));
   };
 
-  const handleDragStart = (idx: number) => {
-    setDraggedIdx(idx);
-  };
-
-  const handleDragOver = (e: React.DragEvent, idx: number) => {
-    e.preventDefault();
-    if (draggedIdx === null || draggedIdx === idx) return;
-    
-    const newProcesses = [...processes];
-    const item = newProcesses[draggedIdx];
-    newProcesses.splice(draggedIdx, 1);
-    newProcesses.splice(idx, 0, item);
-    
-    setProcesses(newProcesses);
-    setDraggedIdx(idx);
-  };
-
-  const handleDragEnd = () => {
-    setDraggedIdx(null);
-  };
+  // Sort processes numerically for display
+  const sortedDisplayProcesses = [...processes].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 
   const THEMES = {
     slate: {
@@ -792,10 +1081,12 @@ export default function App() {
 
   // Helper Logic
   const getFacilityAverage = (f: CommonFacility) => {
+    const activeFacilityProcesses = FACILITY_PROCESSES.filter(fp => !(f.inactiveProcesses || []).includes(fp));
+    if (activeFacilityProcesses.length === 0) return f.status === 'COMPLETED' ? 100 : 0;
+    
     const subProcesses = f.processes || {};
-    const values = Object.values(subProcesses);
-    if (values.length === 0) return f.status === 'COMPLETED' ? 100 : (f.status === 'IN_PROGRESS' ? 50 : 0);
-    return Math.round(values.reduce((sum, val) => sum + (val || 0), 0) / FACILITY_PROCESSES.length);
+    const sum = activeFacilityProcesses.reduce((acc, fp) => acc + (subProcesses[fp] || 0), 0);
+    return Math.round(sum / activeFacilityProcesses.length);
   };
   const getFloorList = (building?: BuildingData) => {
     const minFloor = building?.minFloor !== undefined ? building.minFloor : data.settings.minFloor;
@@ -835,7 +1126,6 @@ export default function App() {
   };
 
   const formatFloor = (floor: number) => {
-    if (floor === -1) return 'N/A';
     if (floor < 0) return `지하${Math.abs(floor)}층`;
     return `${floor}층`;
   };
@@ -864,6 +1154,105 @@ export default function App() {
             </button>
           </div>
         )}
+        
+        {/* Style Controls Toolbar */}
+        <AnimatePresence>
+          {isEditMode && (
+            <motion.div 
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className={`border-b ${activeTheme.border} ${activeTheme.card} overflow-hidden bg-slate-50 dark:bg-slate-900/50`}
+            >
+              <div className="max-w-[1600px] mx-auto px-6 py-3 flex items-center justify-between gap-6 overflow-x-auto">
+                <div className="flex items-center gap-6">
+                  <div className="flex items-center gap-3">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap">글자 크기</span>
+                    <div className="flex items-center gap-2">
+                       <input 
+                        type="range" 
+                        min="8" 
+                        max="24" 
+                        value={data.settings.fontSize || 12} 
+                        onChange={(e) => setData(prev => ({
+                          ...prev,
+                          settings: { ...prev.settings, fontSize: parseInt(e.target.value) }
+                        }))}
+                        className="w-24 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                      />
+                      <span className="text-xs font-bold w-6">{data.settings.fontSize || 12}px</span>
+                    </div>
+                  </div>
+
+                  <div className="h-6 w-[1px] bg-slate-200" />
+
+                  <div className="flex items-center gap-3">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap">표 간격</span>
+                    <div className="flex items-center gap-2">
+                       <input 
+                        type="range" 
+                        min="0" 
+                        max="24" 
+                        value={data.settings.tableSpacing || 4} 
+                        onChange={(e) => setData(prev => ({
+                          ...prev,
+                          settings: { ...prev.settings, tableSpacing: parseInt(e.target.value) }
+                        }))}
+                        className="w-24 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                      />
+                      <span className="text-xs font-bold w-6">{data.settings.tableSpacing || 4}px</span>
+                    </div>
+                  </div>
+
+                  <div className="h-6 w-[1px] bg-slate-200" />
+
+                  <div className="flex items-center gap-3">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap">상단 배경</span>
+                    <input 
+                      type="color" 
+                      value={data.settings.headerColor || '#334155'} 
+                      onChange={(e) => setData(prev => ({
+                        ...prev,
+                        settings: { ...prev.settings, headerColor: e.target.value }
+                      }))}
+                      className="w-6 h-6 rounded cursor-pointer border-none p-0 bg-transparent"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap">글씨 색상</span>
+                    <input 
+                      type="color" 
+                      value={data.settings.textColor || '#000000'} 
+                      onChange={(e) => setData(prev => ({
+                        ...prev,
+                        settings: { ...prev.settings, textColor: e.target.value }
+                      }))}
+                      className="w-6 h-6 rounded cursor-pointer border-none p-0 bg-transparent"
+                    />
+                    <button 
+                      onClick={() => setData(prev => ({
+                        ...prev,
+                        settings: { ...prev.settings, headerColor: '', textColor: '', fontSize: 12, tableSpacing: 4 }
+                      }))}
+                      className="text-[10px] font-bold text-red-500 hover:underline ml-2 whitespace-nowrap"
+                    >
+                      초기화
+                    </button>
+                  </div>
+                </div>
+
+                <button 
+                  onClick={() => setIsEditMode(false)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 text-white rounded-lg text-xs font-bold hover:bg-slate-800 transition-all whitespace-nowrap"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  편집 종료
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
         <div className="max-w-[1600px] mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div className={`${activeTheme.accent} p-2 rounded-lg text-white ${data.settings.theme === 'industrial' ? 'text-black' : ''}`}>
@@ -890,35 +1279,47 @@ export default function App() {
               <div className={`flex items-center gap-1 ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-100'} rounded-lg p-1 mr-4 border ${activeTheme.border}`}>
                 <div className="flex items-center px-2 py-1 gap-2 border-r border-slate-300 dark:border-slate-700">
                   <Building2 className={`w-3.5 h-3.5 ${activeTheme.text}`} />
-                  <select 
-                    value={data.id} 
-                    onChange={(e) => switchSite(e.target.value)}
-                    className={`bg-transparent text-[11px] font-black border-none focus:ring-0 cursor-pointer appearance-none ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'}`}
-                  >
-                    {multiData.sites.map(s => (
-                      <option key={s.id} value={s.id} className={data.settings.theme === 'industrial' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
-                        {s.settings.projectName}
-                      </option>
-                    ))}
-                  </select>
+                  {isLockedToSite && role !== 'ADMIN' ? (
+                    <div className={`text-[11px] font-black ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'} px-1`}>
+                      {data.settings.projectName}
+                    </div>
+                  ) : (
+                    <select 
+                      value={data.id} 
+                      onChange={(e) => switchSite(e.target.value)}
+                      className={`bg-transparent text-[11px] font-black border-none focus:ring-0 cursor-pointer appearance-none ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'}`}
+                    >
+                      {multiData.sites.map(s => (
+                        <option key={s.id} value={s.id} className={data.settings.theme === 'industrial' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
+                          {s.settings.projectName}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </div>
                 <div className="flex items-center gap-1 px-1">
                   <button 
                     onClick={copySiteLink}
-                    className={`p-1.5 hover:bg-white dark:hover:bg-slate-700 rounded-md transition-all group`}
+                    className={`p-1.5 hover:bg-white dark:hover:bg-slate-700 rounded-md transition-all group relative`}
                     title="현장 링크 복사"
                   >
-                    <LinkIcon className={`w-3.5 h-3.5 ${activeTheme.text} group-hover:scale-110 transition-transform`} />
+                    {isCopied ? <CheckCircle2 className="w-3.5 h-3.5 text-green-500 animate-in zoom-in" /> : <LinkIcon className={`w-3.5 h-3.5 ${activeTheme.text} group-hover:scale-110 transition-transform`} />}
+                    {isCopied && (
+                      <span className="absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[8px] px-2 py-1 rounded whitespace-nowrap animate-bounce">
+                        복사됨!
+                      </span>
+                    )}
                   </button>
-                  <button 
-                    onClick={() => setIsAddingSite(true)}
-                    className={`p-1.5 hover:bg-white dark:hover:bg-slate-700 rounded-md transition-all group`}
-                    title="새 현장 추가"
-                    disabled={role === 'GUEST'}
-                  >
-                    <Plus className={`w-4 h-4 ${activeTheme.text} group-hover:scale-110 transition-transform`} />
-                  </button>
-                  {role !== 'GUEST' && multiData.sites.length > 1 && (
+                  {role === 'ADMIN' && (
+                    <button 
+                      onClick={() => setIsAddingSite(true)}
+                      className={`p-1.5 hover:bg-white dark:hover:bg-slate-700 rounded-md transition-all group`}
+                      title="새 현장 추가"
+                    >
+                      <Plus className={`w-4 h-4 ${activeTheme.text} group-hover:scale-110 transition-transform`} />
+                    </button>
+                  )}
+                  {role === 'ADMIN' && multiData.sites.length > 1 && (
                     <button 
                       onClick={() => setDeleteConfirmId(data.id)}
                       className={`p-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-md transition-all group`}
@@ -935,7 +1336,7 @@ export default function App() {
                 onClick={() => setViewMode('table')}
                 className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${viewMode === 'table' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
               >
-                상세 표
+                공정표
               </button>
               <button 
                 onClick={() => setViewMode('grid')}
@@ -961,7 +1362,7 @@ export default function App() {
               >
                 분석 리포트
               </button>
-              {role !== 'GUEST' && (
+              {role === 'ADMIN' && (
                 <button 
                   onClick={() => setViewMode('settings')}
                   className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${viewMode === 'settings' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
@@ -972,13 +1373,24 @@ export default function App() {
             </div>
 
             <div className={`flex items-center gap-2 mr-4 border-r pr-4 ${activeTheme.border} no-print text-[10px]`}>
-               <button 
-                onClick={() => setRole(role === 'ADMIN' ? 'FIELD' : 'ADMIN')}
-                className={`flex items-center gap-1.5 font-bold px-3 py-1 rounded-full transition-all hover:scale-105 active:scale-95 ${role === 'ADMIN' ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'}`}
-               >
-                {role === 'ADMIN' ? <ShieldCheck className="w-3 h-3" /> : <User className="w-3 h-3" />}
-                {role === 'ADMIN' ? '현장 모드로 전환' : '관리자 보드로 전환'}
-              </button>
+               {role === 'ADMIN' && (
+                 <button 
+                  onClick={() => setIsEditMode(!isEditMode)}
+                  className={`flex items-center gap-1.5 font-bold px-3 py-1 rounded-full transition-all hover:scale-105 active:scale-95 ${isEditMode ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+                 >
+                  <SettingsIcon className={`w-3 h-3 ${isEditMode ? 'animate-spin-slow' : ''}`} />
+                  {isEditMode ? '수정 중...' : '수정모드'}
+                </button>
+               )}
+               {!isLockedToSite && (
+                 <button 
+                  onClick={() => setRole(role === 'ADMIN' ? 'FIELD' : 'ADMIN')}
+                  className={`flex items-center gap-1.5 font-bold px-3 py-1 rounded-full transition-all hover:scale-105 active:scale-95 ${role === 'ADMIN' ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'}`}
+                 >
+                  {role === 'ADMIN' ? <ShieldCheck className="w-3 h-3" /> : <User className="w-3 h-3" />}
+                  {role === 'ADMIN' ? '현장 모드로 전환' : '관리자 보드로 전환'}
+                </button>
+               )}
               <div className="flex items-center gap-1 text-slate-400 min-w-[80px]">
                 {isAutoSaving ? (
                   <span className="flex items-center gap-1"><div className={`w-1.5 h-1.5 ${activeTheme.accent} rounded-full animate-pulse`} /> 저장중...</span>
@@ -1002,7 +1414,7 @@ export default function App() {
       </header>
 
       {/* Main Content */}
-      <main className="max-w-[1600px] mx-auto p-4 md:p-8 space-y-8">
+      <main className="max-w-[1600px] mx-auto p-1 md:p-2 space-y-2">
         
         {(data as any).isHistorical && (
           <div className="no-print mb-8">
@@ -1067,7 +1479,7 @@ export default function App() {
         </div>
 
         <AnimatePresence mode="wait">
-          {viewMode === 'settings' && role !== 'GUEST' && (
+          {viewMode === 'settings' && role === 'ADMIN' && (
             <motion.div
               key="settings"
               initial={{ opacity: 0, y: 10 }}
@@ -1155,7 +1567,7 @@ export default function App() {
                       <div className="space-y-1">
                         <span className="text-xs font-semibold text-slate-400 mb-2 block">지하 총 층수 선택</span>
                         <div className="flex flex-wrap gap-2">
-                          {[1, 2, 3, 4, 5].map(val => (
+                          {[1, 2, 3, 4, 5, 6, 7, 8].map(val => (
                             <button 
                               key={val}
                               onClick={() => setData({...data, settings: {...data.settings, minFloor: -val}})}
@@ -1220,32 +1632,44 @@ export default function App() {
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.2 }}
           >
-            <div className={`${activeTheme.card} rounded-2xl shadow-sm border ${activeTheme.border} overflow-hidden overflow-x-auto`}>
-            <table className="w-full border-collapse table-condensed min-w-[2000px] print:min-w-0">
+            <div 
+              className={`${activeTheme.card} rounded-2xl shadow-sm border ${activeTheme.border} overflow-auto max-h-[calc(100vh-180px)] custom-scrollbar`}
+              style={{ fontSize: `${data.settings.fontSize || 12}px` }}
+            >
+            <table className="w-full border-collapse table-condensed min-w-[1200px] print:min-w-0">
               <thead>
-                <tr className={`${activeTheme.header} text-white sticky top-0 z-20`}>
-                  <th className="border-r border-slate-700 w-12 text-center font-bold px-1 py-3">No.</th>
-                  <th className="border-r border-slate-700 w-24 text-center font-bold px-2 py-3">동 명칭</th>
-                  {processes.map((p, idx) => (
+                <tr 
+                  className={`${activeTheme.header} text-white sticky top-0 z-20`}
+                  style={data.settings.headerColor ? { backgroundColor: data.settings.headerColor } : {}}
+                >
+                  <th className={`border-r border-white/20 w-8 text-center font-black px-1 py-1 text-[9px] uppercase tracking-tighter sticky left-0 z-30 ${activeTheme.header}`} style={data.settings.headerColor ? { backgroundColor: data.settings.headerColor } : {}}>No.</th>
+                  <th className={`border-r border-white/20 w-24 text-center font-black px-1 py-1 text-[10px] uppercase tracking-tighter sticky left-8 z-30 ${activeTheme.header}`} style={data.settings.headerColor ? { backgroundColor: data.settings.headerColor } : {}}>동 명칭</th>
+                  {sortedDisplayProcesses.map((p) => (
                     <th 
                       key={p} 
-                      draggable 
-                      onDragStart={() => handleDragStart(idx)}
-                      onDragOver={(e) => handleDragOver(e, idx)}
-                      onDragEnd={handleDragEnd}
-                      className={`border-r border-slate-700 text-left px-2 py-3 min-w-[120px] group cursor-move hover:bg-white/10 transition-colors ${draggedIdx === idx ? 'opacity-30' : ''}`}
+                      className={`border-r border-white/20 text-center px-1 py-1 min-w-[80px] group transition-colors`}
                     >
-                      <div className="flex flex-col gap-1">
-                        <div className="flex items-center justify-between gap-1">
-                          <span className="text-[10px] font-bold leading-tight break-keep select-none">{p}</span>
+                      <div className="flex flex-col gap-0.5 items-center">
+                        <div className="flex items-center justify-center gap-1 w-full">
+                          <input 
+                            type="text" 
+                            defaultValue={p} 
+                            disabled={role === 'GUEST'}
+                            onBlur={(e) => renameProcess(p, e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.currentTarget.blur();
+                              }
+                            }}
+                            className="bg-transparent border-none focus:ring-0 p-0 text-[11px] font-black leading-tight text-center w-full min-w-0"
+                          />
                           {role !== 'GUEST' && (
-                            <div className="no-print flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <div className="no-print flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity absolute right-1 top-1">
                               <button 
                                 onClick={() => {
                                   const floorStr = prompt(`${p} 공정을 모든 동에 적용할 층수(숫자)를 입력하세요:`);
                                   if (floorStr !== null && !isNaN(Number(floorStr))) {
                                     const floor = Number(floorStr);
-                                    if (role === 'GUEST') return;
                                     setData(prev => ({
                                       ...prev,
                                       buildings: prev.buildings.map(b => ({
@@ -1255,12 +1679,12 @@ export default function App() {
                                     }));
                                   }
                                 }} 
-                                className="text-slate-400 hover:text-blue-400" 
+                                className="text-white/40 hover:text-white" 
                                 title="전 동 일괄 업데이트"
                               >
                                 <Save className="w-3 h-3" />
                               </button>
-                              <button onClick={() => deleteProcess(p)} className="text-slate-400 hover:text-red-400">
+                              <button onClick={() => deleteProcess(p)} className="text-white/40 hover:text-red-400">
                                 <Trash2 className="w-3 h-3" />
                               </button>
                             </div>
@@ -1269,29 +1693,53 @@ export default function App() {
                       </div>
                     </th>
                   ))}
-                  <th className={`text-center font-bold px-2 py-3 w-20 ${data.settings.theme === 'industrial' ? 'bg-emerald-900' : 'bg-blue-900'}`}>평균</th>
-                  {role !== 'GUEST' && <th className="border-l border-slate-700 w-16 text-center font-bold px-1 py-3 no-print">삭제</th>}
+                  {role !== 'GUEST' && (
+                    <th className="border-r border-white/10 w-24 px-2 py-1 no-print">
+                      <button 
+                        onClick={() => setNewProcessInput(true)}
+                        className="w-full flex items-center justify-center gap-1 py-1 rounded-md bg-white/10 hover:bg-white/20 text-[10px] font-black transition-all border border-white/10"
+                      >
+                        <Plus className="w-3 h-3" />
+                        <span>공종추가</span>
+                      </button>
+                    </th>
+                  )}
+                  <th className={`text-center font-black px-2 py-1 w-24 text-[10px] uppercase tracking-tighter ${data.settings.theme === 'industrial' ? 'bg-emerald-800' : 'bg-blue-800'}`} style={data.settings.headerColor ? { backgroundColor: data.settings.headerColor, filter: 'brightness(90%)' } : {}}>평균</th>
+                  {role !== 'GUEST' && <th className="border-l border-white/10 w-16 text-center font-black px-1 py-1 text-[10px] uppercase tracking-tighter no-print" style={data.settings.headerColor ? { backgroundColor: data.settings.headerColor } : {}}>삭제</th>}
                 </tr>
               </thead>
-              <tbody className={`divide-y ${data.settings.theme === 'industrial' ? 'divide-slate-800' : 'divide-slate-100'}`}>
-                {data.buildings.map((b, bIdx) => {
+              <tbody 
+                className={`divide-y-2 ${data.settings.theme === 'industrial' ? 'divide-slate-800' : 'divide-slate-200'}`}
+                style={data.settings.textColor ? { color: data.settings.textColor } : {}}
+              >
+                {[...data.buildings].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })).map((b, bIdx) => {
                   const processValues = (Object.values(b.processes) as number[]).filter(v => v !== -1);
                   const avg = processes.length > 0 && processValues.length > 0 
                     ? Math.round(processValues.reduce((a, v) => a + v, 0) / processValues.length) 
                     : 0;
+                  const cellPadding = `${data.settings.tableSpacing || 4}px`;
                   return (
-                    <tr key={b.id} className={`${data.settings.theme === 'industrial' ? 'hover:bg-slate-800/50' : 'hover:bg-blue-50/30'} transition-colors`}>
-                      <td className={`border-r ${activeTheme.border} text-center font-bold text-[10px] text-slate-400 ${data.settings.theme === 'industrial' ? 'bg-slate-900' : 'bg-slate-50'}`}>
+                    <tr key={b.id} className={`${data.settings.theme === 'industrial' ? 'hover:bg-slate-800/80' : 'hover:bg-blue-100/30'} transition-colors`}>
+                      <td 
+                        className={`border-r-2 ${data.settings.theme === 'industrial' ? 'border-slate-800 bg-slate-900' : 'border-slate-200 bg-slate-50'} text-center font-black text-[10px] text-slate-500 sticky left-0 z-10`}
+                        style={{ padding: cellPadding }}
+                      >
                         {bIdx + 1}
                       </td>
-                      <td className={`border-r ${activeTheme.border} text-center font-bold group relative ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'}`}>
-                        <div className="flex flex-col items-center justify-center p-2 gap-1">
-                          <input type="text" value={b.name} disabled={role === 'GUEST'} onChange={(e) => renameBuilding(b.id, e.target.value)} className="w-full text-center bg-transparent border-none focus:ring-0 p-0 font-black text-sm" />
+                      <td 
+                        className={`border-r-2 ${data.settings.theme === 'industrial' ? 'border-slate-800 bg-slate-900 text-white' : 'border-slate-200 bg-slate-50 text-slate-900'} text-center font-black group relative sticky left-8 z-10`}
+                        style={{ padding: cellPadding }}
+                      >
+                        <div 
+                          className={`flex flex-col items-center justify-center gap-0.5`}
+                          style={{ padding: cellPadding }}
+                        >
+                          <input type="text" value={b.name} disabled={role === 'GUEST'} onChange={(e) => renameBuilding(b.id, e.target.value)} className="w-full text-center bg-transparent border-none focus:ring-0 p-0 font-black text-xs tracking-tighter" />
                           
                           {role !== 'GUEST' && (
                             <div className="flex items-center gap-1 no-print">
-                              <div className="flex items-center gap-0.5">
-                                <span className="text-[8px] text-slate-400 font-bold">지하</span>
+                              <div className="flex items-center gap-0.5 px-1 py-0 rounded bg-slate-200/50 dark:bg-slate-800/50">
+                                <span className="text-[8px] text-slate-500 font-black">B</span>
                                 <input 
                                   type="text" 
                                   value={Math.abs(b.minFloor !== undefined ? b.minFloor : data.settings.minFloor)} 
@@ -1304,11 +1752,11 @@ export default function App() {
                                       }));
                                     }
                                   }}
-                                  className={`w-6 h-4 text-[9px] text-center p-0 rounded border ${activeTheme.border} ${data.settings.theme === 'industrial' ? 'bg-slate-800 text-white' : 'bg-white'}`}
+                                  className={`w-4 h-3 text-[8px] text-center p-0 bg-transparent border-none focus:ring-0 font-black ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'}`}
                                 />
                               </div>
-                              <div className="flex items-center gap-0.5">
-                                <span className="text-[8px] text-slate-400 font-bold">지상</span>
+                              <div className="flex items-center gap-0.5 px-1 py-0 rounded bg-slate-200/50 dark:bg-slate-800/50">
+                                <span className="text-[8px] text-slate-500 font-black">F</span>
                                 <input 
                                   type="text" 
                                   value={b.maxFloor !== undefined ? b.maxFloor : data.settings.maxFloor} 
@@ -1321,69 +1769,70 @@ export default function App() {
                                       }));
                                     }
                                   }}
-                                  className={`w-6 h-4 text-[9px] text-center p-0 rounded border ${activeTheme.border} ${data.settings.theme === 'industrial' ? 'bg-slate-800 text-white' : 'bg-white'}`}
+                                  className={`w-4 h-3 text-[8px] text-center p-0 bg-transparent border-none focus:ring-0 font-black ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'}`}
                                 />
                               </div>
                             </div>
                           )}
                         </div>
                       </td>
-                      {processes.map(p => {
+                      {sortedDisplayProcesses.map(p => {
                         const bProcesses = b.processes || {};
                         const mProcesses = b.materialProcesses || {};
                         const mDates = b.materialDates || {};
                         const floors = getFloorList(b);
+                        const cellPadding = `${data.settings.tableSpacing || 4}px`;
                         
                         return (
-                          <td key={p} className={`border-r ${activeTheme.border} p-0 relative`}>
+                          <td key={p} className={`border-r-2 ${data.settings.theme === 'industrial' ? 'border-slate-800' : 'border-slate-200'} p-0 relative`}>
                             <div 
-                              className="p-2 space-y-1.5"
+                              className={`space-y-1`}
+                              style={{ padding: cellPadding }}
                             >
                               {/* Construction Progress */}
                               <div className="flex flex-col gap-0.5">
-                                <div className="flex items-center gap-1">
-                                    <select 
-                                      value={bProcesses[p] ?? 0} 
-                                      disabled={role === 'GUEST'} 
-                                      onChange={e => handleUpdateProgress(b.id, p, Number(e.target.value))}
-                                      className={`text-[9px] font-black bg-transparent border-none focus:ring-0 focus:outline-none cursor-pointer appearance-none ${bProcesses[p] === 100 ? (data.settings.theme === 'industrial' ? 'text-emerald-400' : 'text-green-600') : (bProcesses[p] === -1 ? 'text-slate-400' : (data.settings.theme === 'industrial' ? 'text-slate-300' : 'text-slate-700'))}`}
-                                    >
-                                      <option value={0}>대기</option>
-                                      <option value={1}>진행중</option>
-                                      <option value={-1}>N/A(해당없음)</option>
-                                      {floors.map(f => (
-                                        <option key={f} value={floorToPercent(f, b)} className={data.settings.theme === 'industrial' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
-                                          {formatFloor(f)}
-                                        </option>
-                                      ))}
-                                      <option value={100}>완료</option>
-                                    </select>
-                                  <div className="ml-auto flex items-center gap-1">
-                                    <span className="text-[8px] font-bold text-slate-400 opacity-60 pointer-events-none">{bProcesses[p] === -1 ? '-' : `${bProcesses[p] ?? 0}%`}</span>
-                                    <div className="flex items-center gap-0.5 no-print">
-                                      <button 
-                                        onClick={() => setCameraTarget({ buildingId: b.id, processName: p })}
-                                        className="p-0.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded text-slate-400 hover:text-blue-500 transition-colors"
-                                        title="사진 촬영"
-                                      >
-                                        <Camera className="w-3 h-3" />
-                                      </button>
-                                      {(b.photos?.[p] || []).length > 0 && (
-                                        <button 
-                                          onClick={() => setGalleryTarget({ buildingId: b.id, processName: p })}
-                                          className="p-0.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded text-blue-500 transition-colors relative"
-                                          title="갤러리 보기"
-                                        >
-                                          <ImageIcon className="w-3 h-3" />
-                                          <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[5px] min-w-[8px] h-[8px] px-0.5 rounded-full flex items-center justify-center font-black">
-                                            {(b.photos?.[p] || []).length}
-                                          </span>
-                                        </button>
-                                      )}
-                                    </div>
-                                  </div>
-                                </div>
-                                <div className={`w-full h-[3px] rounded-full overflow-hidden ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-100'}`}>
+                            <div className="flex items-center justify-center gap-1 w-full">
+                              <select 
+                                value={bProcesses[p] ?? 0} 
+                                disabled={role === 'GUEST'} 
+                                onChange={e => handleUpdateProgress(b.id, p, Number(e.target.value))}
+                                className={`text-[10px] font-black bg-transparent border-none focus:ring-0 focus:outline-none cursor-pointer appearance-none text-center p-0 m-0 ${bProcesses[p] === 100 ? (data.settings.theme === 'industrial' ? 'text-emerald-400' : 'text-green-600') : (bProcesses[p] === -1 ? 'text-slate-400' : (data.settings.theme === 'industrial' ? 'text-slate-300' : 'text-slate-700'))}`}
+                              >
+                                <option value={0}>대기</option>
+                                <option value={1}>진행</option>
+                                <option value={-1}>NA</option>
+                                {floors.map(f => (
+                                  <option key={f} value={floorToPercent(f, b)} className={data.settings.theme === 'industrial' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
+                                    {formatFloor(f)}
+                                  </option>
+                                ))}
+                                <option value={100}>완료</option>
+                              </select>
+                            </div>
+                            <div className="flex items-center justify-center gap-0.5 mt-0">
+                              <span className="text-[8px] font-black text-slate-400 opacity-60 pointer-events-none">{bProcesses[p] === -1 ? '-' : `${bProcesses[p] ?? 0}%`}</span>
+                              <div className="flex items-center gap-0.5 no-print">
+                                <button 
+                                  onClick={() => {
+                                    setPhotoTarget({ buildingId: b.id, processName: p });
+                                    setTimeout(() => photoUploadRef.current?.click(), 100);
+                                  }}
+                                  className={`p-0 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors ${b.photos?.[p]?.length ? 'text-blue-500' : 'text-slate-300'}`}
+                                  title="사진 첨부"
+                                >
+                                  <ImageIcon className="w-2.5 h-2.5" />
+                                </button>
+                                {(b.photos?.[p] || []).length > 0 && (
+                                  <button 
+                                    onClick={() => setGalleryTarget({ buildingId: b.id, processName: p })}
+                                    className="text-[8px] font-black text-blue-500"
+                                  >
+                                    [{b.photos[p].length}]
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                                <div className={`w-full h-1.5 rounded-full overflow-hidden ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-100'}`}>
                                   {bProcesses[p] !== -1 && (
                                     <div className={`h-full transition-all duration-500 ${bProcesses[p] === 100 ? (data.settings.theme === 'industrial' ? 'bg-emerald-400' : 'bg-green-500') : activeTheme.accent}`} style={{ width: `${bProcesses[p] ?? 0}%` }} />
                                   )}
@@ -1392,66 +1841,59 @@ export default function App() {
 
                               {/* Material Progress & Date */}
                               <div className="flex flex-col gap-0.5 border-t border-slate-100 dark:border-slate-800 pt-1">
-                                <div className="flex items-center gap-1">
-                                    <span className="text-[7px] font-bold text-slate-400">자재</span>
-                                    <select 
-                                      value={mProcesses[p] ?? 0} 
-                                      disabled={role === 'GUEST'} 
-                                      onChange={e => handleUpdateMaterialProgress(b.id, p, Number(e.target.value))}
-                                      className={`text-[9px] font-bold bg-transparent border-none focus:ring-0 focus:outline-none cursor-pointer appearance-none ${mProcesses[p] === 100 ? 'text-blue-500' : (mProcesses[p] === -1 ? 'text-slate-400' : 'text-slate-500')}`}
-                                    >
-                                      <option value={0}>대기</option>
-                                      <option value={-1}>N/A(해당없음)</option>
-                                      {floors.map(f => (
-                                        <option key={f} value={floorToPercent(f, b)} className={data.settings.theme === 'industrial' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
-                                          {formatFloor(f)}
-                                        </option>
-                                      ))}
-                                      <option value={100}>완료</option>
-                                    </select>
-                                  <span className="ml-auto text-[8px] font-bold text-blue-400/60 pointer-events-none">{mProcesses[p] === -1 ? '-' : `${mProcesses[p] ?? 0}%`}</span>
-                                </div>
-                                
-                                {mProcesses[p] !== -1 && (
-                                  <div className="flex flex-col gap-0.5">
-                                    <div className={`w-full h-[2px] rounded-full overflow-hidden ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-100'}`}>
-                                      <div className={`h-full transition-all duration-500 bg-blue-400`} style={{ width: `${mProcesses[p] ?? 0}%` }} />
-                                    </div>
-                                    <div className="flex items-center gap-1 no-print">
-                                      <span className="text-[6px] font-bold text-slate-400 uppercase">입고</span>
-                                      <input 
-                                        type="date"
-                                        value={mDates[p] || ''}
-                                        disabled={role === 'GUEST'}
-                                        onChange={(e) => handleUpdateMaterialDate(b.id, p, e.target.value)}
-                                        className={`text-[8px] bg-transparent border-none p-0 focus:ring-0 cursor-pointer ${data.settings.theme === 'industrial' ? 'text-slate-400 color-scheme-dark' : 'text-slate-500'}`}
-                                      />
-                                    </div>
-                                    {mDates[p] && (
-                                      <div className="hidden print:block text-[7px] font-bold text-blue-600">
-                                        입고: {mDates[p]}
+                                  <div className="flex items-center justify-center gap-1.5 border-t border-slate-200 dark:border-slate-800 pt-2">
+                                      <span className="text-[8px] font-black text-slate-400 uppercase">자재</span>
+                                      <select 
+                                        value={mProcesses[p] ?? 0} 
+                                        disabled={role === 'GUEST'} 
+                                        onChange={e => handleUpdateMaterialProgress(b.id, p, Number(e.target.value))}
+                                        className={`text-[9px] font-black bg-transparent border-none focus:ring-0 focus:outline-none cursor-pointer appearance-none text-center ${mProcesses[p] === 100 ? (data.settings.theme === 'industrial' ? 'text-amber-400' : 'text-amber-600') : (data.settings.theme === 'industrial' ? 'text-slate-400' : 'text-slate-500')}`}
+                                      >
+                                        <option value={0}>자재미입고</option>
+                                        <option value={1}>진행중</option>
+                                        <option value={-1}>N/A</option>
+                                        {floors.map(f => (
+                                          <option key={f} value={floorToPercent(f, b)} className={data.settings.theme === 'industrial' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
+                                            {formatFloor(f)}
+                                          </option>
+                                        ))}
+                                        <option value={100}>입고완료</option>
+                                      </select>
+                                      <div className={`w-10 h-1.5 rounded-full overflow-hidden ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-100'}`}>
+                                        <div className={`h-full transition-all duration-500 ${mProcesses[p] === 100 ? 'bg-amber-500' : 'bg-amber-400/50'}`} style={{ width: `${mProcesses[p] ?? 0}%` }} />
                                       </div>
-                                    )}
+                                      <span className="text-[8px] font-black text-amber-500/60 ml-0.5">{mProcesses[p] === -1 ? '-' : `${mProcesses[p] ?? 0}%`}</span>
                                   </div>
-                                )}
+                                  <div className="flex items-center justify-center gap-1 mt-1 border-t border-slate-100 dark:border-slate-800 pt-1.5">
+                                    <Calendar className="w-2.5 h-2.5 text-slate-400" />
+                                    <input 
+                                      type="date" 
+                                      value={mDates[p] || ''} 
+                                      disabled={role === 'GUEST'}
+                                      onChange={e => handleUpdateMaterialDate(b.id, p, e.target.value)}
+                                      className="bg-transparent border-none p-0 text-[8px] font-black focus:ring-0 cursor-pointer text-slate-400 text-center"
+                                    />
+                                  </div>
+                                </div>
                               </div>
-                            </div>
-                          </td>
-                        );
-                      })}
-                      <td className={`text-center font-black text-sm ${activeTheme.text} ${data.settings.theme === 'industrial' ? 'bg-slate-900/50' : 'bg-blue-50/50'}`}>{avg}%</td>
-                      {role !== 'GUEST' && (
-                        <td className={`border-l ${activeTheme.border} text-center no-print px-1 py-2`}>
-                          <button 
-                            onClick={() => deleteBuilding(b.id)} 
-                            className="text-slate-400 hover:text-red-500 transition-colors p-1"
-                            title="동 삭제"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                            </td>
+                          );
+                        })}
+                        <td className={`text-center font-black text-[12px] border-l-2 ${data.settings.theme === 'industrial' ? 'bg-emerald-900/30 text-emerald-400 border-slate-800' : 'bg-blue-50/50 text-blue-600 border-slate-200'}`}>
+                          {avg}%
                         </td>
-                      )}
-                    </tr>
+                        {role !== 'GUEST' && (
+                          <td className={`border-l-2 ${data.settings.theme === 'industrial' ? 'border-slate-800' : 'border-slate-200'} text-center px-1 no-print py-2`}>
+                            <button 
+                              onClick={() => deleteBuilding(b.id)} 
+                              className="text-slate-300 hover:text-red-500 transition-colors p-1"
+                              title="동 삭제"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        )}
+                      </tr>
                   );
                 })}
               </tbody>
@@ -1490,22 +1932,32 @@ export default function App() {
                      <div className="grid grid-cols-2 gap-2">
                         {FACILITY_PROCESSES.map(fp => {
                           const prog = f.processes?.[fp] ?? 0;
+                          const isInactive = (f.inactiveProcesses || []).includes(fp);
                           return (
-                            <div key={fp} className="space-y-1">
-                              <div className="flex items-center justify-between px-1">
-                                <span className="text-[9px] text-slate-400 font-bold">{fp}</span>
-                                <span className={`text-[9px] font-black ${prog === 100 ? 'text-green-500' : 'text-slate-500'}`}>{prog}%</span>
+                            <div key={fp} className={`space-y-1 p-1.5 rounded-lg transition-all ${isInactive ? 'opacity-40 grayscale bg-slate-100/50' : 'bg-slate-50 dark:bg-slate-800/50'}`}>
+                              <div className="flex items-center justify-between px-0.5">
+                                <div className="flex items-center gap-1.5">
+                                  <button 
+                                    onClick={() => toggleFacilityProcess(f.id, fp)}
+                                    title={isInactive ? '활성화' : '비활성화'}
+                                    className={`w-2.5 h-2.5 rounded-full border shadow-sm transition-all ${isInactive ? 'bg-slate-200 border-slate-300' : 'bg-blue-500 border-blue-600'}`}
+                                  />
+                                  <span className={`text-[9px] font-bold ${isInactive ? 'text-slate-400' : 'text-slate-600'}`}>{fp}</span>
+                                </div>
+                                <span className={`text-[9px] font-black ${prog === 100 ? 'text-green-500' : 'text-slate-500'}`}>{isInactive ? '-' : `${prog}%`}</span>
                               </div>
-                              <input 
-                                type="range"
-                                min="0"
-                                max="100"
-                                step="10"
-                                value={prog}
-                                disabled={role === 'GUEST'}
-                                onChange={(e) => handleUpdateFacilitySubProcess(f.id, fp, Number(e.target.value))}
-                                className="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
-                              />
+                              {!isInactive && (
+                                <input 
+                                  type="range"
+                                  min="0"
+                                  max="100"
+                                  step="10"
+                                  value={prog}
+                                  disabled={role === 'GUEST'}
+                                  onChange={(e) => handleUpdateFacilitySubProcess(f.id, fp, Number(e.target.value))}
+                                  className="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                                />
+                              )}
                             </div>
                           );
                         })}
@@ -1800,7 +2252,7 @@ export default function App() {
                      <span className="text-[10px] text-slate-400 font-medium">총 {processes.length}개 공종 분석</span>
                    </div>
                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                      {processes.map(p => {
+                      {[...processes].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).map(p => {
                          const buildingVals = data.buildings.map(b => b.processes[p] ?? 0);
                          const avg = buildingVals.length > 0 ? buildingVals.reduce((s, v) => s + v, 0) / buildingVals.length : 0;
                          const completedCount = buildingVals.filter(v => v === 100).length;
@@ -1822,6 +2274,39 @@ export default function App() {
                                <div className="flex items-center justify-between text-[9px] font-bold text-slate-400">
                                   <span>완료: {completedCount}개동</span>
                                   <span>진행: {progressCount}개동</span>
+                               </div>
+                            </div>
+                         );
+                      })}
+                   </div>
+                </div>
+
+                {/* Facility Breakdown */}
+                <div className="mt-12 space-y-6">
+                   <div className="flex items-center justify-between">
+                     <h3 className="text-sm font-bold text-slate-500 uppercase tracking-widest">부대복리시설 진행 지표</h3>
+                     <span className="text-[10px] text-slate-400 font-medium">총 {data.facilities.length}개 항목 분석</span>
+                   </div>
+                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                      {[...data.facilities].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })).map(f => {
+                         const avg = getFacilityAverage(f);
+                         return (
+                            <div key={f.id} className={`${data.settings.theme === 'industrial' ? 'bg-slate-800/50' : 'bg-slate-50/50'} p-4 rounded-xl border ${activeTheme.border} space-y-3`}>
+                               <div className="flex items-center justify-between">
+                                  <span className={`text-[11px] font-black truncate max-w-[120px] ${data.settings.theme === 'industrial' ? 'text-slate-300' : 'text-slate-700'}`}>{f.name}</span>
+                                  <span className={`text-[11px] font-black ${avg === 100 ? 'text-green-500' : activeTheme.text}`}>{Math.round(avg)}%</span>
+                               </div>
+                               <div className="h-1.5 w-full bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                                  <motion.div 
+                                    initial={{ width: 0 }}
+                                    animate={{ width: `${avg}%` }}
+                                    className={`h-full ${avg === 100 ? 'bg-green-500' : activeTheme.accent}`} 
+                                  />
+                               </div>
+                               <div className="flex items-center justify-between text-[9px] font-bold text-slate-400">
+                                  <span className={`px-1.5 py-0.5 rounded ${f.status === 'COMPLETED' ? 'bg-green-100 text-green-700' : f.status === 'IN_PROGRESS' ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-500'}`}>
+                                    {f.status === 'COMPLETED' ? '완료' : f.status === 'IN_PROGRESS' ? '진행중' : '대기'}
+                                  </span>
                                </div>
                             </div>
                          );
@@ -1876,6 +2361,37 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Trash Section */}
+              <div className={`mt-8 pt-8 border-t ${activeTheme.border}`}>
+                <div className="flex items-center gap-2 mb-4">
+                  <Trash className="w-5 h-5 text-red-500" />
+                  <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">최근 삭제 항목 (1시간 이내 복구 가능)</h3>
+                </div>
+                {trash.filter(item => Date.now() - item.deletedAt < 3600000).length === 0 ? (
+                  <p className="text-xs text-slate-400 font-medium italic">삭제된 항목이 없습니다.</p>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {trash.filter(item => Date.now() - item.deletedAt < 3600000).map(item => (
+                      <div key={item.id} className={`${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-50'} p-4 rounded-xl border ${activeTheme.border} flex items-center justify-between shadow-sm`}>
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-[9px] font-black uppercase text-slate-500">{item.type}</span>
+                            <span className="text-xs font-bold">{item.type === 'site' ? item.data.settings.projectName : item.data.name}</span>
+                          </div>
+                          <p className="text-[10px] text-slate-400 font-medium">약 {Math.round((Date.now() - item.deletedAt) / 60000)}분 전 삭제됨</p>
+                        </div>
+                        <button 
+                          onClick={() => restoreItem(item)}
+                          className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-black rounded-xl transition-all shadow-lg shadow-blue-500/20 active:scale-95"
+                        >
+                          <Undo2 className="w-3.5 h-3.5" /> 복구하기
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               {/* Backup & Restore */}
               <div className={`mt-8 pt-8 border-t ${activeTheme.border}`}>
                 <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4">데이터 관리 (백업 및 복원)</h3>
@@ -1887,14 +2403,16 @@ export default function App() {
                       </div>
                       <div>
                         <h4 className="font-bold text-sm">데이터 백업</h4>
-                        <p className="text-[10px] text-slate-400 font-medium">전체 현장 데이터를 JSON 파일로 내보냅니다.</p>
+                        <p className="text-[10px] text-slate-400 font-medium">
+                          {isLockedToSite ? '현재 현장의 데이터를 JSON 파일로 내보냅니다.' : '전체 현장 데이터를 JSON 파일로 내보냅니다.'}
+                        </p>
                       </div>
                     </div>
                     <button 
                       onClick={handleExportData}
                       className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-blue-500/20"
                     >
-                      백업 파일 다운로드
+                      {isLockedToSite ? '현재 현장 백업 다운로드' : '전체 현장 백업 다운로드'}
                     </button>
                   </div>
 
@@ -1905,14 +2423,16 @@ export default function App() {
                       </div>
                       <div>
                         <h4 className="font-bold text-sm">데이터 복원</h4>
-                        <p className="text-[10px] text-slate-400 font-medium">백업된 JSON 파일을 불러와 현재 데이터를 교체합니다.</p>
+                        <p className="text-[10px] text-slate-400 font-medium">
+                          {isLockedToSite ? '백업 파일을 불러와 현재 현장 데이터를 복원합니다.' : '백업 파일을 불러와 전체 데이터를 복원합니다.'}
+                        </p>
                       </div>
                     </div>
                     <button 
                       onClick={() => fileInputRef.current?.click()}
                       className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-emerald-500/20"
                     >
-                      백업 파일 불러오기
+                      {isLockedToSite ? '현재 현장 복원하기' : '전체 데이터 복원하기'}
                     </button>
                     <input 
                       type="file" 
@@ -1968,7 +2488,12 @@ export default function App() {
                 <p className="text-sm text-slate-500 font-medium leading-relaxed">아래 링크를 공유하여 다른 사용자가 이 현장의 데이터를 조회하게 할 수 있습니다.</p>
                 <div className="flex gap-2">
                   <input readOnly value={shareUrl} className="flex-1 bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-mono text-blue-600 truncate" />
-                  <button onClick={() => { navigator.clipboard.writeText(shareUrl); }} className="bg-blue-600 text-white px-6 font-black rounded-xl">복사</button>
+                  <button 
+                    onClick={() => copyToClipboard(shareUrl)} 
+                    className="bg-blue-600 text-white px-6 font-black rounded-xl hover:bg-blue-700 transition-colors"
+                  >
+                    {isCopied ? '복사됨!' : '링크 복사'}
+                  </button>
                 </div>
               </motion.div>
             </div>
@@ -2015,40 +2540,6 @@ export default function App() {
         </AnimatePresence>
       </main>
 
-      {viewMode !== 'calendar' && (
-        <div className="fixed bottom-6 right-6 no-print flex flex-col gap-3">
-           <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => setNewProcessInput(true)} className={`${activeTheme.button} text-white p-4 rounded-full shadow-xl ${activeTheme.shadow} flex items-center justify-center`}><Plus className="w-6 h-6" /></motion.button>
-        </div>
-      )}
-
-      {/* Add Process Modal */}
-      <AnimatePresence>
-        {newProcessInput && (
-          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4 no-print">
-            <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="bg-white dark:bg-slate-900 p-8 rounded-3xl shadow-2xl max-w-md w-full space-y-6">
-              <h3 className="text-xl font-black uppercase tracking-tight italic">Add Construction Process</h3>
-              <div className="space-y-4">
-                <input autoFocus placeholder="새로운 공종명을 입력하세요..." value={newProcessName} onChange={e => setNewProcessName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addProcess()} className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-bold" />
-                <div className="flex gap-3">
-                  <button onClick={() => setNewProcessInput(false)} className="flex-1 bg-slate-100 dark:bg-slate-800 text-slate-500 py-3 rounded-xl font-bold">취소</button>
-                  <button onClick={addProcess} className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-bold">공종 추가</button>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-      
-      {/* Camera Modal */}
-      <AnimatePresence>
-        {cameraTarget && (
-          <CameraModal 
-            onCapture={handleCapturePhoto} 
-            onClose={() => setCameraTarget(null)} 
-          />
-        )}
-      </AnimatePresence>
-
       {/* Gallery Modal */}
       <AnimatePresence>
         {galleryTarget && (
@@ -2088,6 +2579,14 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
+
+      <input 
+        type="file" 
+        ref={photoUploadRef} 
+        onChange={handleUploadPhoto} 
+        className="hidden" 
+        accept="image/*"
+      />
 
       <style>{`
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }

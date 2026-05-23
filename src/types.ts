@@ -27,6 +27,7 @@ export interface CommonFacility {
   name: string;
   status: 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED';
   processes?: Record<string, number>; // process name -> progress (0 or 100)
+  inactiveProcesses?: string[];
 }
 
 export const FACILITY_PROCESSES = [
@@ -51,6 +52,10 @@ export interface ProjectSettings {
   maxFloor: number;
   minFloor: number; // e.g. -3 for B3
   theme: AppTheme;
+  fontSize?: number;
+  tableSpacing?: number;
+  headerColor?: string;
+  textColor?: string;
 }
 
 export interface ProgressSnapshot {
@@ -86,29 +91,31 @@ export interface AppState {
 export interface MultiProjectData {
   activeSiteId: string;
   sites: AppState[];
+  trash?: any[];
 }
 
 export const DEFAULT_PROCESSES = [
-  "HOIST",
-  "가설급수",
-  "가설소변기",
-  "가설소화",
-  "기초매립배관",
-  "건축골조",
-  "기계실배관",
-  "전실 위생/난방입상",
-  "전실 위생/난방통합거치대",
-  "스리브&이중관배관",
-  "알폼세팅",
-  "동지하 위생/난방횡주관",
-  "동지하 오배수",
-  "세대오배수입상",
-  "단위세대오배수",
-  "세대 수전구",
-  "세대 난방분배기",
-  "세대 난방코일",
-  "세대 환기&직배기",
-  "세대 SP배관"
+  "1. 건축골조",
+  "2. HOIST",
+  "3. 기초매립배관",
+  "4. 알폼세팅",
+  "5. 스리브",
+  "6. 가설급수",
+  "7. 가설소변기",
+  "8. 가설소화",
+  "9. 이중관배관",
+  "10. 세대 수전구",
+  "11. 단위세대오배수",
+  "12. 세대오배수입상",
+  "13. 동지하 오배수",
+  "14. 동지하 위생/난방횡주관",
+  "15. 세대 SP배관",
+  "16. 전실 위생/난방입상",
+  "17. 전실 위생/난방통합거치대",
+  "18. 세대 난방분배기",
+  "19. 세대 난방코일",
+  "20. 세대 환기&직배기",
+  "21. 기계실배관"
 ];
 
 export const INITIAL_FACILITIES = [
