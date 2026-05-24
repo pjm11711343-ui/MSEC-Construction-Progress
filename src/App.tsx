@@ -836,28 +836,33 @@ export default function App() {
     try {
       // Server connectivity check
       try {
-        await fetch('/api/health').then(r => r.json()).then(d => console.log("Health OK:", d)).catch(e => console.warn("Health fail:", e));
+        const healthUrl = new URL('/api/health', window.location.origin).href;
+        await fetch(healthUrl).then(r => r.json()).then(d => console.log("Health OK:", d)).catch(e => console.warn("Health fail:", e));
       } catch (e) {}
 
-      const url = '/api/diagnosis';
-      const response = await fetch(url, {
+      const apiUrl = new URL('/api/diagnosis', window.location.origin).href;
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ projectData: data }),
       });
       
       if (!response.ok) {
-        if (response.status === 404) {
-          throw new Error("서버에서 진단 기능을 찾을 수 없습니다 (404). 현재 환경이 백엔드를 지원하는지 확인해 주세요.");
-        }
         const errorText = await response.text();
-        let errorJson;
+        let errorData: any = {};
         try {
-          errorJson = JSON.parse(errorText);
+          errorData = JSON.parse(errorText);
         } catch (e) {
-          throw new Error(`서버 오류 (${response.status}): ${errorText.substring(0, 50)}`);
+          errorData = { error: errorText };
         }
-        throw new Error(errorJson.error || `서버 오류 (${response.status})`);
+
+        if (response.status === 404) {
+          throw new Error(`진단 API를 찾을 수 없습니다 (404). 
+호출 URL: ${apiUrl}
+서버 응답: ${errorData.error || 'N/A'}
+환경: ${import.meta.env.MODE}`);
+        }
+        throw new Error(errorData.error || `서버 오류 (${response.status})`);
       }
 
       const result = await response.json();

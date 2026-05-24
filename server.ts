@@ -3,13 +3,23 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
+import cors from "cors";
 
 dotenv.config();
 
 const app = express();
 const PORT = 3000;
 
+app.use(cors());
 app.use(express.json({ limit: '10mb' }));
+
+// Logging middleware
+app.use((req, res, next) => {
+  if (req.url.startsWith('/api')) {
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+  }
+  next();
+});
 
 // Gemini Initialization
 const genAI = new GoogleGenAI({
@@ -120,12 +130,24 @@ app.post("/api/diagnosis", async (req, res) => {
       });
     } catch (parseError) {
       console.error("JSON Parse Error:", parseError, resultText);
-      res.json({ diagnosis: resultText }); // Fallback if not valid JSON
+      res.json({ 
+        diagnosis: resultText,
+        risks: [],
+        actions: []
+      }); // Fallback
     }
   } catch (error: any) {
     console.error("AI Diagnosis Error:", error);
     res.status(500).json({ error: error.message || "AI 진단 중 오류가 발생했습니다." });
   }
+});
+
+// API 404 handler
+app.all("/api/*", (req, res) => {
+  res.status(404).json({ 
+    error: `API route not found: ${req.method} ${req.url}`,
+    tip: "Check if the route is defined in server.ts and if the request method is correct."
+  });
 });
 
 async function startServer() {
