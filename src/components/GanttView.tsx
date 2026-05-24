@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   ChevronLeft, 
@@ -12,7 +12,8 @@ import {
   ArrowRightLeft,
   Flag,
   Plus,
-  Trash2
+  Trash2,
+  GripVertical
 } from 'lucide-react';
 import { AppTheme, UserRole, Milestone } from '../types';
 
@@ -54,8 +55,55 @@ export default function GanttView({
   const [viewRange, setViewRange] = useState({ start: 0, weeks: 12 });
   const [editingProcess, setEditingProcess] = useState<string | null>(null);
   const [isManagingMilestones, setIsManagingMilestones] = useState(false);
+  const [isAutoSync, setIsAutoSync] = useState(false);
+  const [dragState, setDragState] = useState<{
+    process: string;
+    type: 'move' | 'resize-end' | 'resize-start';
+    initialX: number;
+    initialStartOffset: number;
+    initialDuration: number;
+  } | null>(null);
+
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const projectStart = useMemo(() => new Date(startDate), [startDate]);
+
+  // Derived effective schedules based on auto-sync logic
+  const effectiveSchedules = useMemo(() => {
+    if (!isAutoSync) return schedules;
+
+    const derived: Record<string, { startOffset: number; duration: number }> = {};
+    let currentOffset = 0;
+
+    processes.forEach(p => {
+      const original = schedules[p] || { startOffset: 0, duration: 30 };
+      derived[p] = {
+        startOffset: currentOffset,
+        duration: original.duration
+      };
+      currentOffset += original.duration;
+    });
+
+    return derived;
+  }, [isAutoSync, processes, schedules]);
+
+  // Derived milestones based on auto-sync logic
+  const effectiveMilestones = useMemo(() => {
+    if (!isAutoSync) return milestones;
+
+    return milestones.map(m => {
+      // Simple heuristic: if milestone name contains process name, attach it to end date
+      const matchingProcess = processes.find(p => m.name.includes(p.replace(/^\d+\.\s*/, '')));
+      if (matchingProcess) {
+        const schedule = effectiveSchedules[matchingProcess];
+        const endDay = schedule.startOffset + schedule.duration;
+        const newDate = new Date(projectStart);
+        newDate.setDate(newDate.getDate() + endDay);
+        return { ...m, date: newDate.toISOString().split('T')[0] };
+      }
+      return m;
+    });
+  }, [isAutoSync, milestones, processes, effectiveSchedules, projectStart]);
 
   const getDateAtOffset = (days: number) => {
     const d = new Date(projectStart);
@@ -81,7 +129,56 @@ export default function GanttView({
         w.push(getDateAtOffset(viewRange.start + i * 7));
     }
     return w;
-  }, [projectStart, viewRange]);
+  }, [projectStart, viewRange.start, viewRange.weeks]);
+
+  useEffect(() => {
+    if (!dragState) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!containerRef.current || !dragState) return;
+      
+      const rect = containerRef.current.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const deltaX = x - dragState.initialX;
+      
+      const daysInView = viewRange.weeks * 7;
+      const pxPerDay = rect.width / daysInView;
+      const deltaDays = Math.round(deltaX / pxPerDay);
+
+      if (dragState.type === 'move') {
+        onUpdateSchedule(dragState.process, dragState.initialStartOffset + deltaDays, dragState.initialDuration);
+      } else if (dragState.type === 'resize-end') {
+        onUpdateSchedule(dragState.process, dragState.initialStartOffset, Math.max(1, dragState.initialDuration + deltaDays));
+      } else if (dragState.type === 'resize-start') {
+        onUpdateSchedule(dragState.process, dragState.initialStartOffset + deltaDays, Math.max(1, dragState.initialDuration - deltaDays));
+      }
+    };
+
+    const handleMouseUp = () => {
+      setDragState(null);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [dragState, viewRange.weeks, onUpdateSchedule]);
+
+  const handleDragStart = (e: React.MouseEvent, process: string, type: 'move' | 'resize-end' | 'resize-start') => {
+    if (role === 'GUEST') return;
+    if (isAutoSync && type !== 'resize-end') return; // Only allow resizing the end if auto-sync is on
+    e.stopPropagation();
+    const schedule = effectiveSchedules[process] || { startOffset: 0, duration: 30 };
+    setDragState({
+      process,
+      type,
+      initialX: e.clientX - (containerRef.current?.getBoundingClientRect().left || 0),
+      initialStartOffset: schedule.startOffset,
+      initialDuration: schedule.duration
+    });
+  };
 
   const handleEdit = (p: string) => {
     if (role === 'GUEST') return;
@@ -154,6 +251,14 @@ export default function GanttView({
         
         <div className="flex items-center gap-2 bg-white dark:bg-slate-800 p-1.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
             <button 
+                onClick={() => setIsAutoSync(!isAutoSync)}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-all text-xs font-black ${isAutoSync ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20' : 'hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500'}`}
+            >
+                <Clock className={`w-3.5 h-3.5 ${isAutoSync ? 'text-white' : 'text-orange-500'}`} />
+                {isAutoSync ? '자동 동기화 ON' : '자동 동기화 OFF'}
+            </button>
+            <div className="w-px h-6 bg-slate-200 dark:bg-slate-700" />
+            <button 
                 onClick={() => setIsManagingMilestones(true)}
                 className="flex items-center gap-2 px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors text-xs font-black"
             >
@@ -201,13 +306,13 @@ export default function GanttView({
             </div>
 
             {/* Gantt Rows */}
-            <div className="divide-y divide-slate-100 dark:divide-slate-800 relative">
+            <div className="divide-y divide-slate-100 dark:divide-slate-800 relative" ref={containerRef}>
               {/* Milestone Lines */}
               <div className="absolute inset-0 pointer-events-none">
                 <div className="flex h-full">
                   <div className="w-64 flex-shrink-0" /> {/* Sidebar spacer */}
                   <div className="flex-1 relative">
-                    {milestones.map((m) => {
+                    {effectiveMilestones.map((m) => {
                       const mDate = new Date(m.date);
                       const diff = Math.floor((mDate.getTime() - projectStart.getTime()) / (24 * 60 * 60 * 1000));
                       
@@ -237,7 +342,7 @@ export default function GanttView({
               </div>
 
               {processes.map((p) => {
-                const schedule = schedules[p] || { startOffset: 0, duration: 30 };
+                const schedule = effectiveSchedules[p] || { startOffset: 0, duration: 30 };
                 const progress = buildingProgress[p] || 0;
                 
                 // Calculate display position
@@ -269,37 +374,57 @@ export default function GanttView({
                       </div>
                       {role !== 'GUEST' && <Settings2 className="w-3 h-3 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />}
                     </div>
-                    <div className="flex-1 relative h-16 p-4">
-                      {/* Column lines */}
-                      <div className="absolute inset-0 flex">
-                        {weeks.map((_, i) => (
-                           <div key={i} className="flex-1 border-r border-slate-100/50 dark:border-slate-800/50 h-full" />
-                        ))}
+                      <div className="flex-1 relative h-16 p-4">
+                        {/* Column lines */}
+                        <div className="absolute inset-0 flex pointer-events-none">
+                          {weeks.map((_, i) => (
+                             <div key={i} className="flex-1 border-r border-slate-100/50 dark:border-slate-800/50 h-full" />
+                          ))}
+                        </div>
+                        
+                        {isVisible && (
+                          <motion.div 
+                            layoutId={`gantt-${p}`}
+                            className={`absolute top-1/2 -translate-y-1/2 h-9 rounded-xl shadow-lg border-2 ${activeTheme.border} ${theme === 'industrial' ? 'bg-slate-800' : 'bg-white'} overflow-visible group/bar cursor-move`}
+                            style={{ 
+                              left: `${leftPercent}%`, 
+                              width: `${widthPercent}%`,
+                              minWidth: '20px',
+                              zIndex: dragState?.process === p ? 40 : 30
+                            }}
+                            onMouseDown={(e) => handleDragStart(e, p, 'move')}
+                          >
+                             {/* Progress Overlay */}
+                             <div 
+                               className={`absolute inset-0 ${activeTheme.accent} opacity-20 pointer-events-none`} 
+                               style={{ width: `${progress}%` }} 
+                             />
+
+                             {/* Resize Start Handle */}
+                             {role !== 'GUEST' && !isAutoSync && (
+                               <div 
+                                 className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-orange-500/30 rounded-l-xl z-10"
+                                 onMouseDown={(e) => handleDragStart(e, p, 'resize-start')}
+                               />
+                             )}
+
+                             {/* Actual Bar Header */}
+                             <div className="absolute inset-0 flex items-center px-2 gap-1 pointer-events-none">
+                                <GripVertical className="w-3 h-3 text-slate-300 shrink-0" />
+                                <span className="text-[9px] font-black truncate">{schedule.duration}d</span>
+                                {progress === 100 && <CheckCircle2 className="w-2.5 h-2.5 text-emerald-500 shrink-0" />}
+                             </div>
+
+                             {/* Resize End Handle */}
+                             {role !== 'GUEST' && (
+                               <div 
+                                 className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-orange-500/30 rounded-r-xl z-10"
+                                 onMouseDown={(e) => handleDragStart(e, p, 'resize-end')}
+                               />
+                             )}
+                          </motion.div>
+                        )}
                       </div>
-                      
-                      {isVisible && (
-                        <motion.div 
-                          layoutId={`gantt-${p}`}
-                          className={`absolute top-1/2 -translate-y-1/2 h-8 rounded-xl shadow-lg border-2 ${activeTheme.border} ${theme === 'industrial' ? 'bg-slate-800' : 'bg-white'} overflow-hidden group/bar`}
-                          style={{ 
-                            left: `${leftPercent}%`, 
-                            width: `${widthPercent}%`,
-                            minWidth: '4px'
-                          }}
-                        >
-                           {/* Progress Overlay */}
-                           <div 
-                             className={`absolute inset-0 ${activeTheme.accent} opacity-20`} 
-                             style={{ width: `${progress}%` }} 
-                           />
-                           {/* Actual Bar */}
-                           <div className="absolute inset-0 flex items-center px-3 gap-2">
-                              {progress === 100 && <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0" />}
-                              <span className="text-[9px] font-black truncate">{schedule.duration}일</span>
-                           </div>
-                        </motion.div>
-                      )}
-                    </div>
                   </div>
                 );
               })}
@@ -325,12 +450,16 @@ export default function GanttView({
 
               <div className="space-y-4">
                 <div className="space-y-2">
-                   <label className="text-[10px] font-black text-slate-400 uppercase">Start Offset (Site Start + X days)</label>
+                   <label className="text-[10px] font-black text-slate-400 uppercase">
+                     Start Offset (Site Start + X days)
+                     {isAutoSync && <span className="text-orange-500 ml-2">(자동 계산됨)</span>}
+                   </label>
                    <input 
                      type="number" 
-                     value={schedules[editingProcess]?.startOffset || 0}
+                     disabled={isAutoSync}
+                     value={effectiveSchedules[editingProcess]?.startOffset || 0}
                      onChange={(e) => onUpdateSchedule(editingProcess, parseInt(e.target.value) || 0, schedules[editingProcess]?.duration || 30)}
-                     className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 font-bold"
+                     className={`w-full p-4 rounded-2xl border font-bold ${isAutoSync ? 'bg-slate-100 text-slate-400 border-slate-200' : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}
                    />
                 </div>
                 <div className="space-y-2">

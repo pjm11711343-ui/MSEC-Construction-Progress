@@ -49,30 +49,47 @@ app.post("/api/diagnosis", async (req, res) => {
     const { projectData } = req.body;
     
     if (!process.env.GEMINI_API_KEY) {
+      console.error("Missing GEMINI_API_KEY environment variable");
       return res.status(500).json({ error: "Gemini API key is not configured." });
     }
 
     const prompt = `
-      당신은 숙련된 건설 현장 소장 및 데이터 분석 전문가입니다.
-      다음은 현재 아파트 건설 현장의 공정 데이터입니다:
+      건설 현장 데이터 분석 전문가로서 현장 정밀 진단을 수행해 주세요.
       
-      설정: ${JSON.stringify(projectData.settings)}
-      동별 공정: ${JSON.stringify(projectData.buildings.map((b: any) => ({ name: b.name, processes: b.processes })))}
-      부대시설 현황: ${JSON.stringify(projectData.facilities)}
+      [현장 기초 정보]
+      - 프로젝트: ${projectData.settings.projectName}
+      - 기간: ${projectData.settings.startDate} ~ ${projectData.settings.endDate}
+      - 소장: ${projectData.settings.managerName}
       
-      위 데이터를 바탕으로 현재 현장의 상태를 진단하고 다음 항목을 포함하여 전문적인 의견을 주십시오:
-      1. 현재 전체적인 공정률 평가
-      2. 지연이 우려되거나 집중 관리가 필요한 부분 (상세 데이터 기반)
-      3. 향후 1개월간의 주요 관리 포인트 및 제언
+      [현장 특이사항 및 메모]
+      ${projectData.dashboardNotes || "기록된 특이사항 없음"}
       
-      답변은 한국어로 작성하고, 현장 소장에게 보고하는 격식 있는 리포트 형식으로 작성해 주세요.
-      마크다운 형식을 사용하여 가독성 있게 작성해 주세요.
+      [상세 공정 데이터]
+      - 동별 진행 (JSON): ${JSON.stringify(projectData.buildings.map((b: any) => ({ name: b.name, progress: b.processes })))}
+      - 시설물 현황: ${JSON.stringify(projectData.facilities.map((f: any) => ({ name: f.name, status: f.status })))}
+      
+      [일일 작업 현황 요약]
+      ${(projectData.dailyReports || []).slice(0, 3).map((r: any) => `- ${r.date}: ${r.notes} (인원: ${r.manpower}, 날씨: ${r.weather})`).join('\n')}
+      
+      [진단 지시 사항]
+      1. '현장 특이사항 및 메모'에 기술된 이슈(자재 협의, 민원, 기상 등)를 최우선으로 고려하여 현재 공정의 위협 요소를 분석해 주세요.
+      2. 수치 데이터(동별 공정율)에서 나타나는 편차나 지연 징후를 포착하여 구체적으로 지적해 주세요.
+      3. 현장 소장이 즉시 조치해야 할 '핵심 관리 포인트' 3가지를 제시해 주세요.
+      4. 프로젝트의 성공적인 완수를 위한 선제적 제언을 리포트 형식으로 작성해 주세요.
+      
+      답변은 한국어로, 소장에게 보고하는 격식 있는 말투로 작성하십시오.
+      마크다운(Markdown)을 사용하여 가독성 있게 구조화해 주세요.
     `;
 
+    console.log("Sending diagnosis request to Gemini...");
     const response = await genAI.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: "gemini-3.5-flash", 
       contents: prompt,
     });
+
+    if (!response || !response.text) {
+      throw new Error("Empty response from Gemini");
+    }
 
     res.json({ diagnosis: response.text });
   } catch (error: any) {

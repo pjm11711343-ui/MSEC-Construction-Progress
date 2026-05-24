@@ -75,24 +75,26 @@ import {
   DailyReport
 } from './types';
 
+import initialDataImport from './data/initial_data.json';
+
 const STORAGE_KEY = 'apt_construction_multi_data';
 
 const createNewSite = (name: string): AppState => ({
   id: Math.random().toString(36).substr(2, 9),
   settings: {
-    companyName: '(주) 건설 혁신',
-    projectName: name || '스마트 아파트 신축공사 현장',
+    companyName: 'MSEC 공정관리',
+    projectName: name || 'MSEC 스마트 아파트 현장',
     startDate: new Date().toISOString().split('T')[0],
     managerName: '김소장',
     staffName: '이공무',
     buildingCount: 10,
     maxFloor: 29,
     minFloor: -2,
-    theme: 'slate',
+    theme: 'blueprint',
     progressMode: 'floor',
     processModes: DEFAULT_PROCESSES.reduce((acc, p) => ({ ...acc, [p]: 'floor' }), {}),
-    fontSize: 12,
-    tableSpacing: 4,
+    fontSize: 11,
+    tableSpacing: 2,
     headerColor: '',
     textColor: '',
     endDate: new Date(new Date().setFullYear(new Date().getFullYear() + 2)).toISOString().split('T')[0],
@@ -122,6 +124,71 @@ const createNewSite = (name: string): AppState => ({
   processSchedules: DEFAULT_PROCESSES.reduce((acc, p, i) => ({ ...acc, [p]: { startOffset: i * 7, duration: 30 } }), {}),
   milestones: []
 });
+
+const migrateSite = (site: any) => {
+  if (!site || !site.buildings) return site;
+  
+  // Ensure essential fields exist
+  const defaultedSite = {
+    ...site,
+    processSchedules: site.processSchedules || DEFAULT_PROCESSES.reduce((acc, p, i) => ({ ...acc, [p]: { startOffset: i * 7, duration: 30 } }), {}),
+    milestones: site.milestones || [],
+    dailyReports: site.dailyReports || [],
+    history: site.history || []
+  };
+
+  // Standardize processModes if they have numbers
+  const originalModes = defaultedSite.settings?.processModes || {};
+  const normalizedModes: Record<string, 'floor' | 'percent'> = {};
+  
+  DEFAULT_PROCESSES.forEach(p => {
+    let mode = originalModes[p];
+    if (mode === undefined) {
+      const matchingKey = Object.keys(originalModes).find(k => k.replace(/^\d+\.\s*/, '') === p);
+      if (matchingKey) mode = originalModes[matchingKey];
+    }
+    normalizedModes[p] = mode || 'floor';
+  });
+
+  // We always want to standardize on DEFAULT_PROCESSES
+  return {
+    ...defaultedSite,
+    settings: {
+      ...defaultedSite.settings,
+      processModes: normalizedModes
+    },
+    buildings: defaultedSite.buildings.map((b: any) => {
+      const newProcesses: Record<string, number> = {};
+      const sourceKeys = Object.keys(b.processes || {});
+      
+      DEFAULT_PROCESSES.forEach(targetP => {
+        // Try exact match
+        let val = b.processes[targetP];
+        
+        if (val === undefined) {
+          // Try matching by stripping numbers from source keys
+          const matchingKey = sourceKeys.find(k => {
+            const strippedK = k.replace(/^\d+\.\s*/, '');
+            return strippedK === targetP;
+          });
+          if (matchingKey) {
+            val = b.processes[matchingKey];
+          }
+        }
+        
+        if (val === undefined) {
+          // Special cases
+          if (targetP === "스리브" || targetP === "이중관배관") {
+            val = b.processes["스리브&이중관배관"] || (b.processes as any)["4. 스리브"] || (b.processes as any)["5. 스리브"] || (b.processes as any)["9. 이중관배관"] || 0;
+          }
+        }
+        
+        newProcesses[targetP] = val ?? 0;
+      });
+      return { ...b, processes: newProcesses };
+    })
+  };
+};
 
 export default function App() {
   const [role, setRole] = useState<UserRole | null>(null);
@@ -184,68 +251,35 @@ export default function App() {
       try {
         const parsed: MultiProjectData = JSON.parse(saved);
         if (parsed && parsed.sites && parsed.sites.length > 0) {
-          // Migration: Ensure all sites use the new 21 processes
-          let migrationNeeded = false;
-          let updatedSites = parsed.sites.map(site => {
-            const firstB = site.buildings[0];
-            const currentProcesses = firstB?.processes ? Object.keys(firstB.processes) : [];
-            
-            if (currentProcesses.length !== DEFAULT_PROCESSES.length || currentProcesses[0] !== DEFAULT_PROCESSES[0]) {
-              migrationNeeded = true;
-              return {
-                ...site,
-                buildings: site.buildings.map(b => {
-                  const newProcesses: Record<string, number> = {};
-                  DEFAULT_PROCESSES.forEach(p => {
-                    let val = b.processes[p] ?? 0;
-                    // Handle migration from non-numbered names or splits
-                    if (val === 0) {
-                      const coreName = p.replace(/^\d+\.\s*/, '');
-                      val = b.processes[coreName] ?? 0;
-                      
-                      if (val === 0) {
-                        if (coreName === "스리브" || coreName === "이중관배관") {
-                          val = (b.processes as any)["스리브&이중관배관"] ?? 0;
-                        }
-                      }
-                    }
-                    newProcesses[p] = val;
-                  });
-                  return { ...b, processes: newProcesses };
-                })
-              };
-            }
-            return site;
-          });
-
-          // Ensure we have at least 10 sites total if requested
-          if (updatedSites.length < 10) {
+          // Migration using helper
+          const updatedSites = parsed.sites.map(migrateSite);
+          const needsTotalUpdate = updatedSites.length < 10;
+          
+          let finalSites = updatedSites;
+          if (needsTotalUpdate) {
             const needed = 10 - updatedSites.length;
             const additional = Array.from({ length: needed }, (_, i) => createNewSite(`신규 현장 ${updatedSites.length + i + 1}`));
-            updatedSites = [...updatedSites, ...additional];
-            migrationNeeded = true;
+            finalSites = [...updatedSites, ...additional];
           }
 
-          if (migrationNeeded) {
-            parsed.sites = updatedSites;
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
-          }
-
-          setMultiData(parsed);
-          if (parsed.trash) setTrash(parsed.trash);
+          const mData = { ...parsed, sites: finalSites };
+          setMultiData(mData);
+          if (mData.trash) setTrash(mData.trash);
           
           if (siteParam) {
             setIsLockedToSite(true);
-            // If locked to site via link, we might want to default the role if not set
           }
 
-          const targetId = siteParam || parsed.activeSiteId;
-          const activeSite = parsed.sites.find(s => s.id === targetId) || parsed.sites[0];
+          const targetId = siteParam || mData.activeSiteId;
+          const activeSite = mData.sites.find(s => s.id === targetId) || mData.sites[0];
           
           setData(activeSite);
           if (activeSite.buildings?.[0]?.processes) {
             setProcesses(Object.keys(activeSite.buildings[0].processes));
           }
+          
+          // Persistence fix
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(mData));
           
           if (siteParam && siteParam !== activeSite.id) {
             const newUrl = window.location.pathname + `?site=${activeSite.id}`;
@@ -275,12 +309,24 @@ export default function App() {
         console.error("Failed to parse saved data", e);
       }
     } else {
-      const initialSite = createNewSite('전체 공사 현장');
-      const additionalSites = Array.from({ length: 9 }, (_, i) => createNewSite(`신규 현장 ${i + 1}`));
-      const mData = { activeSiteId: initialSite.id, sites: [initialSite, ...additionalSites] };
+      const restoredData = initialDataImport as any;
+      const initialSite = migrateSite(restoredData.sites.find((s: any) => s.id === restoredData.activeSiteId) || restoredData.sites[0]);
+      
+      // Ensure we have at least 10 sites total
+      let finalSites = restoredData.sites.map(migrateSite);
+      if (finalSites.length < 10) {
+        const needed = 10 - finalSites.length;
+        const additional = Array.from({ length: needed }, (_, i) => createNewSite(`신규 현장 ${finalSites.length + i + 1}`));
+        finalSites = [...finalSites, ...additional];
+      }
+      
+      const mData = { activeSiteId: initialSite.id, sites: finalSites };
       setMultiData(mData);
       setData(initialSite);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(mData));
+      if (initialSite.buildings && initialSite.buildings[0]) {
+        setProcesses(Object.keys(initialSite.buildings[0].processes));
+      }
     }
   }, []);
 
@@ -668,12 +714,14 @@ export default function App() {
     let exportData;
     let fileName;
     
-    if (isLockedToSite) {
-      exportData = { sites: [data], activeSiteId: data.id };
-      fileName = `${data.settings.projectName}_backup_${new Date().toISOString().split('T')[0]}.json`;
-    } else {
+    // In Administrator mode (ADMIN role and not locked), backup all sites.
+    // When viewing a specific site (Locked to site or non-admin), backup only that site.
+    if (role === 'ADMIN' && !isLockedToSite) {
       exportData = multiData;
       fileName = `construction_all_backup_${new Date().toISOString().split('T')[0]}.json`;
+    } else {
+      exportData = { sites: [data], activeSiteId: data.id };
+      fileName = `${data.settings.projectName.trim()}_backup_${new Date().toISOString().split('T')[0]}.json`;
     }
 
     const dataStr = JSON.stringify(exportData, null, 2);
@@ -694,34 +742,6 @@ export default function App() {
         const result = e.target?.result as string;
         let json = JSON.parse(result);
         
-        const migrateSite = (site: any) => {
-          if (!site || !site.buildings) return site;
-          const firstB = site.buildings[0];
-          const currentProcesses = firstB?.processes ? Object.keys(firstB.processes) : [];
-          
-          if (currentProcesses.length !== DEFAULT_PROCESSES.length || (currentProcesses.length > 0 && currentProcesses[0] !== DEFAULT_PROCESSES[0])) {
-            return {
-              ...site,
-              buildings: site.buildings.map((b: any) => {
-                const newProcesses: Record<string, number> = {};
-                DEFAULT_PROCESSES.forEach(p => {
-                  let val = b.processes[p] ?? 0;
-                  if (val === 0) {
-                    const coreName = p.replace(/^\d+\.\s*/, '');
-                    val = b.processes[coreName] ?? 0;
-                    if (val === 0 && (coreName === "스리브" || coreName === "이중관배관")) {
-                      val = (b.processes as any)["스리브&이중관배관"] ?? 0;
-                    }
-                  }
-                  newProcesses[p] = val;
-                });
-                return { ...b, processes: newProcesses };
-              })
-            };
-          }
-          return site;
-        };
-
         const isMultiFile = json.sites && Array.isArray(json.sites);
         const isSingleFile = json.buildings && Array.isArray(json.buildings);
 
@@ -755,6 +775,7 @@ export default function App() {
                 return nextMulti;
               });
               setData(finalSite);
+              lastSavedContent.current = ''; // Force next auto-save to consider it new
               if (finalSite.buildings && finalSite.buildings[0]) {
                 setProcesses(Object.keys(finalSite.buildings[0].processes));
               }
@@ -776,6 +797,7 @@ export default function App() {
               setMultiData(migratedJson);
               const active = migratedJson.sites.find((s: any) => s.id === migratedJson.activeSiteId) || migratedJson.sites[0];
               setData(active);
+              lastSavedContent.current = '';
               if (active.buildings && active.buildings[0]) {
                 setProcesses(Object.keys(active.buildings[0].processes));
               }
@@ -791,6 +813,7 @@ export default function App() {
                 return nextMulti;
               });
               setData(finalSite);
+              lastSavedContent.current = '';
               if (finalSite.buildings && finalSite.buildings[0]) {
                 setProcesses(Object.keys(finalSite.buildings[0].processes));
               }
@@ -827,6 +850,30 @@ export default function App() {
       alert("AI 진단 요청에 실패했습니다.");
     } finally {
       setIsDiagnosing(false);
+    }
+  };
+
+  const handleRestoreInitialData = () => {
+    if (window.confirm('제공된 명신기공 데이터로 전체 현장을 복원하시겠습니까? 현재 변경사항은 모두 삭제됩니다.')) {
+      const restoredData = initialDataImport as any;
+      const initialSite = migrateSite(restoredData.sites.find((s: any) => s.id === restoredData.activeSiteId) || restoredData.sites[0]);
+      
+      let finalSites = restoredData.sites.map(migrateSite);
+      if (finalSites.length < 10) {
+        const needed = 10 - finalSites.length;
+        const additional = Array.from({ length: needed }, (_, i) => createNewSite(`신규 현장 ${finalSites.length + i + 1}`));
+        finalSites = [...finalSites, ...additional];
+      }
+      
+      const mData = { activeSiteId: initialSite.id, sites: finalSites };
+      setMultiData(mData);
+      setData(initialSite);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(mData));
+      if (initialSite.buildings && initialSite.buildings[0]) {
+        setProcesses(Object.keys(initialSite.buildings[0].processes));
+      }
+      alert('전체 데이터 복원이 완료되었습니다.');
+      // window.location.reload(); // Use state update instead of reload if possible, but reload is safer for total reset
     }
   };
 
@@ -2754,7 +2801,7 @@ export default function App() {
                       <div>
                         <h4 className="font-bold text-sm">데이터 백업</h4>
                         <p className="text-[10px] text-slate-400 font-medium">
-                          {isLockedToSite ? '현재 현장의 데이터를 JSON 파일로 내보냅니다.' : '전체 현장 데이터를 JSON 파일로 내보냅니다.'}
+                          {role === 'ADMIN' && !isLockedToSite ? '전체 현장 데이터를 JSON 파일로 내보냅니다.' : '현재 현장의 데이터를 JSON 파일로 내보냅니다.'}
                         </p>
                       </div>
                     </div>
@@ -2762,7 +2809,7 @@ export default function App() {
                       onClick={handleExportData}
                       className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-blue-500/20"
                     >
-                      {isLockedToSite ? '현재 현장 백업 다운로드' : '전체 현장 백업 다운로드'}
+                      {role === 'ADMIN' && !isLockedToSite ? '전체 현장 백업 다운로드' : '현재 현장 백업 다운로드'}
                     </button>
                   </div>
 
@@ -2774,16 +2821,24 @@ export default function App() {
                       <div>
                         <h4 className="font-bold text-sm">데이터 복원</h4>
                         <p className="text-[10px] text-slate-400 font-medium">
-                          {isLockedToSite ? '백업 파일을 불러와 현재 현장 데이터를 복원합니다.' : '백업 파일을 불러와 전체 데이터를 복원합니다.'}
+                          {role === 'ADMIN' && !isLockedToSite ? '백업 파일을 불러와 전체 데이터를 복원합니다.' : '백업 파일을 불러와 현재 현장 데이터를 복원합니다.'}
                         </p>
                       </div>
                     </div>
-                    <button 
-                      onClick={() => fileInputRef.current?.click()}
-                      className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-emerald-500/20"
-                    >
-                      {isLockedToSite ? '현재 현장 복원하기' : '전체 데이터 복원하기'}
-                    </button>
+                    <div className="flex flex-col gap-2">
+                      <button 
+                        onClick={() => fileInputRef.current?.click()}
+                        className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold transition-all"
+                      >
+                        {role === 'ADMIN' && !isLockedToSite ? '전체 데이터 파일 복원' : '현재 현장 파일 복원'}
+                      </button>
+                      <button 
+                        onClick={handleRestoreInitialData}
+                        className="w-full py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-[10px] font-bold transition-all"
+                      >
+                        명신기공 데이터 즉시 복원
+                      </button>
+                    </div>
                     <input 
                       type="file" 
                       ref={fileInputRef} 
