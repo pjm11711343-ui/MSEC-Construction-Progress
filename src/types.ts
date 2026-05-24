@@ -52,6 +52,8 @@ export interface ProjectSettings {
   maxFloor: number;
   minFloor: number; // e.g. -3 for B3
   theme: AppTheme;
+  progressMode?: 'floor' | 'percent';
+  processModes?: Record<string, 'floor' | 'percent'>;
   fontSize?: number;
   tableSpacing?: number;
   headerColor?: string;

@@ -86,6 +86,8 @@ const createNewSite = (name: string): AppState => ({
     maxFloor: 29,
     minFloor: -2,
     theme: 'slate',
+    progressMode: 'floor',
+    processModes: DEFAULT_PROCESSES.reduce((acc, p) => ({ ...acc, [p]: 'floor' }), {}),
     fontSize: 12,
     tableSpacing: 4,
     headerColor: '',
@@ -675,44 +677,116 @@ export default function App() {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const json = JSON.parse(e.target?.result as string);
+        const result = e.target?.result as string;
+        let json = JSON.parse(result);
         
-        if (isLockedToSite) {
-          let siteToImport = null;
-          if (json.sites && Array.isArray(json.sites)) {
-            siteToImport = json.sites.find((s: any) => s.id === data.id);
-          } else if (json.id === data.id) {
-            siteToImport = json;
-          }
+        const migrateSite = (site: any) => {
+          if (!site || !site.buildings) return site;
+          const firstB = site.buildings[0];
+          const currentProcesses = firstB?.processes ? Object.keys(firstB.processes) : [];
           
-          if (siteToImport) {
-            if (window.confirm(`'${data.settings.projectName}' 현장의 데이터를 복원하시겠습니까?`)) {
-              setData(siteToImport);
-              setMultiData(prev => ({
-                ...prev,
-                sites: prev.sites.map(s => s.id === data.id ? siteToImport : s)
-              }));
+          if (currentProcesses.length !== DEFAULT_PROCESSES.length || (currentProcesses.length > 0 && currentProcesses[0] !== DEFAULT_PROCESSES[0])) {
+            return {
+              ...site,
+              buildings: site.buildings.map((b: any) => {
+                const newProcesses: Record<string, number> = {};
+                DEFAULT_PROCESSES.forEach(p => {
+                  let val = b.processes[p] ?? 0;
+                  if (val === 0) {
+                    const coreName = p.replace(/^\d+\.\s*/, '');
+                    val = b.processes[coreName] ?? 0;
+                    if (val === 0 && (coreName === "스리브" || coreName === "이중관배관")) {
+                      val = (b.processes as any)["스리브&이중관배관"] ?? 0;
+                    }
+                  }
+                  newProcesses[p] = val;
+                });
+                return { ...b, processes: newProcesses };
+              })
+            };
+          }
+          return site;
+        };
+
+        const isMultiFile = json.sites && Array.isArray(json.sites);
+        const isSingleFile = json.buildings && Array.isArray(json.buildings);
+
+        if (!isMultiFile && !isSingleFile) {
+          alert('올바른 백업 파일 형식이 아닙니다.');
+          return;
+        }
+
+        if (isLockedToSite) {
+          let siteCandidate = null;
+          if (isMultiFile) {
+            siteCandidate = json.sites.find((s: any) => s.id === data.id) || 
+                            json.sites.find((s: any) => s.settings?.projectName === data.settings.projectName);
+            
+            if (!siteCandidate && json.sites.length > 0) {
+              if (window.confirm('파일에서 현재 현장과 일치하는 ID나 이름을 찾을 수 없습니다. 파일의 첫 번째 현장 데이터를 현재 현장에 강제로 복원하시겠습니까?')) {
+                siteCandidate = json.sites[0];
+              }
+            }
+          } else {
+            siteCandidate = json;
+          }
+
+          if (siteCandidate) {
+            const finalSite = { ...migrateSite(siteCandidate), id: data.id };
+            if (window.confirm(`'${data.settings.projectName}' 현장의 데이터를 복원하시겠습니까? 기존 데이터는 삭제됩니다.`)) {
+              setMultiData(prev => {
+                const updatedSites = prev.sites.map(s => s.id === data.id ? finalSite : s);
+                const nextMulti = { ...prev, sites: updatedSites };
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(nextMulti));
+                return nextMulti;
+              });
+              setData(finalSite);
+              if (finalSite.buildings && finalSite.buildings[0]) {
+                setProcesses(Object.keys(finalSite.buildings[0].processes));
+              }
               alert('현장 데이터 복원이 완료되었습니다.');
             }
           } else {
-            alert('현재 현장과 일치하는 데이터를 찾을 수 없습니다.');
+            alert('복원 가능한 현장 데이터를 찾을 수 없습니다.');
           }
         } else {
-          if (json.sites && json.activeSiteId) {
-            if (window.confirm('전체 데이터를 복원하시겠습니까? 기존의 모든 현장 데이터가 교체됩니다.')) {
-              setMultiData(json);
-              const active = json.sites.find((s: any) => s.id === json.activeSiteId) || json.sites[0];
+          if (isMultiFile) {
+            if (window.confirm('전체 현장 데이터를 파일 내용으로 복원하시겠습니까? 기존 모든 데이터가 교체됩니다.')) {
+              const migratedJson = { ...json, sites: json.sites.map(migrateSite) };
+              if (migratedJson.sites.length < 10) {
+                const needed = 10 - migratedJson.sites.length;
+                const additional = Array.from({ length: needed }, (_, i) => createNewSite(`신규 현장 ${migratedJson.sites.length + i + 1}`));
+                migratedJson.sites = [...migratedJson.sites, ...additional];
+              }
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(migratedJson));
+              setMultiData(migratedJson);
+              const active = migratedJson.sites.find((s: any) => s.id === migratedJson.activeSiteId) || migratedJson.sites[0];
               setData(active);
-              localStorage.setItem(STORAGE_KEY, JSON.stringify(json));
+              if (active.buildings && active.buildings[0]) {
+                setProcesses(Object.keys(active.buildings[0].processes));
+              }
               alert('전체 데이터 복원이 완료되었습니다.');
             }
           } else {
-            alert('올바르지 않은 백업 파일 형식입니다.');
+            if (window.confirm('가져온 파일은 단일 현장 데이터입니다. 현재 보고 있는 현장에 이 데이터를 복원하시겠습니까?')) {
+              const finalSite = { ...migrateSite(json), id: data.id };
+              setMultiData(prev => {
+                const updatedSites = prev.sites.map(s => s.id === data.id ? finalSite : s);
+                const nextMulti = { ...prev, sites: updatedSites };
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(nextMulti));
+                return nextMulti;
+              });
+              setData(finalSite);
+              if (finalSite.buildings && finalSite.buildings[0]) {
+                setProcesses(Object.keys(finalSite.buildings[0].processes));
+              }
+              alert('단일 현장 데이터 복원이 완료되었습니다.');
+            }
           }
         }
       } catch (err) {
-        console.error(err);
-        alert('파일을 읽는 중 오류가 발생했습니다.');
+        console.error('Import error:', err);
+        alert('데이터 복원 중 오류가 발생했습니다.');
       }
     };
     reader.readAsText(file);
@@ -747,13 +821,23 @@ export default function App() {
     const name = newProcessName.trim();
     const newProcesses = [...processes, name];
     setProcesses(newProcesses);
-    setData(prev => ({
-      ...prev,
-      buildings: prev.buildings.map(b => ({
-        ...b,
-        processes: { ...b.processes, [name]: 0 }
-      }))
-    }));
+    setData(prev => {
+      const mode = prev.settings.progressMode || 'floor';
+      return {
+        ...prev,
+        settings: {
+          ...prev.settings,
+          processModes: {
+            ...(prev.settings.processModes || {}),
+            [name]: mode
+          }
+        },
+        buildings: prev.buildings.map(b => ({
+          ...b,
+          processes: { ...b.processes, [name]: 0 }
+        }))
+      };
+    });
     setNewProcessName('');
     setNewProcessInput(false);
   };
@@ -768,9 +852,21 @@ export default function App() {
     }
 
     setProcesses(prev => prev.map(p => p === oldName ? trimmedNewName : p));
-    setData(prev => ({
-      ...prev,
-      buildings: prev.buildings.map(b => {
+    setData(prev => {
+      const currentModes = prev.settings.processModes || {};
+      const mode = currentModes[oldName] || prev.settings.progressMode || 'floor';
+      const { [oldName]: _, ...restModes } = currentModes;
+      
+      return {
+        ...prev,
+        settings: {
+          ...prev.settings,
+          processModes: {
+            ...restModes,
+            [trimmedNewName]: mode
+          }
+        },
+        buildings: prev.buildings.map(b => {
         const currentProcesses = b.processes || {};
         const progress = currentProcesses[oldName];
         const { [oldName]: _, ...restProcesses } = currentProcesses;
@@ -795,7 +891,7 @@ export default function App() {
           photos: { ...restPhotos, [trimmedNewName]: photos || [] }
         };
       })
-    }));
+    }; });
   };
 
   const deleteProcess = (name: string | null) => {
@@ -1092,7 +1188,7 @@ export default function App() {
     const minFloor = building?.minFloor !== undefined ? building.minFloor : data.settings.minFloor;
     const maxFloor = building?.maxFloor !== undefined ? building.maxFloor : data.settings.maxFloor;
     
-    if (isNaN(minFloor) || isNaN(maxFloor)) return [1];
+    if (isNaN(minFloor) || isNaN(maxFloor)) return [1, 999];
     
     const floors: number[] = [];
     const min = Math.max(-20, minFloor); // Guard rails
@@ -1101,7 +1197,10 @@ export default function App() {
     for (let i = min; i <= max; i++) {
       if (i !== 0) floors.push(i);
     }
-    return floors.length > 0 ? floors : [1];
+    // Add Roof Floor at the end
+    floors.push(999);
+    
+    return floors.length > 0 ? floors : [1, 999];
   };
 
   const floorToPercent = (floor: number, building?: BuildingData) => {
@@ -1126,15 +1225,37 @@ export default function App() {
   };
 
   const formatFloor = (floor: number) => {
+    if (floor === 999) return "지붕층";
     if (floor < 0) return `지하${Math.abs(floor)}층`;
     return `${floor}층`;
   };
 
-  const getFloorText = (percent: number, building?: BuildingData) => {
+  const getProcessMode = (processName: string) => {
+    if (data.settings.processModes?.[processName]) {
+      return data.settings.processModes[processName];
+    }
+    return data.settings.progressMode || 'floor';
+  };
+
+  const getFloorText = (percent: number, building?: BuildingData, processName?: string) => {
     if (percent === -1) return 'N/A';
     if (percent === 0) return '대기';
-    if (percent === 1) return '진행중';
+    if (percent === 1) return '진행';
     if (percent === 100) return '완료';
+    
+    const mode = processName ? getProcessMode(processName) : (data.settings.progressMode || 'floor');
+    if (mode === 'percent') return `${percent}%`;
+    return formatFloor(percentToFloor(percent, building));
+  };
+
+  const getMaterialText = (percent: number, building?: BuildingData, processName?: string) => {
+    if (percent === -1) return 'N/A';
+    if (percent === 0) return '자재미입고';
+    if (percent === 1) return '진행중';
+    if (percent === 100) return '입고완료';
+    
+    const mode = processName ? getProcessMode(processName) : (data.settings.progressMode || 'floor');
+    if (mode === 'percent') return `${percent}%`;
     return formatFloor(percentToFloor(percent, building));
   };
 
@@ -1565,6 +1686,25 @@ export default function App() {
                       </div>
                       
                       <div className="space-y-1">
+                        <span className="text-xs font-semibold text-slate-400 mb-2 block">공정 입력 모드</span>
+                        <div className="flex gap-2">
+                          {(['floor', 'percent'] as const).map(mode => (
+                            <button 
+                              key={mode}
+                              onClick={() => setData({...data, settings: {...data.settings, progressMode: mode}})}
+                              className={`flex-1 px-3 py-2 rounded-lg text-xs font-bold transition-all border ${
+                                data.settings.progressMode === mode 
+                                  ? 'bg-blue-600 border-blue-600 text-white shadow-lg' 
+                                  : `${activeTheme.border} ${data.settings.theme === 'industrial' ? 'bg-slate-800 text-slate-400' : 'bg-white text-slate-600 hover:bg-slate-50'}`
+                              }`}
+                            >
+                              {mode === 'floor' ? '층수 모드' : '% 모드'}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
                         <span className="text-xs font-semibold text-slate-400 mb-2 block">지하 총 층수 선택</span>
                         <div className="flex flex-wrap gap-2">
                           {[1, 2, 3, 4, 5, 6, 7, 8].map(val => (
@@ -1620,6 +1760,7 @@ export default function App() {
               theme={data.settings.theme} 
               activeTheme={activeTheme} 
               getFloorText={getFloorText}
+              getMaterialText={getMaterialText}
             />
           </motion.div>
         )}
@@ -1647,10 +1788,36 @@ export default function App() {
                   {sortedDisplayProcesses.map((p) => (
                     <th 
                       key={p} 
-                      className={`border-r border-white/20 text-center px-1 py-1 min-w-[80px] group transition-colors`}
+                      className={`border-r border-white/20 text-center px-1 py-1 min-w-[80px] group transition-colors relative`}
                     >
                       <div className="flex flex-col gap-0.5 items-center">
-                        <div className="flex items-center justify-center gap-1 w-full">
+                        <div className="flex items-center justify-center gap-1 w-full relative">
+                          <div className="absolute right-1 -top-1 opacity-0 group-hover:opacity-100 transition-opacity z-10 flex gap-0.5 no-print">
+                            <button 
+                              onClick={() => {
+                                const currentMode = getProcessMode(p);
+                                const nextMode = currentMode === 'floor' ? 'percent' : 'floor';
+                                setData(prev => ({
+                                  ...prev,
+                                  settings: {
+                                    ...prev.settings,
+                                    processModes: {
+                                      ...(prev.settings.processModes || {}),
+                                      [p]: nextMode
+                                    }
+                                  }
+                                }));
+                              }}
+                              className={`p-0.5 rounded text-[7px] font-black uppercase transition-all ${
+                                getProcessMode(p) === 'percent' 
+                                  ? 'bg-blue-600 text-white' 
+                                  : 'bg-white/20 text-white/50 hover:bg-white/30'
+                              }`}
+                              title={getProcessMode(p) === 'floor' ? '층수 모드 (클릭하여 %로 변경)' : '% 모드 (클릭하여 층수로 변경)'}
+                            >
+                              {getProcessMode(p) === 'floor' ? 'F' : '%'}
+                            </button>
+                          </div>
                           <input 
                             type="text" 
                             defaultValue={p} 
@@ -1664,17 +1831,21 @@ export default function App() {
                             className="bg-transparent border-none focus:ring-0 p-0 text-[11px] font-black leading-tight text-center w-full min-w-0"
                           />
                           {role !== 'GUEST' && (
-                            <div className="no-print flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity absolute right-1 top-1">
+                            <div className="no-print flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity absolute right-1 -bottom-4">
                               <button 
                                 onClick={() => {
-                                  const floorStr = prompt(`${p} 공정을 모든 동에 적용할 층수(숫자)를 입력하세요:`);
-                                  if (floorStr !== null && !isNaN(Number(floorStr))) {
-                                    const floor = Number(floorStr);
+                                  const mode = getProcessMode(p);
+                                  const promptMsg = mode === 'percent' 
+                                    ? `${p} 공정을 모든 동에 적용할 진행율(%)을 입력하세요:` 
+                                    : `${p} 공정을 모든 동에 적용할 층수(숫자)를 입력하세요:`;
+                                  const inputStr = prompt(promptMsg);
+                                  if (inputStr !== null && !isNaN(Number(inputStr))) {
+                                    const val = Number(inputStr);
                                     setData(prev => ({
                                       ...prev,
                                       buildings: prev.buildings.map(b => ({
                                         ...b,
-                                        processes: { ...b.processes, [p]: floorToPercent(floor, b) }
+                                        processes: { ...b.processes, [p]: mode === 'percent' ? val : floorToPercent(val, b) }
                                       }))
                                     }));
                                   }
@@ -1800,13 +1971,23 @@ export default function App() {
                               >
                                 <option value={0}>대기</option>
                                 <option value={1}>진행</option>
-                                <option value={-1}>NA</option>
-                                {floors.map(f => (
-                                  <option key={f} value={floorToPercent(f, b)} className={data.settings.theme === 'industrial' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
-                                    {formatFloor(f)}
-                                  </option>
-                                ))}
+                                <option value={-1}>N/A</option>
                                 <option value={100}>완료</option>
+                                {getProcessMode(p) === 'percent' ? (
+                                  <optgroup label="진행율 선택" className={data.settings.theme === 'industrial' ? 'bg-slate-900 text-slate-400' : 'bg-slate-50 text-slate-400'}>
+                                    {[5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95].map(v => (
+                                      <option key={v} value={v} className={data.settings.theme === 'industrial' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>{v}%</option>
+                                    ))}
+                                  </optgroup>
+                                ) : (
+                                  <optgroup label="층수 선택" className={data.settings.theme === 'industrial' ? 'bg-slate-900 text-slate-400' : 'bg-slate-50 text-slate-400'}>
+                                    {floors.map(f => (
+                                      <option key={f} value={floorToPercent(f, b)} className={data.settings.theme === 'industrial' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
+                                        {formatFloor(f)}
+                                      </option>
+                                    ))}
+                                  </optgroup>
+                                )}
                               </select>
                             </div>
                             <div className="flex items-center justify-center gap-0.5 mt-0">
@@ -1852,12 +2033,22 @@ export default function App() {
                                         <option value={0}>자재미입고</option>
                                         <option value={1}>진행중</option>
                                         <option value={-1}>N/A</option>
-                                        {floors.map(f => (
-                                          <option key={f} value={floorToPercent(f, b)} className={data.settings.theme === 'industrial' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
-                                            {formatFloor(f)}
-                                          </option>
-                                        ))}
                                         <option value={100}>입고완료</option>
+                                        {getProcessMode(p) === 'percent' ? (
+                                          <optgroup label="진행율 선택" className={data.settings.theme === 'industrial' ? 'bg-slate-900 text-slate-400' : 'bg-slate-50 text-slate-400'}>
+                                            {[5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95].map(v => (
+                                              <option key={v} value={v} className={data.settings.theme === 'industrial' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>{v}%</option>
+                                            ))}
+                                          </optgroup>
+                                        ) : (
+                                          <optgroup label="층수 선택" className={data.settings.theme === 'industrial' ? 'bg-slate-900 text-slate-400' : 'bg-slate-50 text-slate-400'}>
+                                            {floors.map(f => (
+                                              <option key={f} value={floorToPercent(f, b)} className={data.settings.theme === 'industrial' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
+                                                {formatFloor(f)}
+                                              </option>
+                                            ))}
+                                          </optgroup>
+                                        )}
                                       </select>
                                       <div className={`w-10 h-1.5 rounded-full overflow-hidden ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-100'}`}>
                                         <div className={`h-full transition-all duration-500 ${mProcesses[p] === 100 ? 'bg-amber-500' : 'bg-amber-400/50'}`} style={{ width: `${mProcesses[p] ?? 0}%` }} />
@@ -2080,13 +2271,13 @@ export default function App() {
                                  <div className="flex flex-col items-end gap-0">
                                    <div className="flex items-center gap-1">
                                       <span className="text-[7px] text-slate-400 uppercase">공정</span>
-                                      <span className="text-[9px] font-bold text-slate-400 min-w-[30px]">{getFloorText(progressVal, b)}</span>
+                                      <span className="text-[9px] font-bold text-slate-400 min-w-[30px]">{getFloorText(progressVal, b, p)}</span>
                                    </div>
                                    {materialVal !== 0 && materialVal !== -1 && (
                                      <div className="flex flex-col items-end">
                                        <div className="flex items-center gap-1">
                                           <span className="text-[7px] text-blue-400 uppercase">자재</span>
-                                          <span className="text-[9px] font-bold text-blue-400/70 min-w-[30px]">{getFloorText(materialVal, b)}</span>
+                                          <span className="text-[9px] font-bold text-blue-400/70 min-w-[30px]">{getMaterialText(materialVal, b, p)}</span>
                                        </div>
                                        {materialDate && (
                                           <span className={`text-[7px] font-bold leading-none ${isSoon ? 'text-amber-500 animate-pulse' : 'text-blue-500'}`}>

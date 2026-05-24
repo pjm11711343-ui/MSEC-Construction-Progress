@@ -12,10 +12,11 @@ interface CalendarViewProps {
     border: string;
     text: string;
   };
-  getFloorText: (percent: number, building?: BuildingData) => string;
+  getFloorText: (percent: number, building?: BuildingData, processName?: string) => string;
+  getMaterialText: (percent: number, building?: BuildingData, processName?: string) => string;
 }
 
-export default function CalendarView({ buildings, theme, activeTheme, getFloorText }: CalendarViewProps) {
+export default function CalendarView({ buildings, theme, activeTheme, getFloorText, getMaterialText }: CalendarViewProps) {
   const [currentDate, setCurrentDate] = useState(new Date());
 
   // Aggregate all delivery events
@@ -26,7 +27,7 @@ export default function CalendarView({ buildings, theme, activeTheme, getFloorTe
         if (date) {
           if (!events[date]) events[date] = [];
           const progress = b.materialProcesses?.[proc] ?? 0;
-          const floor = getFloorText(progress, b);
+          const floor = getMaterialText(progress, b, proc);
           events[date].push({ building: b.name, proc, floor });
         }
       });
