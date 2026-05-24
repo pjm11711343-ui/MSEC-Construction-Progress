@@ -839,15 +839,25 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ projectData: data }),
       });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        let errorJson;
+        try {
+          errorJson = JSON.parse(errorText);
+        } catch (e) {
+          throw new Error(`서버 오류 (${response.status}): ${errorText.substring(0, 50)}`);
+        }
+        throw new Error(errorJson.error || `서버 오류 (${response.status})`);
+      }
+
       const result = await response.json();
       if (result.diagnosis) {
         setData(prev => ({ ...prev, aiDiagnosis: result.diagnosis }));
-      } else if (result.error) {
-        alert(result.error);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("AI Diagnosis failed:", error);
-      alert("AI 진단 요청에 실패했습니다.");
+      alert(error.message || "AI 진단 요청에 실패했습니다.");
     } finally {
       setIsDiagnosing(false);
     }
@@ -1522,14 +1532,16 @@ export default function App() {
           )}
         </AnimatePresence>
         <div className="max-w-[1600px] mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3 shrink-0">
             <div className={`${activeTheme.accent} p-2 rounded-lg text-white ${data.settings.theme === 'industrial' ? 'text-black' : ''}`}>
-              <Construction className="w-6 h-6" />
+              <Construction className="w-5 h-5" />
             </div>
-            <div>
-              <h1 className={`font-black text-lg leading-tight uppercase tracking-tight ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'}`}>{data.settings.projectName}</h1>
-              <div className="flex items-center gap-2 mt-1">
-                <p className="text-slate-400 text-[10px] font-medium uppercase tracking-wider">{data.settings.companyName}</p>
+            <div className="min-w-0">
+              <h1 className={`font-black text-base leading-tight uppercase tracking-tight truncate whitespace-nowrap ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'}`} style={{ maxWidth: '280px' }}>
+                {data.settings.projectName}
+              </h1>
+              <div className="flex items-center gap-2 mt-0.5">
+                <p className="text-slate-400 text-[9px] font-medium uppercase tracking-wider truncate">{data.settings.companyName}</p>
                 <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700">
                   <Calendar className="w-3 h-3 text-blue-500" />
                   <input 
@@ -1543,19 +1555,19 @@ export default function App() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-              <div className={`flex items-center gap-1 ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-100'} rounded-lg p-1 mr-4 border ${activeTheme.border}`}>
-                <div className="flex items-center px-2 py-1 gap-2 border-r border-slate-300 dark:border-slate-700">
-                  <Building2 className={`w-3.5 h-3.5 ${activeTheme.text}`} />
+          <div className="flex items-center gap-1.5 overflow-hidden">
+              <div className={`flex items-center gap-0.5 ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-100'} rounded-lg p-0.5 mr-2 border ${activeTheme.border} shrink-0`}>
+                <div className="flex items-center px-1.5 py-1 gap-1.5 border-r border-slate-300 dark:border-slate-700">
+                  <Building2 className={`w-3 h-3 ${activeTheme.text}`} />
                   {isLockedToSite && role !== 'ADMIN' ? (
-                    <div className={`text-[11px] font-black ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'} px-1`}>
+                    <div className={`text-[10px] font-black ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'} px-1 max-w-[150px] truncate`}>
                       {data.settings.projectName}
                     </div>
                   ) : (
                     <select 
                       value={data.id} 
                       onChange={(e) => switchSite(e.target.value)}
-                      className={`bg-transparent text-[11px] font-black border-none focus:ring-0 cursor-pointer appearance-none ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'}`}
+                      className={`bg-transparent text-[10px] font-black border-none focus:ring-0 cursor-pointer appearance-none ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'}`}
                     >
                       {multiData.sites.map(s => (
                         <option key={s.id} value={s.id} className={data.settings.theme === 'industrial' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
@@ -1608,61 +1620,61 @@ export default function App() {
                 </div>
               </div>
               
-              <div className={`flex ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-100'} rounded-lg p-1 mr-4`}>
+              <div className={`flex ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-100'} rounded-lg p-0.5 mr-2 shrink-0`}>
               <button 
                 onClick={() => setViewMode('table')}
-                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${viewMode === 'table' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
+                className={`px-2.5 py-1.5 rounded-md text-[11px] font-bold transition-all ${viewMode === 'table' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
               >
                 공정표
               </button>
               <button 
                 onClick={() => setViewMode('grid')}
-                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${viewMode === 'grid' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
+                className={`px-2.5 py-1.5 rounded-md text-[11px] font-bold transition-all ${viewMode === 'grid' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
               >
                 요약 대시보드
               </button>
               <button 
                 onClick={() => setViewMode('calendar')}
-                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${viewMode === 'calendar' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
+                className={`px-2.5 py-1.5 rounded-md text-[11px] font-bold transition-all ${viewMode === 'calendar' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
               >
                 자재 입고 달력
               </button>
               <button 
                 onClick={() => setViewMode('daily_report')}
-                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${viewMode === 'daily_report' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
+                className={`px-2.5 py-1.5 rounded-md text-[11px] font-bold transition-all ${viewMode === 'daily_report' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
               >
                 현장 일보
               </button>
               <button 
                 onClick={() => setViewMode('gantt')}
-                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${viewMode === 'gantt' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
+                className={`px-2.5 py-1.5 rounded-md text-[11px] font-bold transition-all ${viewMode === 'gantt' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
               >
                 간트 차트
               </button>
               <button 
                 onClick={() => setViewMode('analytics')}
-                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${viewMode === 'analytics' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
+                className={`px-2.5 py-1.5 rounded-md text-[11px] font-bold transition-all ${viewMode === 'analytics' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
               >
                 분석 리포트
               </button>
               {(role === 'ADMIN' || role === 'FIELD') && (
                 <button 
                   onClick={() => setViewMode('settings')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${viewMode === 'settings' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
+                  className={`px-2.5 py-1.5 rounded-md text-[11px] font-bold transition-all ${viewMode === 'settings' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
                 >
-                  {role === 'ADMIN' ? '프로젝트 설정' : '현장 비밀번호 변경'}
+                  {role === 'ADMIN' ? '프로젝트 설정' : '비밀번호 변경'}
                 </button>
               )}
             </div>
 
-            <div className={`flex items-center gap-2 mr-4 border-r pr-4 ${activeTheme.border} no-print text-[10px]`}>
+            <div className={`flex items-center gap-1.5 mr-2 border-r pr-2 ${activeTheme.border} no-print text-[10px] shrink-0`}>
                {role === 'ADMIN' && (
                  <button 
                   onClick={() => setIsEditMode(!isEditMode)}
-                  className={`flex items-center gap-1.5 font-bold px-3 py-1 rounded-full transition-all hover:scale-105 active:scale-95 ${isEditMode ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+                  className={`flex items-center gap-1 font-bold px-2.5 py-1 rounded-full transition-all hover:scale-105 active:scale-95 ${isEditMode ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
                  >
-                  <SettingsIcon className={`w-3 h-3 ${isEditMode ? 'animate-spin-slow' : ''}`} />
-                  {isEditMode ? '수정 중...' : '수정모드'}
+                  <SettingsIcon className={`w-2.5 h-2.5 ${isEditMode ? 'animate-spin-slow' : ''}`} />
+                  {isEditMode ? '수정 중' : '수정'}
                 </button>
                )}
                {!isLockedToSite && (

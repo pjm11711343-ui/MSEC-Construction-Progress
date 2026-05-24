@@ -81,14 +81,16 @@ app.post("/api/diagnosis", async (req, res) => {
       마크다운(Markdown)을 사용하여 가독성 있게 구조화해 주세요.
     `;
 
-    console.log("Sending diagnosis request to Gemini...");
+    console.log("Sending diagnosis request to Gemini with model gemini-flash-latest...");
     const response = await genAI.models.generateContent({
-      model: "gemini-3.5-flash", 
+      model: "gemini-flash-latest", 
       contents: prompt,
     });
 
+    console.log("Gemini response received");
     if (!response || !response.text) {
-      throw new Error("Empty response from Gemini");
+      console.error("Empty or invalid response from Gemini:", JSON.stringify(response));
+      throw new Error("Gemini API에서 유효한 응답을 받지 못했습니다.");
     }
 
     res.json({ diagnosis: response.text });
