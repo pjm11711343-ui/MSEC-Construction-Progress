@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Plus, 
@@ -9,7 +9,11 @@ import {
   Calendar as CalendarIcon,
   ChevronLeft,
   ChevronRight,
-  ClipboardList
+  ClipboardList,
+  RefreshCw,
+  Wind,
+  Droplets,
+  Sun
 } from 'lucide-react';
 import { DailyReport, AppTheme } from '../types';
 
@@ -19,10 +23,12 @@ interface DailyReportViewProps {
   onDeleteReport: (date: string) => void;
   theme: AppTheme;
   activeTheme: any;
+  location?: string;
 }
 
-export default function DailyReportView({ reports, onAddReport, onDeleteReport, theme, activeTheme }: DailyReportViewProps) {
+export default function DailyReportView({ reports, onAddReport, onDeleteReport, theme, activeTheme, location }: DailyReportViewProps) {
   const [isAdding, setIsAdding] = useState(false);
+  const [isFetchingWeather, setIsFetchingWeather] = useState(false);
   const [newReport, setNewReport] = useState<DailyReport>({
     date: new Date().toISOString().split('T')[0],
     weather: '맑음',
@@ -31,6 +37,44 @@ export default function DailyReportView({ reports, onAddReport, onDeleteReport, 
   });
 
   const sortedReports = [...reports].sort((a, b) => b.date.localeCompare(a.date));
+
+  const fetchWeather = async () => {
+    if (!location) return;
+    setIsFetchingWeather(true);
+    try {
+      // Use internal proxy to avoid CORS issues
+      const response = await fetch(`/api/weather?location=${encodeURIComponent(location)}`);
+      if (!response.ok) throw new Error('Failed to fetch weather');
+      const data = await response.json();
+      
+      const current = data.current_condition[0];
+      const weatherDesc = current.lang_ko ? current.lang_ko[0].value : current.weatherDesc[0].value;
+      const temp = current.temp_C;
+      
+      // Map to friendly Korean names
+      let koreanWeather = weatherDesc;
+      if (weatherDesc.toLowerCase().includes('sunny') || weatherDesc.toLowerCase().includes('clear')) koreanWeather = '맑음';
+      else if (weatherDesc.toLowerCase().includes('cloudy') || weatherDesc.toLowerCase().includes('overcast')) koreanWeather = '흐림';
+      else if (weatherDesc.toLowerCase().includes('rain')) koreanWeather = '비';
+      else if (weatherDesc.toLowerCase().includes('snow')) koreanWeather = '눈';
+      else if (weatherDesc.toLowerCase().includes('mist') || weatherDesc.toLowerCase().includes('fog')) koreanWeather = '안개';
+
+      setNewReport(prev => ({
+        ...prev,
+        weather: `${koreanWeather} (${temp}°C)`
+      }));
+    } catch (error) {
+      console.error('Weather fetch error:', error);
+    } finally {
+      setIsFetchingWeather(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isAdding && location) {
+      fetchWeather();
+    }
+  }, [isAdding, location]);
 
   const handleAdd = () => {
     if (!newReport.date || !newReport.notes) return;
@@ -146,19 +190,35 @@ export default function DailyReportView({ reports, onAddReport, onDeleteReport, 
                     className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 font-bold"
                   />
                 </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase">현장 날씨</label>
-                  <select 
-                    value={newReport.weather} 
-                    onChange={e => setNewReport({...newReport, weather: e.target.value})}
-                    className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 font-bold"
-                  >
-                    <option>맑음</option>
-                    <option>흐림</option>
-                    <option>비</option>
-                    <option>눈</option>
-                    <option>강풍</option>
-                  </select>
+                <div className="space-y-2 relative">
+                  <label className="text-xs font-black text-slate-400 uppercase flex items-center justify-between">
+                    <span>현장 날씨</span>
+                    {location && (
+                      <button 
+                        onClick={fetchWeather}
+                        disabled={isFetchingWeather}
+                        className="text-[10px] text-blue-500 hover:text-blue-600 font-bold flex items-center gap-1 transition-all disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-2.5 h-2.5 ${isFetchingWeather ? 'animate-spin' : ''}`} />
+                        날씨 업데이트
+                      </button>
+                    )}
+                  </label>
+                  <div className="relative">
+                    <input 
+                      type="text"
+                      value={newReport.weather}
+                      onChange={e => setNewReport({...newReport, weather: e.target.value})}
+                      placeholder="날씨 입력 (예: 맑음, 25°C)"
+                      className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 font-bold pr-12"
+                    />
+                    <div className="absolute right-4 top-1/2 -translate-y-1/2">
+                      <CloudSun className={`w-5 h-5 text-slate-300`} />
+                    </div>
+                  </div>
+                  {!location && (
+                    <p className="text-[10px] text-slate-400 mt-1 font-medium">관리자 설정에서 현장 위치를 설정하면 날씨를 자동으로 가져옵니다.</p>
+                  )}
                 </div>
               </div>
 

@@ -58,6 +58,11 @@ export interface ProjectSettings {
   tableSpacing?: number;
   headerColor?: string;
   textColor?: string;
+  sitePassword?: string;
+  location?: string;
+  endDate?: string;
+  stairwellCount?: number;
+  unitCount?: number;
 }
 
 export interface ProgressSnapshot {
@@ -86,6 +91,7 @@ export interface AppState {
   };
   history?: ProgressSnapshot[];
   dailyReports?: DailyReport[];
+  processSchedules?: Record<string, { startOffset: number; duration: number }>;
   dashboardNotes?: string;
   aiDiagnosis?: string;
 }

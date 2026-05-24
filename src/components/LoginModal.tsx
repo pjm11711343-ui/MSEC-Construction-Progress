@@ -28,6 +28,16 @@ export default function LoginModal({ onLogin }: LoginModalProps) {
     }
   };
 
+  const selectRole = (role: UserRole) => {
+    if (role === 'FIELD') {
+      onLogin('FIELD');
+    } else {
+      setSelectedRole('ADMIN');
+      setPassword('');
+      setError('');
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <motion.div 
@@ -37,13 +47,13 @@ export default function LoginModal({ onLogin }: LoginModalProps) {
       >
         <div className="bg-slate-900 p-8 text-white text-center">
           <h2 className="text-2xl font-bold tracking-tight">현장 관리 시스템</h2>
-          <p className="text-slate-400 mt-2 text-sm">접속 권한을 선택하고 비밀번호를 입력하세요.</p>
+          <p className="text-slate-400 mt-2 text-sm">접속 권한을 선택하세요.</p>
         </div>
 
         <div className="p-8 space-y-6">
           <div className="grid grid-cols-2 gap-4">
             <button
-              onClick={() => setSelectedRole('ADMIN')}
+              onClick={() => selectRole('ADMIN')}
               className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${
                 selectedRole === 'ADMIN' 
                   ? 'border-blue-600 bg-blue-50 text-blue-700' 
@@ -54,26 +64,23 @@ export default function LoginModal({ onLogin }: LoginModalProps) {
               <span className="font-semibold text-sm">관리자 모드</span>
             </button>
             <button
-              onClick={() => setSelectedRole('FIELD')}
-              className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${
-                selectedRole === 'FIELD' 
-                  ? 'border-blue-600 bg-blue-50 text-blue-700' 
-                  : 'border-slate-100 hover:border-slate-200 text-slate-500'
-              }`}
+              onClick={() => selectRole('FIELD')}
+              className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 hover:border-blue-600 hover:bg-blue-50 group`}
             >
-              <User className="w-8 h-8" />
-              <span className="font-semibold text-sm">현장 모드</span>
+              <User className="w-8 h-8 group-hover:text-blue-600" />
+              <span className="font-semibold text-sm group-hover:text-blue-700">현장 모드</span>
             </button>
           </div>
 
           <AnimatePresence>
-            {selectedRole && (
+            {selectedRole === 'ADMIN' && (
               <motion.div
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
                 exit={{ opacity: 0, height: 0 }}
-                className="space-y-4"
+                className="space-y-4 pt-4 border-t border-slate-100"
               >
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">관리자 비밀번호 입력</p>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                   <input

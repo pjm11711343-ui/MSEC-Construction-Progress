@@ -29,7 +29,8 @@ import {
   AlertTriangle,
   Link as LinkIcon,
   ClipboardList,
-  CloudSun
+  CloudSun,
+  Lock
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -49,7 +50,9 @@ import {
 import LoginModal from './components/LoginModal';
 import CalendarView from './components/CalendarView';
 import DailyReportView from './components/DailyReportView';
+import GanttView from './components/GanttView';
 import GalleryModal from './components/GalleryModal';
+import SiteSelector from './components/SiteSelector';
 import ReactMarkdown from 'react-markdown';
 import { 
   Sparkles, 
@@ -91,7 +94,10 @@ const createNewSite = (name: string): AppState => ({
     fontSize: 12,
     tableSpacing: 4,
     headerColor: '',
-    textColor: ''
+    textColor: '',
+    endDate: new Date(new Date().setFullYear(new Date().getFullYear() + 2)).toISOString().split('T')[0],
+    stairwellCount: 1,
+    unitCount: 500
   },
   buildings: Array.from({ length: 10 }, (_, i) => ({
     id: i + 1,
@@ -112,7 +118,8 @@ const createNewSite = (name: string): AppState => ({
     managerSigned: false
   },
   history: [],
-  dailyReports: []
+  dailyReports: [],
+  processSchedules: DEFAULT_PROCESSES.reduce((acc, p, i) => ({ ...acc, [p]: { startOffset: i * 7, duration: 30 } }), {})
 });
 
 export default function App() {
@@ -125,7 +132,7 @@ export default function App() {
   const [storageState, setStorageState] = useState<AppState>(createNewSite('스마트 아파트 현장'));
   const setData = setStorageState;
   const [processes, setProcesses] = useState<string[]>(DEFAULT_PROCESSES);
-  const [viewMode, setViewMode] = useState<'grid' | 'table' | 'settings' | 'analytics' | 'calendar' | 'daily_report'>('table');
+  const [viewMode, setViewMode] = useState<'grid' | 'table' | 'settings' | 'analytics' | 'calendar' | 'daily_report' | 'gantt'>('table');
   const [viewDate, setViewDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [isAutoSaving, setIsAutoSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -134,6 +141,7 @@ export default function App() {
   const [isAddingSite, setIsAddingSite] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [newSiteName, setNewSiteName] = useState('');
+  const [newSitePassword, setNewSitePassword] = useState('');
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [isCopied, setIsCopied] = useState(false);
   const [isLockedToSite, setIsLockedToSite] = useState(false);
@@ -149,6 +157,7 @@ export default function App() {
   const [isDiagnosing, setIsDiagnosing] = useState(false);
   const [trash, setTrash] = useState<any[]>([]);
   const [showTrash, setShowTrash] = useState(false);
+  const [siteAuthenticatedId, setSiteAuthenticatedId] = useState<string | null>(null);
 
   const checkStorageUsage = () => {
     try {
@@ -413,6 +422,9 @@ export default function App() {
   const addNewSite = () => {
     if (!newSiteName.trim()) return;
     const newSite = createNewSite(newSiteName);
+    if (newSitePassword.trim()) {
+      newSite.settings.sitePassword = newSitePassword.trim();
+    }
     setMultiData(prev => {
       const nextMulti = {
         ...prev,
@@ -427,6 +439,7 @@ export default function App() {
     setViewMode('table');
     setIsAddingSite(false);
     setNewSiteName('');
+    setNewSitePassword('');
     setIsLockedToSite(false);
     
     // Update URL
@@ -1263,6 +1276,92 @@ export default function App() {
     return <LoginModal onLogin={setRole} />;
   }
 
+  if (role === 'FIELD' && siteAuthenticatedId !== data.id) {
+    // 1. Initial State: No site authenticated yet (and not a direct link)
+    if (!siteAuthenticatedId && !isLockedToSite) {
+      return (
+        <SiteSelector 
+          sites={multiData.sites} 
+          onSelect={(site, password) => {
+            if (!site.settings.sitePassword || site.settings.sitePassword === password) {
+              switchSite(site.id);
+              setSiteAuthenticatedId(site.id);
+              return true;
+            }
+            return false;
+          }} 
+        />
+      );
+    }
+
+    // 2. Switched State or Locked Site: Must authenticate for SPECIFIC 'data'
+    if (!data.settings.sitePassword) {
+      // Auto-authenticate if no password
+      setSiteAuthenticatedId(data.id);
+      return null;
+    }
+
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden"
+        >
+          <div className="bg-slate-900 p-8 text-white">
+            <div className="flex justify-between items-center mb-6">
+              <div className="p-3 bg-white/10 rounded-2xl w-fit">
+                <Lock className="w-6 h-6" />
+              </div>
+              {!isLockedToSite && (
+                <button 
+                  onClick={() => setSiteAuthenticatedId(null)}
+                  className="text-[10px] uppercase font-bold text-white/40 hover:text-white transition-colors"
+                >
+                  현장 목록으로
+                </button>
+              )}
+            </div>
+            <h2 className="text-xl font-black">{data.settings.projectName}</h2>
+            <p className="text-white/50 text-sm mt-1">현장 보안을 위해 비밀번호를 입력해 주세요.</p>
+          </div>
+          <div className="p-8 space-y-4">
+            <div className="space-y-2">
+              <input 
+                type="password"
+                placeholder="비밀번호 입력"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    if (e.currentTarget.value === data.settings.sitePassword) {
+                      setSiteAuthenticatedId(data.id);
+                    } else {
+                      alert('비밀번호가 일치하지 않습니다.');
+                    }
+                  }
+                }}
+                className="w-full px-6 py-4 rounded-2xl bg-slate-50 border border-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-center text-xl tracking-widest font-bold"
+              />
+            </div>
+            <button 
+              onClick={(e) => {
+                const input = e.currentTarget.parentElement?.querySelector('input') as HTMLInputElement;
+                if (input && input.value === data.settings.sitePassword) {
+                  setSiteAuthenticatedId(data.id);
+                } else {
+                  alert('비밀번호가 일치하지 않습니다.');
+                }
+              }}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-4 rounded-2xl transition-all shadow-xl shadow-blue-500/20 active:scale-[0.98]"
+            >
+              현장 접속하기
+            </button>
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
+
   return (
     <div className={`min-h-screen ${activeTheme.bg} transition-colors duration-500`}>
       {/* Header */}
@@ -1412,13 +1511,22 @@ export default function App() {
                     >
                       {multiData.sites.map(s => (
                         <option key={s.id} value={s.id} className={data.settings.theme === 'industrial' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
-                          {s.settings.projectName}
+                          {s.settings.projectName} {role === 'ADMIN' && s.settings.sitePassword ? `[PW: ${s.settings.sitePassword}]` : ''}
                         </option>
                       ))}
                     </select>
                   )}
                 </div>
                 <div className="flex items-center gap-1 px-1">
+                  {role === 'FIELD' && !isLockedToSite && (
+                    <button 
+                      onClick={() => setSiteAuthenticatedId(null)}
+                      className={`p-1.5 hover:bg-white dark:hover:bg-slate-700 rounded-md transition-all group`}
+                      title="현장 목록으로 돌아가기"
+                    >
+                      <LayoutGrid className={`w-3.5 h-3.5 ${activeTheme.text}`} />
+                    </button>
+                  )}
                   <button 
                     onClick={copySiteLink}
                     className={`p-1.5 hover:bg-white dark:hover:bg-slate-700 rounded-md transition-all group relative`}
@@ -1478,17 +1586,23 @@ export default function App() {
                 현장 일보
               </button>
               <button 
+                onClick={() => setViewMode('gantt')}
+                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${viewMode === 'gantt' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                간트 차트
+              </button>
+              <button 
                 onClick={() => setViewMode('analytics')}
                 className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${viewMode === 'analytics' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
               >
                 분석 리포트
               </button>
-              {role === 'ADMIN' && (
+              {(role === 'ADMIN' || role === 'FIELD') && (
                 <button 
                   onClick={() => setViewMode('settings')}
                   className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${viewMode === 'settings' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
                 >
-                  프로젝트 설정
+                  {role === 'ADMIN' ? '프로젝트 설정' : '현장 비밀번호 변경'}
                 </button>
               )}
             </div>
@@ -1505,7 +1619,11 @@ export default function App() {
                )}
                {!isLockedToSite && (
                  <button 
-                  onClick={() => setRole(role === 'ADMIN' ? 'FIELD' : 'ADMIN')}
+                  onClick={() => {
+                    const nextRole = role === 'ADMIN' ? 'FIELD' : 'ADMIN';
+                    setRole(nextRole);
+                    if (nextRole === 'FIELD') setSiteAuthenticatedId(null);
+                  }}
                   className={`flex items-center gap-1.5 font-bold px-3 py-1 rounded-full transition-all hover:scale-105 active:scale-95 ${role === 'ADMIN' ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'}`}
                  >
                   {role === 'ADMIN' ? <ShieldCheck className="w-3 h-3" /> : <User className="w-3 h-3" />}
@@ -1527,7 +1645,7 @@ export default function App() {
             <button onClick={() => window.print()} className={`p-2 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors ${data.settings.theme === 'industrial' ? 'hover:bg-slate-800' : ''}`} title="인쇄">
               <Printer className="w-5 h-5" />
             </button>
-            <button onClick={() => setRole(null)} className="p-2 hover:bg-red-50 rounded-lg text-red-500 transition-colors" title="로그아웃">
+            <button onClick={() => { setRole(null); setSiteAuthenticatedId(null); }} className="p-2 hover:bg-red-50 rounded-lg text-red-500 transition-colors" title="로그아웃">
               <LogOut className="w-5 h-5" />
             </button>
           </div>
@@ -1600,7 +1718,7 @@ export default function App() {
         </div>
 
         <AnimatePresence mode="wait">
-          {viewMode === 'settings' && role === 'ADMIN' && (
+          {viewMode === 'settings' && (
             <motion.div
               key="settings"
               initial={{ opacity: 0, y: 10 }}
@@ -1611,137 +1729,177 @@ export default function App() {
               <div className={`${activeTheme.card} rounded-2xl shadow-sm border ${activeTheme.border} p-8 space-y-8`}>
              <div className={`flex items-center gap-2 mb-6 ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'}`}>
                 <SettingsIcon className={`w-6 h-6 ${activeTheme.text}`} />
-                <h2 className="text-xl font-bold">프로젝트 설정</h2>
+                <h2 className="text-xl font-bold">{role === 'ADMIN' ? '프로젝트 설정' : '현장 보안 설정'}</h2>
              </div>
 
              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                 <div className="space-y-4">
-                   <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">기본 정보</h3>
+                   <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">{role === 'ADMIN' ? '기본 정보' : '비밀번호 설정'}</h3>
                    <div className="space-y-3">
-                      <label className="block">
-                        <span className="text-xs font-semibold text-slate-400 mb-1 block">현장명</span>
-                        <input type="text" value={data.settings.projectName} onChange={e => setData({...data, settings: {...data.settings, projectName: e.target.value}})} className={`w-full px-3 py-2 rounded-lg border ${activeTheme.border} text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none ${data.settings.theme === 'industrial' ? 'bg-slate-800 text-white' : 'bg-white'}`} />
-                      </label>
-                      <label className="block">
-                        <span className="text-xs font-semibold text-slate-400 mb-1 block">업체명</span>
-                        <input type="text" value={data.settings.companyName} onChange={e => setData({...data, settings: {...data.settings, companyName: e.target.value}})} className={`w-full px-3 py-2 rounded-lg border ${activeTheme.border} text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none ${data.settings.theme === 'industrial' ? 'bg-slate-800 text-white' : 'bg-white'}`} />
-                      </label>
-                   </div>
-                </div>
-
-                <div className="space-y-4">
-                   <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">디자인 & 공용시설</h3>
-                   <div className="grid grid-cols-2 gap-2 mb-4">
-                     {(['slate', 'blueprint', 'industrial', 'earth'] as const).map(t => (
-                       <button key={t} onClick={() => setData({...data, settings: {...data.settings, theme: t}})} className={`p-3 rounded-xl border-2 transition-all flex flex-col items-center gap-1.5 ${data.settings.theme === t ? `border-blue-600 bg-blue-50` : `${activeTheme.border} hover:bg-slate-50`}`}>
-                         <div className={`w-8 h-8 rounded-full border-2 border-white ${THEMES[t].accent}`} />
-                         <span className="text-[10px] font-bold uppercase tracking-widest">{t}</span>
-                       </button>
-                     ))}
-                   </div>
-                   <div className="space-y-2 max-h-[150px] overflow-y-auto pr-2 custom-scrollbar">
-                        {data.facilities.map(f => (
-                          <div key={f.id} className={`flex items-center justify-between ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-50'} p-2 rounded-lg group`}>
-                            <span className="text-sm font-medium">{f.name}</span>
-                            <button onClick={() => deleteFacility(f.id)} className="text-slate-400 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"><Trash2 className="w-4 h-4" /></button>
+                      {role === 'ADMIN' && (
+                        <>
+                          <label className="block">
+                            <span className="text-xs font-semibold text-slate-400 mb-1 block">현장명</span>
+                            <input type="text" value={data.settings.projectName} onChange={e => setData({...data, settings: {...data.settings, projectName: e.target.value}})} className={`w-full px-3 py-2 rounded-lg border ${activeTheme.border} text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none ${data.settings.theme === 'industrial' ? 'bg-slate-800 text-white' : 'bg-white'}`} />
+                          </label>
+                          <label className="block">
+                            <span className="text-xs font-semibold text-slate-400 mb-1 block">업체명</span>
+                            <input type="text" value={data.settings.companyName} onChange={e => setData({...data, settings: {...data.settings, companyName: e.target.value}})} className={`w-full px-3 py-2 rounded-lg border ${activeTheme.border} text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none ${data.settings.theme === 'industrial' ? 'bg-slate-800 text-white' : 'bg-white'}`} />
+                          </label>
+                          <div className="grid grid-cols-2 gap-3">
+                            <label className="block">
+                              <span className="text-xs font-semibold text-slate-400 mb-1 block">착공일</span>
+                              <input type="date" value={data.settings.startDate} onChange={e => setData({...data, settings: {...data.settings, startDate: e.target.value}})} className={`w-full px-3 py-2 rounded-lg border ${activeTheme.border} text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none ${data.settings.theme === 'industrial' ? 'bg-slate-800 text-white' : 'bg-white'}`} />
+                            </label>
+                            <label className="block">
+                              <span className="text-xs font-semibold text-slate-400 mb-1 block">준공일</span>
+                              <input type="date" value={data.settings.endDate || ''} onChange={e => setData({...data, settings: {...data.settings, endDate: e.target.value}})} className={`w-full px-3 py-2 rounded-lg border ${activeTheme.border} text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none ${data.settings.theme === 'industrial' ? 'bg-slate-800 text-white' : 'bg-white'}`} />
+                            </label>
                           </div>
-                        ))}
-                      </div>
-                      <div className="flex gap-2">
-                        <input id="facilityInput" type="text" placeholder="시설 추가..." className={`flex-1 px-3 py-1.5 rounded-lg border ${activeTheme.border} text-sm ${data.settings.theme === 'industrial' ? 'bg-slate-900 text-white' : 'bg-white'}`} />
-                        <button onClick={() => { const input = document.getElementById('facilityInput') as HTMLInputElement; if (input.value) { addFacility(input.value); input.value = ''; } }} className={`${activeTheme.button} text-white p-2 rounded-lg transition-colors`}><Plus className="w-4 h-4" /></button>
-                      </div>
-                </div>
-
-                <div className="space-y-4">
-                   <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">현장 규모 & 서명</h3>
-                   <div className="grid grid-cols-1 gap-4 mb-4">
-                      <div className="grid grid-cols-2 gap-4">
+                          <div className="grid grid-cols-2 gap-3">
+                            <label className="block">
+                              <span className="text-xs font-semibold text-slate-400 mb-1 block">1개층 계단홀수</span>
+                              <input type="number" value={data.settings.stairwellCount || 0} onChange={e => setData({...data, settings: {...data.settings, stairwellCount: parseInt(e.target.value) || 0}})} className={`w-full px-3 py-2 rounded-lg border ${activeTheme.border} text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none ${data.settings.theme === 'industrial' ? 'bg-slate-800 text-white' : 'bg-white'}`} />
+                            </label>
+                            <label className="block">
+                              <span className="text-xs font-semibold text-slate-400 mb-1 block">전체 세대수</span>
+                              <input type="number" value={data.settings.unitCount || 0} onChange={e => setData({...data, settings: {...data.settings, unitCount: parseInt(e.target.value) || 0}})} className={`w-full px-3 py-2 rounded-lg border ${activeTheme.border} text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none ${data.settings.theme === 'industrial' ? 'bg-slate-800 text-white' : 'bg-white'}`} />
+                            </label>
+                          </div>
+                        </>
+                      )}
+                      <label className="block">
+                        <span className="text-xs font-semibold text-slate-400 mb-1 block">{role === 'ADMIN' ? '현장 접속 비밀번호' : '현장 접속 비밀번호 변경'}</span>
+                        <input type="text" value={data.settings.sitePassword || ''} onChange={e => setData({...data, settings: {...data.settings, sitePassword: e.target.value}})} placeholder="설정 안 함" className={`w-full px-3 py-2 rounded-lg border ${activeTheme.border} text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none ${data.settings.theme === 'industrial' ? 'bg-slate-800 text-white' : 'bg-white'}`} />
+                        <p className="text-[10px] text-slate-400 mt-1">현장 모드 접속 시 요구되는 비밀번호입니다.</p>
+                      </label>
+                      {role === 'ADMIN' && (
                         <label className="block">
-                          <span className="text-xs font-semibold text-slate-400 mb-1 block">동수</span>
-                          <input 
-                            type="text" 
-                            value={data.settings.buildingCount || ''} 
-                            onChange={e => {
-                              const val = e.target.value;
-                              if (val === '') {
-                                handleUpdateBuildingCount(0);
-                              } else if (/^\d+$/.test(val)) {
-                                handleUpdateBuildingCount(Number(val));
-                              }
-                            }}
-                            className={`w-full px-3 py-2 rounded-lg border ${activeTheme.border} text-sm ${data.settings.theme === 'industrial' ? 'bg-slate-800 text-white' : 'bg-white'}`} 
-                          />
+                          <span className="text-xs font-semibold text-slate-400 mb-1 block">현장 위치 (도시명)</span>
+                          <input type="text" value={data.settings.location || ''} onChange={e => setData({...data, settings: {...data.settings, location: e.target.value}})} placeholder="예: Seoul, Busan 등" className={`w-full px-3 py-2 rounded-lg border ${activeTheme.border} text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none ${data.settings.theme === 'industrial' ? 'bg-slate-800 text-white' : 'bg-white'}`} />
+                          <p className="text-[10px] text-slate-400 mt-1">날씨 정보를 자동으로 가져오기 위한 도시 이름입니다.</p>
                         </label>
-                        <label className="block">
-                          <span className="text-xs font-semibold text-slate-400 mb-1 block">지상 최고층</span>
-                          <input 
-                            type="number" 
-                            min="1"
-                            value={data.settings.maxFloor} 
-                            onChange={e => setData({...data, settings: {...data.settings, maxFloor: Number(e.target.value)}})}
-                            className={`w-full px-3 py-2 rounded-lg border ${activeTheme.border} text-sm ${data.settings.theme === 'industrial' ? 'bg-slate-800 text-white' : 'bg-white'}`} 
-                          />
-                        </label>
-                      </div>
-                      
-                      <div className="space-y-1">
-                        <span className="text-xs font-semibold text-slate-400 mb-2 block">공정 입력 모드</span>
-                        <div className="flex gap-2">
-                          {(['floor', 'percent'] as const).map(mode => (
-                            <button 
-                              key={mode}
-                              onClick={() => setData({...data, settings: {...data.settings, progressMode: mode}})}
-                              className={`flex-1 px-3 py-2 rounded-lg text-xs font-bold transition-all border ${
-                                data.settings.progressMode === mode 
-                                  ? 'bg-blue-600 border-blue-600 text-white shadow-lg' 
-                                  : `${activeTheme.border} ${data.settings.theme === 'industrial' ? 'bg-slate-800 text-slate-400' : 'bg-white text-slate-600 hover:bg-slate-50'}`
-                              }`}
-                            >
-                              {mode === 'floor' ? '층수 모드' : '% 모드'}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="space-y-1">
-                        <span className="text-xs font-semibold text-slate-400 mb-2 block">지하 총 층수 선택</span>
-                        <div className="flex flex-wrap gap-2">
-                          {[1, 2, 3, 4, 5, 6, 7, 8].map(val => (
-                            <button 
-                              key={val}
-                              onClick={() => setData({...data, settings: {...data.settings, minFloor: -val}})}
-                              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
-                                Math.abs(data.settings.minFloor) === val && data.settings.minFloor !== 0
-                                  ? `${activeTheme.accent} text-white border-transparent` 
-                                  : `${activeTheme.border} ${data.settings.theme === 'industrial' ? 'bg-slate-800 text-slate-400' : 'bg-white text-slate-600'}`
-                              }`}
-                            >
-                              지하 {val}층
-                            </button>
-                          ))}
-                          <button 
-                            onClick={() => setData({...data, settings: {...data.settings, minFloor: 0}})}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
-                              data.settings.minFloor === 0 
-                                ? `${activeTheme.accent} text-white border-transparent` 
-                                : `${activeTheme.border} ${data.settings.theme === 'industrial' ? 'bg-slate-800 text-slate-400' : 'bg-white text-slate-600'}`
-                            }`}
-                          >
-                            지상전용
-                          </button>
-                        </div>
-                      </div>
-                   </div>
-                   <div className="space-y-2">
-                      <label className="block"><input type="text" value={data.settings.staffName} onChange={e => setData({...data, settings: {...data.settings, staffName: e.target.value}})} placeholder="공무 성함" className={`w-full px-3 py-2 rounded-lg border ${activeTheme.border} text-sm ${data.settings.theme === 'industrial' ? 'bg-slate-800 text-white' : 'bg-white'}`} /></label>
-                      <label className="block"><input type="text" value={data.settings.managerName} onChange={e => setData({...data, settings: {...data.settings, managerName: e.target.value}})} placeholder="소장 성함" className={`w-full px-3 py-2 rounded-lg border ${activeTheme.border} text-sm ${data.settings.theme === 'industrial' ? 'bg-slate-800 text-white' : 'bg-white'}`} /></label>
-                      <div className="flex gap-2 pt-2">
-                        <button onClick={() => handleSign('staff')} className={`flex-1 py-2 rounded-lg text-[10px] font-bold ${data.approval.staffSigned ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'}`}>공무서명</button>
-                        <button onClick={() => handleSign('manager')} className={`flex-1 py-2 rounded-lg text-[10px] font-bold ${data.approval.managerSigned ? 'bg-red-600 text-white' : 'bg-slate-100 text-slate-500'}`}>소장서명</button>
-                      </div>
+                      )}
                    </div>
                 </div>
+
+                {role === 'ADMIN' && (
+                  <>
+                    <div className="space-y-4">
+                       <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">디자인 & 공용시설</h3>
+                       <div className="grid grid-cols-2 gap-2 mb-4">
+                         {(['slate', 'blueprint', 'industrial', 'earth'] as const).map(t => (
+                           <button key={t} onClick={() => setData({...data, settings: {...data.settings, theme: t}})} className={`p-3 rounded-xl border-2 transition-all flex flex-col items-center gap-1.5 ${data.settings.theme === t ? `border-blue-600 bg-blue-50` : `${activeTheme.border} hover:bg-slate-50`}`}>
+                             <div className={`w-8 h-8 rounded-full border-2 border-white ${THEMES[t].accent}`} />
+                             <span className="text-[10px] font-bold uppercase tracking-widest">{t}</span>
+                           </button>
+                         ))}
+                       </div>
+                       <div className="space-y-2 max-h-[150px] overflow-y-auto pr-2 custom-scrollbar">
+                            {data.facilities.map(f => (
+                              <div key={f.id} className={`flex items-center justify-between ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-50'} p-2 rounded-lg group`}>
+                                <span className="text-sm font-medium">{f.name}</span>
+                                <button onClick={() => deleteFacility(f.id)} className="text-slate-400 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"><Trash2 className="w-4 h-4" /></button>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="flex gap-2">
+                            <input id="facilityInput" type="text" placeholder="시설 추가..." className={`flex-1 px-3 py-1.5 rounded-lg border ${activeTheme.border} text-sm ${data.settings.theme === 'industrial' ? 'bg-slate-900 text-white' : 'bg-white'}`} />
+                            <button onClick={() => { const input = document.getElementById('facilityInput') as HTMLInputElement; if (input.value) { addFacility(input.value); input.value = ''; } }} className={`${activeTheme.button} text-white p-2 rounded-lg transition-colors`}><Plus className="w-4 h-4" /></button>
+                          </div>
+                    </div>
+
+                    <div className="space-y-4">
+                       <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">현장 규모 & 서명</h3>
+                       <div className="grid grid-cols-1 gap-4 mb-4">
+                          <div className="grid grid-cols-2 gap-4">
+                            <label className="block">
+                              <span className="text-xs font-semibold text-slate-400 mb-1 block">동수</span>
+                              <input 
+                                type="text" 
+                                value={data.settings.buildingCount || ''} 
+                                onChange={e => {
+                                  const val = e.target.value;
+                                  if (val === '') {
+                                    handleUpdateBuildingCount(0);
+                                  } else if (/^\d+$/.test(val)) {
+                                    handleUpdateBuildingCount(Number(val));
+                                  }
+                                }}
+                                className={`w-full px-3 py-2 rounded-lg border ${activeTheme.border} text-sm ${data.settings.theme === 'industrial' ? 'bg-slate-800 text-white' : 'bg-white'}`} 
+                              />
+                            </label>
+                            <label className="block">
+                              <span className="text-xs font-semibold text-slate-400 mb-1 block">지상 최고층</span>
+                              <input 
+                                type="number" 
+                                min="1"
+                                value={data.settings.maxFloor} 
+                                onChange={e => setData({...data, settings: {...data.settings, maxFloor: Number(e.target.value)}})}
+                                className={`w-full px-3 py-2 rounded-lg border ${activeTheme.border} text-sm ${data.settings.theme === 'industrial' ? 'bg-slate-800 text-white' : 'bg-white'}`} 
+                              />
+                            </label>
+                          </div>
+                          
+                          <div className="space-y-1">
+                            <span className="text-xs font-semibold text-slate-400 mb-2 block">공정 입력 모드</span>
+                            <div className="flex gap-2">
+                              {(['floor', 'percent'] as const).map(mode => (
+                                <button 
+                                  key={mode}
+                                  onClick={() => setData({...data, settings: {...data.settings, progressMode: mode}})}
+                                  className={`flex-1 px-3 py-2 rounded-lg text-xs font-bold transition-all border ${
+                                    data.settings.progressMode === mode 
+                                      ? 'bg-blue-600 border-blue-600 text-white shadow-lg' 
+                                      : `${activeTheme.border} ${data.settings.theme === 'industrial' ? 'bg-slate-800 text-slate-400' : 'bg-white text-slate-600 hover:bg-slate-50'}`
+                                  }`}
+                                >
+                                  {mode === 'floor' ? '층수 모드' : '% 모드'}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="space-y-1">
+                            <span className="text-xs font-semibold text-slate-400 mb-2 block">지하 총 층수 선택</span>
+                            <div className="flex flex-wrap gap-2">
+                              {[1, 2, 3, 4, 5, 6, 7, 8].map(val => (
+                                <button 
+                                  key={val}
+                                  onClick={() => setData({...data, settings: {...data.settings, minFloor: -val}})}
+                                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
+                                    Math.abs(data.settings.minFloor) === val && data.settings.minFloor !== 0
+                                      ? `${activeTheme.accent} text-white border-transparent` 
+                                      : `${activeTheme.border} ${data.settings.theme === 'industrial' ? 'bg-slate-800 text-slate-400' : 'bg-white text-slate-600'}`
+                                  }`}
+                                >
+                                  지하 {val}층
+                                </button>
+                              ))}
+                              <button 
+                                onClick={() => setData({...data, settings: {...data.settings, minFloor: 0}})}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
+                                  data.settings.minFloor === 0 
+                                    ? `${activeTheme.accent} text-white border-transparent` 
+                                    : `${activeTheme.border} ${data.settings.theme === 'industrial' ? 'bg-slate-800 text-slate-400' : 'bg-white text-slate-600'}`
+                                }`}
+                              >
+                                지상전용
+                              </button>
+                            </div>
+                          </div>
+                       </div>
+                       <div className="space-y-2">
+                          <label className="block"><input type="text" value={data.settings.staffName} onChange={e => setData({...data, settings: {...data.settings, staffName: e.target.value}})} placeholder="공무 성함" className={`w-full px-3 py-2 rounded-lg border ${activeTheme.border} text-sm ${data.settings.theme === 'industrial' ? 'bg-slate-800 text-white' : 'bg-white'}`} /></label>
+                          <label className="block"><input type="text" value={data.settings.managerName} onChange={e => setData({...data, settings: {...data.settings, managerName: e.target.value}})} placeholder="소장 성함" className={`w-full px-3 py-2 rounded-lg border ${activeTheme.border} text-sm ${data.settings.theme === 'industrial' ? 'bg-slate-800 text-white' : 'bg-white'}`} /></label>
+                          <div className="flex gap-2 pt-2">
+                            <button onClick={() => handleSign('staff')} className={`flex-1 py-2 rounded-lg text-[10px] font-bold ${data.approval.staffSigned ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'}`}>공무서명</button>
+                            <button onClick={() => handleSign('manager')} className={`flex-1 py-2 rounded-lg text-[10px] font-bold ${data.approval.managerSigned ? 'bg-red-600 text-white' : 'bg-slate-100 text-slate-500'}`}>소장서명</button>
+                          </div>
+                       </div>
+                    </div>
+                  </>
+                )}
              </div>
           </div>
           </motion.div>
@@ -2639,6 +2797,43 @@ export default function App() {
           </motion.div>
         )}
 
+        {viewMode === 'gantt' && (
+          <motion.div
+            key="gantt"
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -20 }}
+          >
+            <GanttView 
+              processes={processes}
+              schedules={data.processSchedules || {}}
+              onUpdateSchedule={(p, start, dur) => {
+                setData(prev => ({
+                  ...prev,
+                  processSchedules: {
+                    ...(prev.processSchedules || {}),
+                    [p]: { startOffset: start, duration: dur }
+                  }
+                }));
+              }}
+              startDate={data.settings.startDate}
+              endDate={data.settings.endDate}
+              stairwellCount={data.settings.stairwellCount}
+              unitCount={data.settings.unitCount}
+              projectName={data.settings.projectName}
+              companyName={data.settings.companyName}
+              theme={data.settings.theme}
+              activeTheme={activeTheme}
+              role={role || 'GUEST'}
+              buildingProgress={processes.reduce((acc, p) => {
+                const values = data.buildings.map(b => b.processes[p] || 0);
+                acc[p] = values.length > 0 ? Math.round(values.reduce((a, b) => a + b, 0) / values.length) : 0;
+                return acc;
+              }, {} as Record<string, number>)}
+            />
+          </motion.div>
+        )}
+
         {viewMode === 'daily_report' && (
           <motion.div
             key="daily_report"
@@ -2653,6 +2848,7 @@ export default function App() {
               onDeleteReport={handleDeleteDailyReport}
               theme={data.settings.theme}
               activeTheme={activeTheme}
+              location={data.settings.location}
             />
           </motion.div>
         )}
@@ -2698,9 +2894,16 @@ export default function App() {
               <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="bg-white dark:bg-slate-900 p-8 rounded-3xl shadow-2xl max-w-md w-full space-y-6">
                 <h3 className="text-xl font-black uppercase tracking-tight italic">New Site Add</h3>
                 <div className="space-y-4">
-                  <input autoFocus placeholder="현장 이름을 입력하세요..." value={newSiteName} onChange={e => setNewSiteName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addNewSite()} className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-bold" />
-                  <div className="flex gap-3">
-                    <button onClick={() => { setIsAddingSite(false); setNewSiteName(''); }} className="flex-1 bg-slate-100 dark:bg-slate-800 text-slate-500 py-3 rounded-xl font-bold">취소</button>
+                  <div className="space-y-2">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase ml-1">현장 명칭</span>
+                    <input autoFocus placeholder="현장 이름을 입력하세요..." value={newSiteName} onChange={e => setNewSiteName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addNewSite()} className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-bold" />
+                  </div>
+                  <div className="space-y-2">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase ml-1">접속 비밀번호 (선택사항)</span>
+                    <input type="text" placeholder="비밀번호를 입력하세요 (생략 시 무인증)" value={newSitePassword} onChange={e => setNewSitePassword(e.target.value)} onKeyDown={e => e.key === 'Enter' && addNewSite()} className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-bold" />
+                  </div>
+                  <div className="flex gap-3 pt-2">
+                    <button onClick={() => { setIsAddingSite(false); setNewSiteName(''); setNewSitePassword(''); }} className="flex-1 bg-slate-100 dark:bg-slate-800 text-slate-500 py-3 rounded-xl font-bold">취소</button>
                     <button onClick={addNewSite} className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-bold">현장 생성</button>
                   </div>
                 </div>

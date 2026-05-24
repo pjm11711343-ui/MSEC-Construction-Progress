@@ -22,6 +22,28 @@ const genAI = new GoogleGenAI({
 });
 
 // API routes
+app.get("/api/weather", async (req, res) => {
+  const { location } = req.query;
+  if (!location) {
+    return res.status(400).json({ error: "Location is required" });
+  }
+
+  try {
+    const weatherUrl = `https://wttr.in/${encodeURIComponent(location as string)}?format=j1`;
+    const response = await fetch(weatherUrl);
+    
+    if (!response.ok) {
+      throw new Error(`Weather API responded with status: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    res.json(data);
+  } catch (error: any) {
+    console.error("Weather Proxy Error:", error);
+    res.status(500).json({ error: "날씨 정보를 가져오는 데 실패했습니다." });
+  }
+});
+
 app.post("/api/diagnosis", async (req, res) => {
   try {
     const { projectData } = req.body;
