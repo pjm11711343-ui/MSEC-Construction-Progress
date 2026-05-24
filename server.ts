@@ -22,6 +22,10 @@ const genAI = new GoogleGenAI({
 });
 
 // API routes
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", env: process.env.NODE_ENV, timestamp: new Date().toISOString() });
+});
+
 app.get("/api/weather", async (req, res) => {
   const { location } = req.query;
   if (!location) {
@@ -45,8 +49,10 @@ app.get("/api/weather", async (req, res) => {
 });
 
 app.post("/api/diagnosis", async (req, res) => {
+  console.log("POST /api/diagnosis received");
   try {
     const { projectData } = req.body;
+    console.log("Project name:", projectData?.settings?.projectName);
     
     if (!process.env.GEMINI_API_KEY) {
       console.error("Missing GEMINI_API_KEY environment variable");
@@ -106,6 +112,7 @@ app.post("/api/diagnosis", async (req, res) => {
 
     try {
       const parsed = JSON.parse(resultText);
+      console.log("Successfully parsed Gemini response");
       res.json({ 
         diagnosis: parsed.diagnosis,
         risks: parsed.risks || [],

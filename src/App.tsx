@@ -834,8 +834,12 @@ export default function App() {
     if (isDiagnosing) return;
     setIsDiagnosing(true);
     try {
+      // Server connectivity check
+      try {
+        await fetch('/api/health').then(r => r.json()).then(d => console.log("Health OK:", d)).catch(e => console.warn("Health fail:", e));
+      } catch (e) {}
+
       const url = '/api/diagnosis';
-      console.log(`Launching AI Diagnosis request to: ${window.location.origin}${url}`);
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -843,6 +847,9 @@ export default function App() {
       });
       
       if (!response.ok) {
+        if (response.status === 404) {
+          throw new Error("서버에서 진단 기능을 찾을 수 없습니다 (404). 현재 환경이 백엔드를 지원하는지 확인해 주세요.");
+        }
         const errorText = await response.text();
         let errorJson;
         try {
@@ -864,12 +871,7 @@ export default function App() {
       }
     } catch (error: any) {
       console.error("AI Diagnosis failed:", error);
-      // Detailed error logging for debugging
-      if (error.message.includes('404')) {
-        alert("서버 연결에 실패했습니다 (404). 관리자에게 문의하거나 현재 접속한 환경이 서버를 지원하는지 확인해 주세요.");
-      } else {
-        alert(error.message || "AI 진단 요청에 실패했습니다.");
-      }
+      alert(error.message || "AI 진단 요청에 실패했습니다.");
     } finally {
       setIsDiagnosing(false);
     }
