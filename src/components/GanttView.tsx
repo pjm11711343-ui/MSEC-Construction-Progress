@@ -9,14 +9,19 @@ import {
   CheckCircle2,
   Building2,
   Hash,
-  ArrowRightLeft
+  ArrowRightLeft,
+  Flag,
+  Plus,
+  Trash2
 } from 'lucide-react';
-import { AppTheme, UserRole } from '../types';
+import { AppTheme, UserRole, Milestone } from '../types';
 
 interface GanttViewProps {
   processes: string[];
   schedules: Record<string, { startOffset: number; duration: number }>;
   onUpdateSchedule: (processName: string, startOffset: number, duration: number) => void;
+  milestones: Milestone[];
+  onUpdateMilestones: (milestones: Milestone[]) => void;
   startDate: string;
   endDate?: string;
   stairwellCount?: number;
@@ -33,6 +38,8 @@ export default function GanttView({
   processes, 
   schedules, 
   onUpdateSchedule, 
+  milestones,
+  onUpdateMilestones,
   startDate, 
   endDate,
   stairwellCount,
@@ -46,6 +53,7 @@ export default function GanttView({
 }: GanttViewProps) {
   const [viewRange, setViewRange] = useState({ start: 0, weeks: 12 });
   const [editingProcess, setEditingProcess] = useState<string | null>(null);
+  const [isManagingMilestones, setIsManagingMilestones] = useState(false);
 
   const projectStart = useMemo(() => new Date(startDate), [startDate]);
 
@@ -146,6 +154,14 @@ export default function GanttView({
         
         <div className="flex items-center gap-2 bg-white dark:bg-slate-800 p-1.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
             <button 
+                onClick={() => setIsManagingMilestones(true)}
+                className="flex items-center gap-2 px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors text-xs font-black"
+            >
+                <Flag className="w-4 h-4 text-orange-500" />
+                마일스톤 관리
+            </button>
+            <div className="w-px h-6 bg-slate-200 dark:bg-slate-700" />
+            <button 
                 onClick={() => setViewRange(prev => ({ ...prev, start: Math.max(0, prev.start - 14) }))}
                 className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
             >
@@ -185,7 +201,41 @@ export default function GanttView({
             </div>
 
             {/* Gantt Rows */}
-            <div className="divide-y divide-slate-100 dark:divide-slate-800">
+            <div className="divide-y divide-slate-100 dark:divide-slate-800 relative">
+              {/* Milestone Lines */}
+              <div className="absolute inset-0 pointer-events-none">
+                <div className="flex h-full">
+                  <div className="w-64 flex-shrink-0" /> {/* Sidebar spacer */}
+                  <div className="flex-1 relative">
+                    {milestones.map((m) => {
+                      const mDate = new Date(m.date);
+                      const diff = Math.floor((mDate.getTime() - projectStart.getTime()) / (24 * 60 * 60 * 1000));
+                      
+                      const viewStart = viewRange.start;
+                      const viewEnd = viewRange.start + viewRange.weeks * 7;
+                      
+                      if (diff < viewStart || diff > viewEnd) return null;
+                      
+                      const leftPercent = (diff - viewStart) / (viewRange.weeks * 7) * 100;
+                      
+                      return (
+                        <div 
+                          key={m.id}
+                          className="absolute top-0 bottom-0 border-l-2 border-dashed border-orange-500/50 z-20"
+                          style={{ left: `${leftPercent}%` }}
+                        >
+                          <div className="absolute top-0 transform -translate-x-1/2 -translate-y-full pb-1">
+                            <div className="bg-orange-500 text-white text-[8px] font-black px-1.5 py-0.5 rounded shadow-lg whitespace-nowrap">
+                              {m.name}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
               {processes.map((p) => {
                 const schedule = schedules[p] || { startOffset: 0, duration: 30 };
                 const progress = buildingProgress[p] || 0;
@@ -297,6 +347,95 @@ export default function GanttView({
               <button 
                 onClick={() => setEditingProcess(null)}
                 className={`w-full ${activeTheme.button} text-white font-black py-4 rounded-2xl transition-all shadow-xl`}
+              >
+                닫기
+              </button>
+            </motion.div>
+          </div>
+        )}
+
+        {isManagingMilestones && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl p-8 max-w-md w-full space-y-6"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-black">마일스톤 관리</h3>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Project Milestones</p>
+                </div>
+                <button 
+                  onClick={() => setIsManagingMilestones(false)}
+                  className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
+                >
+                  <Trash2 className="w-5 h-5 text-slate-400" />
+                </button>
+              </div>
+
+              <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+                {milestones.length === 0 && (
+                  <div className="text-center py-8 text-slate-400">
+                    <Flag className="w-12 h-12 mx-auto mb-2 opacity-20" />
+                    <p className="text-xs font-bold">등록된 마일스톤이 없습니다.</p>
+                  </div>
+                )}
+                {milestones.map((m) => (
+                  <div key={m.id} className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800 p-3 rounded-xl group">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-black truncate">{m.name}</div>
+                      <div className="text-[10px] text-slate-500 font-bold">{m.date}</div>
+                    </div>
+                    <button 
+                      onClick={() => onUpdateMilestones(milestones.filter(x => x.id !== m.id))}
+                      className="p-2 text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl space-y-3">
+                <div className="text-[10px] font-black text-slate-400 uppercase">새 마일스톤 추가</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <input 
+                    id="newMilestoneName"
+                    type="text" 
+                    placeholder="마일스톤 명칭"
+                    className="w-full bg-white dark:bg-slate-900 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-bold"
+                  />
+                  <input 
+                    id="newMilestoneDate"
+                    type="date" 
+                    className="w-full bg-white dark:bg-slate-900 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-bold"
+                  />
+                </div>
+                <button 
+                  onClick={() => {
+                    const nameInput = document.getElementById('newMilestoneName') as HTMLInputElement;
+                    const dateInput = document.getElementById('newMilestoneDate') as HTMLInputElement;
+                    if (nameInput.value && dateInput.value) {
+                      onUpdateMilestones([
+                        ...milestones, 
+                        { id: Math.random().toString(36).substr(2, 9), name: nameInput.value, date: dateInput.value }
+                      ]);
+                      nameInput.value = '';
+                      dateInput.value = '';
+                    }
+                  }}
+                  className={`w-full ${activeTheme.button} text-white font-black py-2 rounded-xl text-xs flex items-center justify-center gap-2`}
+                >
+                  <Plus className="w-4 h-4" />
+                  추가하기
+                </button>
+              </div>
+
+              <button 
+                onClick={() => setIsManagingMilestones(false)}
+                className={`w-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-black py-4 rounded-2xl transition-all shadow-xl`}
               >
                 닫기
               </button>

@@ -119,7 +119,8 @@ const createNewSite = (name: string): AppState => ({
   },
   history: [],
   dailyReports: [],
-  processSchedules: DEFAULT_PROCESSES.reduce((acc, p, i) => ({ ...acc, [p]: { startOffset: i * 7, duration: 30 } }), {})
+  processSchedules: DEFAULT_PROCESSES.reduce((acc, p, i) => ({ ...acc, [p]: { startOffset: i * 7, duration: 30 } }), {}),
+  milestones: []
 });
 
 export default function App() {
@@ -2825,6 +2826,8 @@ export default function App() {
               theme={data.settings.theme}
               activeTheme={activeTheme}
               role={role || 'GUEST'}
+              milestones={data.milestones || []}
+              onUpdateMilestones={(m) => setData(prev => ({ ...prev, milestones: m }))}
               buildingProgress={processes.reduce((acc, p) => {
                 const values = data.buildings.map(b => b.processes[p] || 0);
                 acc[p] = values.length > 0 ? Math.round(values.reduce((a, b) => a + b, 0) / values.length) : 0;

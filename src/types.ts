@@ -79,6 +79,13 @@ export interface DailyReport {
   notes: string;
 }
 
+export interface Milestone {
+  id: string;
+  name: string;
+  date: string;
+  color?: string;
+}
+
 export interface AppState {
   id: string; // Site ID
   settings: ProjectSettings;
@@ -92,6 +99,7 @@ export interface AppState {
   history?: ProgressSnapshot[];
   dailyReports?: DailyReport[];
   processSchedules?: Record<string, { startOffset: number; duration: number }>;
+  milestones?: Milestone[];
   dashboardNotes?: string;
   aiDiagnosis?: string;
 }
