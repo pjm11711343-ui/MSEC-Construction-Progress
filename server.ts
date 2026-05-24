@@ -142,6 +142,80 @@ app.post("/api/diagnosis", async (req, res) => {
   }
 });
 
+app.post("/api/extract-progress", async (req, res) => {
+  console.log("POST /api/extract-progress received");
+  try {
+    const { image, mimeType } = req.body;
+    
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(500).json({ error: "Gemini API key is not configured." });
+    }
+
+    if (!image) {
+      return res.status(400).json({ error: "Image data is required" });
+    }
+
+    const prompt = `
+      건설 현장의 공정표(엑셀 스크린샷 등) 이미지를 분석하여 동별, 공종별 진행 상태를 정밀하게 추출해 주세요.
+      
+      [분석 지침]
+      1. 이미지에서 '동'(예: 101동, 107동)과 '공종'(예: 건축골조, HOIST, 스리브, 위생배관 등)을 식별하십시오.
+      2. 각 셀의 값(예: 완료, 27층, 12층, 지붕층, 미정 등)을 분석하여 숫자로 변환하십시오.
+         - '완료' 또는 '100%' -> 100
+         - '#층' -> 해당 층수 (예: '27층' -> 27)
+         - '지붕층' -> 프로젝트의 최대 층수(보통 29) 또는 높은 단계로 간주
+         - '#.#완료' -> (예: '0.2완료') -> 층수 0.2 또는 직접적인 값
+         - '미정' 또는 빈 칸 -> 0
+      3. 추출된 데이터를 반드시 아래 JSON 구조로 응답하십시오.
+      
+      [응답 형식]
+      {
+        "buildings": [
+          {
+            "name": "101동",
+            "processes": {
+              "건축골조": 27,
+              "HOIST": 100,
+              "스리브": 100,
+              "위생배관": 100,
+              ...
+            }
+          },
+          ...
+        ]
+      }
+      
+      참고: 이미지의 텍스트가 정확하지 않을 수 있으니 문맥상 가장 적절한 공종명과 동번호를 선택하십시오.
+    `;
+
+    console.log("Sending extraction request to Gemini...");
+    const response = await genAI.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: {
+        parts: [
+          { inlineData: { mimeType: mimeType || "image/png", data: image } },
+          { text: prompt }
+        ]
+      },
+      config: {
+        responseMimeType: "application/json",
+      }
+    });
+
+    const resultText = response.text;
+    if (!resultText) {
+      throw new Error("Gemini API에서 추출 결과를 받지 못했습니다.");
+    }
+
+    const parsed = JSON.parse(resultText);
+    res.json(parsed);
+
+  } catch (error: any) {
+    console.error("AI Extraction Error:", error);
+    res.status(500).json({ error: error.message || "공정 추출 중 오류가 발생했습니다." });
+  }
+});
+
 // API 404 handler
 app.all("/api/*", (req, res) => {
   res.status(404).json({ 

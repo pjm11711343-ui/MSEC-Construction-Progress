@@ -223,9 +223,11 @@ export default function App() {
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
   const [hoveredProgress, setHoveredProgress] = useState<{ buildingId: number, processName: string, x: number, y: number } | null>(null);
   const [isDiagnosing, setIsDiagnosing] = useState(false);
+  const [isExtracting, setIsExtracting] = useState(false);
   const [trash, setTrash] = useState<any[]>([]);
   const [showTrash, setShowTrash] = useState(false);
   const [siteAuthenticatedId, setSiteAuthenticatedId] = useState<string | null>(null);
+  const captureInputRef = useRef<HTMLInputElement>(null);
 
   const checkStorageUsage = () => {
     try {
@@ -859,8 +861,7 @@ export default function App() {
         if (response.status === 404) {
           throw new Error(`진단 API를 찾을 수 없습니다 (404). 
 호출 URL: ${apiUrl}
-서버 응답: ${errorData.error || 'N/A'}
-환경: ${import.meta.env.MODE}`);
+서버 응답: ${errorData.error || 'N/A'}`);
         }
         throw new Error(errorData.error || `서버 오류 (${response.status})`);
       }
@@ -879,6 +880,74 @@ export default function App() {
       alert(error.message || "AI 진단 요청에 실패했습니다.");
     } finally {
       setIsDiagnosing(false);
+    }
+  };
+
+  const handleExtractFromImage = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setIsExtracting(true);
+    try {
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve) => {
+        reader.onload = (e) => {
+          const result = e.target?.result as string;
+          resolve(result.split(',')[1]); // Only base64 data
+        };
+        reader.readAsDataURL(file);
+      });
+
+      const base64 = await base64Promise;
+      const apiUrl = new URL('/api/extract-progress', window.location.origin).href;
+      
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          image: base64,
+          mimeType: file.type 
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`추출 실패: ${errorText}`);
+      }
+
+      const result = await response.json();
+      
+      if (result.buildings && Array.isArray(result.buildings)) {
+        if (window.confirm(`${result.buildings.length}개 동의 공정 데이터를 자동 업데이트하시겠습니까?`)) {
+          setData(prev => ({
+            ...prev,
+            buildings: prev.buildings.map(b => {
+              const aiBuilding = result.buildings.find((ab: any) => 
+                ab.name === b.name || ab.name.includes(b.name) || b.name.includes(ab.name)
+              );
+              if (aiBuilding && aiBuilding.processes) {
+                return {
+                  ...b,
+                  processes: {
+                    ...b.processes,
+                    ...aiBuilding.processes
+                  }
+                };
+              }
+              return b;
+            })
+          }));
+          alert('공정표가 성공적으로 업데이트되었습니다.');
+        }
+      } else {
+        throw new Error("이미지에서 유효한 공정 데이터를 찾을 수 없습니다.");
+      }
+    } catch (error: any) {
+      console.error("AI Extraction failed:", error);
+      alert(error.message || "공정 추출 중 오류가 발생했습니다.");
+    } finally {
+      setIsExtracting(false);
+      if (event.target) event.target.value = '';
     }
   };
 
@@ -2916,6 +2985,35 @@ export default function App() {
                       onChange={handleImportData} 
                       className="hidden" 
                       accept=".json"
+                    />
+                  </div>
+
+                  <div className={`p-6 rounded-2xl border ${activeTheme.border} ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-50'} space-y-3`}>
+                    <div className="flex items-center gap-3 mb-2">
+                       <div className="p-2 bg-indigo-100 text-indigo-600 rounded-lg">
+                        <ImageIcon className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-sm">AI 공정표 자동 업데이트</h4>
+                        <p className="text-[10px] text-slate-400 font-medium">
+                          액셀 공정표 캡처 이미지를 올리면 자동으로 데이터를 입력합니다.
+                        </p>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => captureInputRef.current?.click()}
+                      disabled={isExtracting}
+                      className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-2"
+                    >
+                      {isExtracting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                      {isExtracting ? '이미지 분석 중...' : '엑셀 캡처 이미지 업로드'}
+                    </button>
+                    <input 
+                      type="file" 
+                      ref={captureInputRef} 
+                      onChange={handleExtractFromImage} 
+                      className="hidden" 
+                      accept="image/*"
                     />
                   </div>
                 </div>
