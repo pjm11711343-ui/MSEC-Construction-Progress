@@ -834,7 +834,9 @@ export default function App() {
     if (isDiagnosing) return;
     setIsDiagnosing(true);
     try {
-      const response = await fetch('/api/diagnosis', {
+      const url = '/api/diagnosis';
+      console.log(`Launching AI Diagnosis request to: ${window.location.origin}${url}`);
+      const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ projectData: data }),
@@ -853,11 +855,21 @@ export default function App() {
 
       const result = await response.json();
       if (result.diagnosis) {
-        setData(prev => ({ ...prev, aiDiagnosis: result.diagnosis }));
+        setData(prev => ({ 
+          ...prev, 
+          aiDiagnosis: result.diagnosis,
+          aiRisks: result.risks || [],
+          aiActions: result.actions || []
+        }));
       }
     } catch (error: any) {
       console.error("AI Diagnosis failed:", error);
-      alert(error.message || "AI 진단 요청에 실패했습니다.");
+      // Detailed error logging for debugging
+      if (error.message.includes('404')) {
+        alert("서버 연결에 실패했습니다 (404). 관리자에게 문의하거나 현재 접속한 환경이 서버를 지원하는지 확인해 주세요.");
+      } else {
+        alert(error.message || "AI 진단 요청에 실패했습니다.");
+      }
     } finally {
       setIsDiagnosing(false);
     }
@@ -1531,43 +1543,43 @@ export default function App() {
             </motion.div>
           )}
         </AnimatePresence>
-        <div className="max-w-[1600px] mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3 shrink-0">
-            <div className={`${activeTheme.accent} p-2 rounded-lg text-white ${data.settings.theme === 'industrial' ? 'text-black' : ''}`}>
-              <Construction className="w-5 h-5" />
+        <div className="max-w-[1600px] mx-auto px-4 h-16 flex items-center justify-between gap-2 overflow-hidden">
+          <div className="flex items-center gap-2.5 shrink-0 min-w-0">
+            <div className={`${activeTheme.accent} p-1.5 rounded-lg text-white shrink-0 ${data.settings.theme === 'industrial' ? 'text-black' : ''}`}>
+              <Construction className="w-4.5 h-4.5" />
             </div>
-            <div className="min-w-0">
-              <h1 className={`font-black text-base leading-tight uppercase tracking-tight truncate whitespace-nowrap ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'}`} style={{ maxWidth: '280px' }}>
+            <div className="min-w-0 flex flex-col justify-center">
+              <h1 className={`font-black text-sm leading-tight uppercase tracking-tight truncate ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'}`} style={{ maxWidth: '240px' }}>
                 {data.settings.projectName}
               </h1>
-              <div className="flex items-center gap-2 mt-0.5">
-                <p className="text-slate-400 text-[9px] font-medium uppercase tracking-wider truncate">{data.settings.companyName}</p>
-                <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700">
-                  <Calendar className="w-3 h-3 text-blue-500" />
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className="text-slate-400 text-[8px] font-bold uppercase tracking-wider truncate max-w-[80px]">{data.settings.companyName}</span>
+                <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded border border-slate-200 dark:border-slate-700 shrink-0">
+                  <Calendar className="w-2.5 h-2.5 text-blue-500" />
                   <input 
                     type="date" 
                     value={viewDate}
                     onChange={(e) => setViewDate(e.target.value)}
-                    className="bg-transparent border-none p-0 text-[10px] font-black focus:ring-0 cursor-pointer text-slate-600 dark:text-slate-300"
+                    className="bg-transparent border-none p-0 text-[8px] font-black focus:ring-0 cursor-pointer text-slate-600 dark:text-slate-300"
                   />
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 overflow-hidden">
-              <div className={`flex items-center gap-0.5 ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-100'} rounded-lg p-0.5 mr-2 border ${activeTheme.border} shrink-0`}>
-                <div className="flex items-center px-1.5 py-1 gap-1.5 border-r border-slate-300 dark:border-slate-700">
-                  <Building2 className={`w-3 h-3 ${activeTheme.text}`} />
+          <div className="flex items-center justify-end gap-1 overflow-hidden flex-1">
+              <div className={`flex items-center gap-0.5 ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-100'} rounded-lg p-0.5 mr-1 border ${activeTheme.border} shrink-0`}>
+                <div className="flex items-center px-1.5 py-1 gap-1 border-r border-slate-300 dark:border-slate-700 max-w-[200px]">
+                  <Building2 className={`w-3 h-3 ${activeTheme.text} shrink-0`} />
                   {isLockedToSite && role !== 'ADMIN' ? (
-                    <div className={`text-[10px] font-black ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'} px-1 max-w-[150px] truncate`}>
+                    <div className={`text-[9px] font-black ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'} px-0.5 truncate`}>
                       {data.settings.projectName}
                     </div>
                   ) : (
                     <select 
                       value={data.id} 
                       onChange={(e) => switchSite(e.target.value)}
-                      className={`bg-transparent text-[10px] font-black border-none focus:ring-0 cursor-pointer appearance-none ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'}`}
+                      className={`bg-transparent text-[9px] font-black border-none focus:ring-0 cursor-pointer appearance-none ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'} px-0.5 truncate`}
                     >
                       {multiData.sites.map(s => (
                         <option key={s.id} value={s.id} className={data.settings.theme === 'industrial' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
@@ -1581,88 +1593,73 @@ export default function App() {
                   {role === 'FIELD' && !isLockedToSite && (
                     <button 
                       onClick={() => setSiteAuthenticatedId(null)}
-                      className={`p-1.5 hover:bg-white dark:hover:bg-slate-700 rounded-md transition-all group`}
+                      className={`p-1 hover:bg-white dark:hover:bg-slate-700 rounded-md transition-all group`}
                       title="현장 목록으로 돌아가기"
                     >
-                      <LayoutGrid className={`w-3.5 h-3.5 ${activeTheme.text}`} />
+                      <LayoutGrid className={`w-3 h-3 ${activeTheme.text}`} />
                     </button>
                   )}
                   <button 
                     onClick={copySiteLink}
-                    className={`p-1.5 hover:bg-white dark:hover:bg-slate-700 rounded-md transition-all group relative`}
+                    className={`p-1 hover:bg-white dark:hover:bg-slate-700 rounded-md transition-all group relative`}
                     title="현장 링크 복사"
                   >
-                    {isCopied ? <CheckCircle2 className="w-3.5 h-3.5 text-green-500 animate-in zoom-in" /> : <LinkIcon className={`w-3.5 h-3.5 ${activeTheme.text} group-hover:scale-110 transition-transform`} />}
-                    {isCopied && (
-                      <span className="absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[8px] px-2 py-1 rounded whitespace-nowrap animate-bounce">
-                        복사됨!
-                      </span>
-                    )}
+                    {isCopied ? <CheckCircle2 className="w-3 h-3 text-green-500" /> : <LinkIcon className={`w-3 h-3 ${activeTheme.text}`} />}
                   </button>
                   {role === 'ADMIN' && (
                     <button 
                       onClick={() => setIsAddingSite(true)}
-                      className={`p-1.5 hover:bg-white dark:hover:bg-slate-700 rounded-md transition-all group`}
-                      title="새 현장 추가"
+                      className={`p-1 hover:bg-white dark:hover:bg-slate-700 rounded-md transition-all group`}
                     >
-                      <Plus className={`w-4 h-4 ${activeTheme.text} group-hover:scale-110 transition-transform`} />
-                    </button>
-                  )}
-                  {role === 'ADMIN' && multiData.sites.length > 1 && (
-                    <button 
-                      onClick={() => setDeleteConfirmId(data.id)}
-                      className={`p-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-md transition-all group`}
-                      title="현재 현장 삭제"
-                    >
-                      <Trash2 className={`w-3.5 h-3.5 text-slate-400 group-hover:text-red-500`} />
+                      <Plus className={`w-3.5 h-3.5 ${activeTheme.text}`} />
                     </button>
                   )}
                 </div>
               </div>
               
-              <div className={`flex ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-100'} rounded-lg p-0.5 mr-2 shrink-0`}>
+              <div className={`flex ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-100'} rounded-lg p-0.5 shrink-0`}>
               <button 
                 onClick={() => setViewMode('table')}
-                className={`px-2.5 py-1.5 rounded-md text-[11px] font-bold transition-all ${viewMode === 'table' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
+                className={`px-1.5 py-1.5 rounded-md text-[9px] font-bold transition-all ${viewMode === 'table' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
               >
                 공정표
               </button>
               <button 
                 onClick={() => setViewMode('grid')}
-                className={`px-2.5 py-1.5 rounded-md text-[11px] font-bold transition-all ${viewMode === 'grid' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
+                className={`px-1.5 py-1.5 rounded-md text-[9px] font-bold transition-all ${viewMode === 'grid' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
               >
-                요약 대시보드
+                대시보드
               </button>
               <button 
                 onClick={() => setViewMode('calendar')}
-                className={`px-2.5 py-1.5 rounded-md text-[11px] font-bold transition-all ${viewMode === 'calendar' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
+                className={`px-1.5 py-1.5 rounded-md text-[9px] font-bold transition-all ${viewMode === 'calendar' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
               >
-                자재 입고 달력
+                달력
               </button>
               <button 
                 onClick={() => setViewMode('daily_report')}
-                className={`px-2.5 py-1.5 rounded-md text-[11px] font-bold transition-all ${viewMode === 'daily_report' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
+                className={`px-1.5 py-1.5 rounded-md text-[9px] font-bold transition-all ${viewMode === 'daily_report' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
               >
-                현장 일보
+                일보
               </button>
               <button 
                 onClick={() => setViewMode('gantt')}
-                className={`px-2.5 py-1.5 rounded-md text-[11px] font-bold transition-all ${viewMode === 'gantt' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
+                className={`px-1.5 py-1.5 rounded-md text-[9px] font-bold transition-all ${viewMode === 'gantt' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
               >
-                간트 차트
+                간트
               </button>
               <button 
                 onClick={() => setViewMode('analytics')}
-                className={`px-2.5 py-1.5 rounded-md text-[11px] font-bold transition-all ${viewMode === 'analytics' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
+                className={`px-1.5 py-1.5 rounded-md text-[9px] font-bold transition-all ${viewMode === 'analytics' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
               >
-                분석 리포트
+                리포트
               </button>
               {(role === 'ADMIN' || role === 'FIELD') && (
                 <button 
                   onClick={() => setViewMode('settings')}
-                  className={`px-2.5 py-1.5 rounded-md text-[11px] font-bold transition-all ${viewMode === 'settings' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
+                  className={`px-1.5 py-1.5 rounded-md text-[9px] font-bold transition-all ${viewMode === 'settings' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
                 >
-                  {role === 'ADMIN' ? '프로젝트 설정' : '비밀번호 변경'}
+                  {role === 'ADMIN' ? '설정' : '비밀번호'}
                 </button>
               )}
             </div>
@@ -2388,6 +2385,61 @@ export default function App() {
             transition={{ duration: 0.2 }}
           >
             <div className="space-y-8">
+            {/* AI Diagnosis Summary Cards */}
+            {(data.aiRisks && data.aiRisks.length > 0 || data.aiActions && data.aiActions.length > 0) && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <motion.div 
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className={`bg-rose-50 dark:bg-rose-900/10 border border-rose-100 dark:border-rose-900/30 rounded-2xl p-5 shadow-sm relative overflow-hidden`}
+                >
+                  <div className="absolute top-0 right-0 w-24 h-24 bg-rose-500/5 rounded-full -mr-8 -mt-8" />
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="p-2 bg-rose-500 rounded-lg text-white">
+                      <AlertTriangle className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="font-black text-rose-900 dark:text-rose-400">핵심 위험 요소</h3>
+                      <p className="text-[10px] text-rose-600 font-bold uppercase tracking-wider">AI REAL-TIME RISK ANALYSIS</p>
+                    </div>
+                  </div>
+                  <ul className="space-y-3">
+                    {(data.aiRisks || []).map((risk, i) => (
+                      <li key={i} className="flex gap-3 items-start group">
+                        <span className="flex-shrink-0 w-5 h-5 rounded-full bg-rose-200 dark:bg-rose-900/50 text-rose-600 flex items-center justify-center text-[10px] font-black mt-0.5">{i+1}</span>
+                        <p className="text-sm font-semibold text-rose-800 dark:text-rose-300 leading-tight group-hover:translate-x-1 transition-transform">{risk}</p>
+                      </li>
+                    ))}
+                  </ul>
+                </motion.div>
+
+                <motion.div 
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className={`bg-emerald-50 dark:bg-emerald-900/10 border border-emerald-100 dark:border-emerald-900/30 rounded-2xl p-5 shadow-sm relative overflow-hidden`}
+                >
+                  <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 rounded-full -mr-8 -mt-8" />
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="p-2 bg-emerald-500 rounded-lg text-white">
+                      <ShieldCheck className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="font-black text-emerald-900 dark:text-emerald-400">권장 조치 사항</h3>
+                      <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">AI RECOMMENDED ACTIONS</p>
+                    </div>
+                  </div>
+                  <ul className="space-y-3">
+                    {(data.aiActions || []).map((action, i) => (
+                      <li key={i} className="flex gap-3 items-start group">
+                        <span className="flex-shrink-0 w-5 h-5 rounded-full bg-emerald-200 dark:bg-emerald-900/50 text-emerald-600 flex items-center justify-center text-[10px] font-black mt-0.5">{i+1}</span>
+                        <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-300 leading-tight group-hover:translate-x-1 transition-transform">{action}</p>
+                      </li>
+                    ))}
+                  </ul>
+                </motion.div>
+              </div>
+            )}
+
             {/* Quick Stats Chart Header */}
             {data.history && data.history.length > 0 && (
               <div className={`${activeTheme.card} rounded-2xl shadow-sm border ${activeTheme.border} p-6 h-64`}>

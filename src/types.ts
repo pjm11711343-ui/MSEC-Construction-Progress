@@ -102,6 +102,8 @@ export interface AppState {
   milestones?: Milestone[];
   dashboardNotes?: string;
   aiDiagnosis?: string;
+  aiRisks?: string[];
+  aiActions?: string[];
 }
 
 export interface MultiProjectData {

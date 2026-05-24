@@ -77,23 +77,44 @@ app.post("/api/diagnosis", async (req, res) => {
       3. 현장 소장이 즉시 조치해야 할 '핵심 관리 포인트' 3가지를 제시해 주세요.
       4. 프로젝트의 성공적인 완수를 위한 선제적 제언을 리포트 형식으로 작성해 주세요.
       
-      답변은 한국어로, 소장에게 보고하는 격식 있는 말투로 작성하십시오.
-      마크다운(Markdown)을 사용하여 가독성 있게 구조화해 주세요.
+      [응답 형식]
+      반드시 다음과 같은 JSON 구조로 응답하십시오:
+      {
+        "diagnosis": "전체 진단 내용 (마크다운 형식)",
+        "risks": ["핵심 위험 요소 1", "핵심 위험 요소 2", "핵심 위험 요소 3"],
+        "actions": ["권장 조치 사항 1", "권장 조치 사항 2", "권장 조치 사항 3"]
+      }
+      
+      참고: diagnosis 필드는 소장에게 보고하는 격식 있는 말투로 작성하고, risks와 actions는 리포트에서 추출한 핵심 요약을 짧은 문장으로 작성하십시오.
     `;
 
-    console.log("Sending diagnosis request to Gemini with model gemini-flash-latest...");
+    console.log("Sending diagnosis request to Gemini with model gemini-3.5-flash...");
     const response = await genAI.models.generateContent({
-      model: "gemini-flash-latest", 
-      contents: prompt,
+      model: "gemini-3.5-flash",
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      config: {
+        responseMimeType: "application/json",
+      }
     });
 
     console.log("Gemini response received");
-    if (!response || !response.text) {
-      console.error("Empty or invalid response from Gemini:", JSON.stringify(response));
+    const resultText = response.text;
+    if (!resultText) {
+      console.error("Empty or invalid response from Gemini");
       throw new Error("Gemini API에서 유효한 응답을 받지 못했습니다.");
     }
 
-    res.json({ diagnosis: response.text });
+    try {
+      const parsed = JSON.parse(resultText);
+      res.json({ 
+        diagnosis: parsed.diagnosis,
+        risks: parsed.risks || [],
+        actions: parsed.actions || []
+      });
+    } catch (parseError) {
+      console.error("JSON Parse Error:", parseError, resultText);
+      res.json({ diagnosis: resultText }); // Fallback if not valid JSON
+    }
   } catch (error: any) {
     console.error("AI Diagnosis Error:", error);
     res.status(500).json({ error: error.message || "AI 진단 중 오류가 발생했습니다." });
