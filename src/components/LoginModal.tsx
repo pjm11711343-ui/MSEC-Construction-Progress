@@ -10,15 +10,16 @@ import { UserRole } from '../types';
 
 interface LoginModalProps {
   onLogin: (role: UserRole) => void;
+  adminPassword?: string;
 }
 
-export default function LoginModal({ onLogin }: LoginModalProps) {
+export default function LoginModal({ onLogin, adminPassword = '1111' }: LoginModalProps) {
   const [password, setPassword] = React.useState('');
   const [selectedRole, setSelectedRole] = React.useState<UserRole | null>(null);
   const [error, setError] = React.useState('');
 
   const handleLogin = () => {
-    if (password === '1111') {
+    if (password === adminPassword) {
       if (selectedRole) {
         onLogin(selectedRole);
       }

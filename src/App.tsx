@@ -194,7 +194,8 @@ export default function App() {
   const [role, setRole] = useState<UserRole | null>(null);
   const [multiData, setMultiData] = useState<MultiProjectData>({
     activeSiteId: '',
-    sites: []
+    sites: [],
+    adminPassword: '1111'
   });
   
   const [storageState, setStorageState] = useState<AppState>(createNewSite('스마트 아파트 현장'));
@@ -264,7 +265,7 @@ export default function App() {
             finalSites = [...updatedSites, ...additional];
           }
 
-          const mData = { ...parsed, sites: finalSites };
+          const mData = { ...parsed, sites: finalSites, adminPassword: parsed.adminPassword || '1111' };
           setMultiData(mData);
           if (mData.trash) setTrash(mData.trash);
           
@@ -782,6 +783,7 @@ export default function App() {
                 setProcesses(Object.keys(finalSite.buildings[0].processes));
               }
               alert('현장 데이터 복원이 완료되었습니다.');
+              window.location.reload();
             }
           } else {
             alert('복원 가능한 현장 데이터를 찾을 수 없습니다.');
@@ -804,6 +806,7 @@ export default function App() {
                 setProcesses(Object.keys(active.buildings[0].processes));
               }
               alert('전체 데이터 복원이 완료되었습니다.');
+              window.location.reload();
             }
           } else {
             if (window.confirm('가져온 파일은 단일 현장 데이터입니다. 현재 보고 있는 현장에 이 데이터를 복원하시겠습니까?')) {
@@ -820,6 +823,7 @@ export default function App() {
                 setProcesses(Object.keys(finalSite.buildings[0].processes));
               }
               alert('단일 현장 데이터 복원이 완료되었습니다.');
+              window.location.reload();
             }
           }
         }
@@ -838,12 +842,10 @@ export default function App() {
     try {
       // Server connectivity check
       try {
-        const healthUrl = new URL('/api/health', window.location.origin).href;
-        await fetch(healthUrl).then(r => r.json()).then(d => console.log("Health OK:", d)).catch(e => console.warn("Health fail:", e));
+        await fetch('/api/health').then(r => r.json()).then(d => console.log("Health OK:", d)).catch(e => console.warn("Health fail:", e));
       } catch (e) {}
 
-      const apiUrl = new URL('/api/diagnosis', window.location.origin).href;
-      const response = await fetch(apiUrl, {
+      const response = await fetch('/api/diagnosis', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ projectData: data }),
@@ -860,7 +862,7 @@ export default function App() {
 
         if (response.status === 404) {
           throw new Error(`진단 API를 찾을 수 없습니다 (404). 
-호출 URL: ${apiUrl}
+호출 URL: /api/diagnosis
 서버 응답: ${errorData.error || 'N/A'}`);
         }
         throw new Error(errorData.error || `서버 오류 (${response.status})`);
@@ -899,9 +901,7 @@ export default function App() {
       });
 
       const base64 = await base64Promise;
-      const apiUrl = new URL('/api/extract-progress', window.location.origin).href;
-      
-      const response = await fetch(apiUrl, {
+      const response = await fetch('/api/extract-progress', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -912,7 +912,19 @@ export default function App() {
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`추출 실패: ${errorText}`);
+        let errorData: any = {};
+        try {
+          errorData = JSON.parse(errorText);
+        } catch (e) {
+          errorData = { error: errorText };
+        }
+
+        if (response.status === 404) {
+          throw new Error(`진단 API를 찾을 수 없습니다 (404). 
+서버에서 기능을 지원하지 않거나 경로가 잘못되었습니다.
+서버 응답: ${errorData.error || 'N/A'}`);
+        }
+        throw new Error(errorData.error || `서버 오류 (${response.status})`);
       }
 
       const result = await response.json();
@@ -953,25 +965,32 @@ export default function App() {
 
   const handleRestoreInitialData = () => {
     if (window.confirm('제공된 명신기공 데이터로 전체 현장을 복원하시겠습니까? 현재 변경사항은 모두 삭제됩니다.')) {
-      const restoredData = initialDataImport as any;
-      const initialSite = migrateSite(restoredData.sites.find((s: any) => s.id === restoredData.activeSiteId) || restoredData.sites[0]);
-      
-      let finalSites = restoredData.sites.map(migrateSite);
-      if (finalSites.length < 10) {
-        const needed = 10 - finalSites.length;
-        const additional = Array.from({ length: needed }, (_, i) => createNewSite(`신규 현장 ${finalSites.length + i + 1}`));
-        finalSites = [...finalSites, ...additional];
+      try {
+        const restoredData = initialDataImport as any;
+        const initialSite = migrateSite(restoredData.sites.find((s: any) => s.id === restoredData.activeSiteId) || restoredData.sites[0]);
+        
+        let finalSites = restoredData.sites.map(migrateSite);
+        if (finalSites.length < 10) {
+          const needed = 10 - finalSites.length;
+          const additional = Array.from({ length: needed }, (_, i) => createNewSite(`신규 현장 ${finalSites.length + i + 1}`));
+          finalSites = [...finalSites, ...additional];
+        }
+        
+        const mData = { ...multiData, activeSiteId: initialSite.id, sites: finalSites };
+        setMultiData(mData);
+        setData(initialSite);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(mData));
+        
+        if (initialSite.buildings && initialSite.buildings[0]) {
+          setProcesses(Object.keys(initialSite.buildings[0].processes));
+        }
+        
+        alert('전체 데이터 복원이 완료되었습니다.');
+        window.location.reload(); 
+      } catch (e) {
+        console.error("Restore failed:", e);
+        alert('데이터 복원에 실패했습니다.');
       }
-      
-      const mData = { activeSiteId: initialSite.id, sites: finalSites };
-      setMultiData(mData);
-      setData(initialSite);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(mData));
-      if (initialSite.buildings && initialSite.buildings[0]) {
-        setProcesses(Object.keys(initialSite.buildings[0].processes));
-      }
-      alert('전체 데이터 복원이 완료되었습니다.');
-      // window.location.reload(); // Use state update instead of reload if possible, but reload is safer for total reset
     }
   };
 
@@ -1419,7 +1438,69 @@ export default function App() {
   };
 
   if (!role) {
-    return <LoginModal onLogin={setRole} />;
+    return <LoginModal onLogin={setRole} adminPassword={multiData.adminPassword} />;
+  }
+
+  // 관리자 초기 화면 (현장 목록 대시보드)
+  if (role === 'ADMIN' && !multiData.activeSiteId && !isLockedToSite) {
+    return (
+      <div className="min-h-screen bg-slate-50 p-8">
+        <div className="max-w-6xl mx-auto space-y-8">
+          <div className="flex justify-between items-end">
+            <div>
+              <h1 className="text-3xl font-bold text-slate-900">현장 관리 대시보드</h1>
+              <p className="text-slate-500 mt-2 font-medium">관리자 모드로 접속 중입니다. 관리할 현장을 선택하세요.</p>
+            </div>
+            <button 
+              onClick={() => { setRole(null); setSiteAuthenticatedId(null); }}
+              className="flex items-center gap-2 px-4 py-2 text-slate-600 hover:text-red-600 font-bold transition-colors"
+            >
+              <LogOut className="w-5 h-5" />
+              로그아웃
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {multiData.sites.map(site => (
+              <motion.button
+                key={site.id}
+                whileHover={{ scale: 1.02, translateY: -4 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => switchSite(site.id)}
+                className="group p-6 bg-white rounded-2xl shadow-sm border border-slate-200 hover:border-blue-500 hover:shadow-xl hover:shadow-blue-500/10 transition-all text-left flex flex-col justify-between h-52"
+              >
+                <div>
+                  <div className="flex justify-between items-start mb-4">
+                    <div className="p-3 bg-blue-100 text-blue-600 rounded-xl group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                      <Building2 className="w-6 h-6" />
+                    </div>
+                    {site.settings.sitePassword && <Lock className="w-4 h-4 text-slate-300" />}
+                  </div>
+                  <h3 className="text-lg font-bold text-slate-800 line-clamp-1">{site.settings.projectName}</h3>
+                  <p className="text-sm text-slate-500 mt-1">{site.settings.companyName}</p>
+                </div>
+                <div className="flex justify-between items-center pt-4 border-t border-slate-50">
+                  <span className="text-xs font-bold text-slate-400">최근 업데이트: {site.lastSaved?.split(',')[0]}</span>
+                  <div className="flex items-center gap-1 text-blue-600 font-bold text-sm">
+                    현장 관리 <ChevronRight className="w-4 h-4" />
+                  </div>
+                </div>
+              </motion.button>
+            ))}
+            
+            <button
+              onClick={() => setIsAddingSite(true)}
+              className="p-6 bg-slate-100/50 rounded-2xl border-2 border-dashed border-slate-300 hover:border-blue-500 hover:bg-white hover:text-blue-600 transition-all flex flex-col items-center justify-center gap-4 text-slate-400 h-52 group"
+            >
+              <div className="p-4 rounded-full border-2 border-slate-300 group-hover:border-blue-500 group-hover:bg-blue-50">
+                <Plus className="w-6 h-6" />
+              </div>
+              <span className="font-bold text-sm">새 현장 추가하기</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (role === 'FIELD' && siteAuthenticatedId !== data.id) {
@@ -1643,9 +1724,9 @@ export default function App() {
             </div>
           </div>
 
-          <div className="flex items-center justify-end gap-1 overflow-hidden flex-1">
-              <div className={`flex items-center gap-0.5 ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-100'} rounded-lg p-0.5 mr-1 border ${activeTheme.border} shrink-0`}>
-                <div className="flex items-center px-1.5 py-1 gap-1 border-r border-slate-300 dark:border-slate-700 max-w-[200px]">
+          <div className="flex items-center justify-end gap-1 flex-1 min-w-0">
+              <div className={`flex items-center gap-0.5 ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-100'} rounded-lg p-0.5 mr-0.5 border ${activeTheme.border} shrink-1 min-w-0 overflow-hidden`}>
+                <div className="flex items-center px-1 py-0.5 gap-1 border-r border-slate-300 dark:border-slate-700 max-w-[150px]">
                   <Building2 className={`w-3 h-3 ${activeTheme.text} shrink-0`} />
                   {isLockedToSite && role !== 'ADMIN' ? (
                     <div className={`text-[9px] font-black ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'} px-0.5 truncate`}>
@@ -1655,7 +1736,7 @@ export default function App() {
                     <select 
                       value={data.id} 
                       onChange={(e) => switchSite(e.target.value)}
-                      className={`bg-transparent text-[9px] font-black border-none focus:ring-0 cursor-pointer appearance-none ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'} px-0.5 truncate`}
+                      className={`bg-transparent text-[9px] font-black border-none focus:ring-0 cursor-pointer appearance-none ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'} px-0.5 truncate w-full`}
                     >
                       {multiData.sites.map(s => (
                         <option key={s.id} value={s.id} className={data.settings.theme === 'industrial' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
@@ -1740,11 +1821,11 @@ export default function App() {
               )}
             </div>
 
-            <div className={`flex items-center gap-1.5 mr-2 border-r pr-2 ${activeTheme.border} no-print text-[10px] shrink-0`}>
+            <div className={`flex items-center gap-1 ml-auto border-r pr-2 ${activeTheme.border} no-print text-[9px] shrink-0`}>
                {role === 'ADMIN' && (
                  <button 
                   onClick={() => setIsEditMode(!isEditMode)}
-                  className={`flex items-center gap-1 font-bold px-2.5 py-1 rounded-full transition-all hover:scale-105 active:scale-95 ${isEditMode ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+                  className={`flex items-center gap-1 font-bold px-2 py-0.5 rounded-full transition-all hover:scale-105 active:scale-95 ${isEditMode ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
                  >
                   <SettingsIcon className={`w-2.5 h-2.5 ${isEditMode ? 'animate-spin-slow' : ''}`} />
                   {isEditMode ? '수정 중' : '수정'}
@@ -1757,13 +1838,13 @@ export default function App() {
                     setRole(nextRole);
                     if (nextRole === 'FIELD') setSiteAuthenticatedId(null);
                   }}
-                  className={`flex items-center gap-1.5 font-bold px-3 py-1 rounded-full transition-all hover:scale-105 active:scale-95 ${role === 'ADMIN' ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'}`}
+                  className={`flex items-center gap-1 font-bold px-2.5 py-0.5 rounded-full transition-all hover:scale-105 active:scale-95 ${role === 'ADMIN' ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'}`}
                  >
-                  {role === 'ADMIN' ? <ShieldCheck className="w-3 h-3" /> : <User className="w-3 h-3" />}
-                  {role === 'ADMIN' ? '현장 모드로 전환' : '관리자 보드로 전환'}
+                  {role === 'ADMIN' ? <ShieldCheck className="w-2.5 h-2.5" /> : <User className="w-2.5 h-2.5" />}
+                  {role === 'ADMIN' ? '현장 모드' : '관리자 모드'}
                 </button>
                )}
-              <div className="flex items-center gap-1 text-slate-400 min-w-[80px]">
+              <div className="flex items-center gap-1 text-slate-400 min-w-[70px]">
                 {isAutoSaving ? (
                   <span className="flex items-center gap-1"><div className={`w-1.5 h-1.5 ${activeTheme.accent} rounded-full animate-pulse`} /> 저장중...</span>
                 ) : (
@@ -1864,6 +1945,36 @@ export default function App() {
                 <SettingsIcon className={`w-6 h-6 ${activeTheme.text}`} />
                 <h2 className="text-xl font-bold">{role === 'ADMIN' ? '프로젝트 설정' : '현장 보안 설정'}</h2>
              </div>
+
+             {role === 'ADMIN' && (
+               <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-xl mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-indigo-600 text-white rounded-lg shadow-lg shadow-indigo-200">
+                      <Lock className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <p className="font-bold text-slate-800 text-sm">시스템 관리자 비밀번호</p>
+                      <p className="text-[10px] text-slate-500">모든 현장을 관리할 수 있는 마스터 비밀번호입니다.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input 
+                      type="password" 
+                      value={multiData.adminPassword || ''}
+                      onChange={(e) => {
+                        const newVal = e.target.value;
+                        setMultiData(prev => {
+                          const updated = { ...prev, adminPassword: newVal };
+                          localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+                          return updated;
+                        });
+                      }}
+                      className="px-4 py-2 border-2 border-indigo-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all w-full md:w-48 bg-white"
+                      placeholder="비밀번호 설정"
+                    />
+                  </div>
+               </div>
+             )}
 
              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                 <div className="space-y-4">

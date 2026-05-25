@@ -188,7 +188,7 @@ app.post("/api/extract-progress", async (req, res) => {
       참고: 이미지의 텍스트가 정확하지 않을 수 있으니 문맥상 가장 적절한 공종명과 동번호를 선택하십시오.
     `;
 
-    console.log("Sending extraction request to Gemini...");
+    console.log("Sending extraction request to Gemini with model gemini-3.5-flash...");
     const response = await genAI.models.generateContent({
       model: "gemini-3.5-flash",
       contents: {
@@ -245,3 +245,5 @@ async function startServer() {
 }
 
 startServer();
+
+export default app;

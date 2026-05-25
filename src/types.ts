@@ -110,6 +110,7 @@ export interface MultiProjectData {
   activeSiteId: string;
   sites: AppState[];
   trash?: any[];
+  adminPassword?: string;
 }
 
 export const DEFAULT_PROCESSES = [
