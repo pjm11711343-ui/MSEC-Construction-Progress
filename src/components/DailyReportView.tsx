@@ -38,30 +38,101 @@ export default function DailyReportView({ reports, onAddReport, onDeleteReport, 
 
   const sortedReports = [...reports].sort((a, b) => b.date.localeCompare(a.date));
 
-  const fetchWeather = async () => {
+  const [archiveDate, setArchiveDate] = useState(new Date().toISOString().split('T')[0]);
+  const [archiveWeather, setArchiveWeather] = useState<any>(null);
+  const [isFetchingArchive, setIsFetchingArchive] = useState(false);
+  const [manualWeather, setManualWeather] = useState({
+    temp: '',
+    humidity: '',
+    wind: '',
+    precip: '',
+    condition: '맑음'
+  });
+
+  const fetchArchiveWeather = async (date: string) => {
+    if (!location) return;
+    setIsFetchingArchive(true);
+    setArchiveWeather(null);
+    try {
+      const response = await fetch(`/api/weather?location=${encodeURIComponent(location)}&date=${date}`);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || '날씨 정보를 가져올 수 없습니다.');
+      }
+      const data = await response.json();
+      
+      const weatherAtDate = data.weather?.[0];
+      if (weatherAtDate) {
+        const avgTemp = weatherAtDate.avgtempC;
+        const totalSnow = weatherAtDate.totalSnow_cm;
+        const precip = weatherAtDate.totalPrecip_mm;
+        const uvIndex = weatherAtDate.uvIndex;
+        const hourly = weatherAtDate.hourly?.[4] || weatherAtDate.hourly?.[0]; // Midday
+        
+        const weatherDesc = hourly.lang_ko ? hourly.lang_ko[0].value : hourly.weatherDesc[0].value;
+        const humidity = hourly.humidity;
+        const windspeed = hourly.windspeedKmph;
+
+        setArchiveWeather({
+          temp: avgTemp,
+          condition: weatherDesc,
+          humidity: humidity,
+          wind: windspeed,
+          precip: precip,
+          uv: uvIndex,
+          snow: totalSnow
+        });
+      }
+    } catch (error) {
+      console.error('Archive weather fetch error:', error);
+      setArchiveWeather(null);
+    } finally {
+      setIsFetchingArchive(false);
+    }
+  };
+
+  useEffect(() => {
+    if (location) {
+      fetchArchiveWeather(archiveDate);
+    }
+  }, [archiveDate, location]);
+
+  const fetchWeather = async (date?: string) => {
     if (!location) return;
     setIsFetchingWeather(true);
     try {
-      // Use internal proxy to avoid CORS issues
-      const response = await fetch(`/api/weather?location=${encodeURIComponent(location)}`);
-      if (!response.ok) throw new Error('Failed to fetch weather');
+      const targetDate = date || newReport.date;
+      const response = await fetch(`/api/weather?location=${encodeURIComponent(location)}${targetDate !== new Date().toISOString().split('T')[0] ? `&date=${targetDate}` : ''}`);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || '날씨 정보를 가져올 수 없습니다.');
+      }
       const data = await response.json();
       
-      const current = data.current_condition[0];
-      const weatherDesc = current.lang_ko ? current.lang_ko[0].value : current.weatherDesc[0].value;
-      const temp = current.temp_C;
-      
-      // Map to friendly Korean names
-      let koreanWeather = weatherDesc;
-      if (weatherDesc.toLowerCase().includes('sunny') || weatherDesc.toLowerCase().includes('clear')) koreanWeather = '맑음';
-      else if (weatherDesc.toLowerCase().includes('cloudy') || weatherDesc.toLowerCase().includes('overcast')) koreanWeather = '흐림';
-      else if (weatherDesc.toLowerCase().includes('rain')) koreanWeather = '비';
-      else if (weatherDesc.toLowerCase().includes('snow')) koreanWeather = '눈';
-      else if (weatherDesc.toLowerCase().includes('mist') || weatherDesc.toLowerCase().includes('fog')) koreanWeather = '안개';
+      let weatherStr = '';
+      if (data.current_condition) {
+        const current = data.current_condition[0];
+        const weatherDesc = current.lang_ko ? current.lang_ko[0].value : current.weatherDesc[0].value;
+        const temp = current.temp_C;
+        
+        let koreanWeather = weatherDesc;
+        if (weatherDesc.toLowerCase().includes('sunny') || weatherDesc.toLowerCase().includes('clear')) koreanWeather = '맑음';
+        else if (weatherDesc.toLowerCase().includes('cloudy') || weatherDesc.toLowerCase().includes('overcast')) koreanWeather = '흐림';
+        else if (weatherDesc.toLowerCase().includes('rain')) koreanWeather = '비';
+        else if (weatherDesc.toLowerCase().includes('snow')) koreanWeather = '눈';
+        else if (weatherDesc.toLowerCase().includes('mist') || weatherDesc.toLowerCase().includes('fog')) koreanWeather = '안개';
+        
+        weatherStr = `${koreanWeather} (${temp}°C)`;
+      } else if (data.weather?.[0]) {
+        const w = data.weather[0];
+        const h = w.hourly[4];
+        const weatherDesc = h.lang_ko ? h.lang_ko[0].value : h.weatherDesc[0].value;
+        weatherStr = `${weatherDesc} (${w.avgtempC}°C)`;
+      }
 
       setNewReport(prev => ({
         ...prev,
-        weather: `${koreanWeather} (${temp}°C)`
+        weather: weatherStr
       }));
     } catch (error) {
       console.error('Weather fetch error:', error);
@@ -102,6 +173,136 @@ export default function DailyReportView({ reports, onAddReport, onDeleteReport, 
           <Plus className="w-5 h-5" />
           일보 작성
         </button>
+      </div>
+
+      {/* Weather History Section */}
+      <div className={`${activeTheme.card} p-6 rounded-3xl border ${activeTheme.border} shadow-sm space-y-6`}>
+        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
+          <div className="flex items-center gap-3">
+            <div className={`p-2 rounded-xl bg-amber-100 text-amber-600`}>
+              <CloudSun className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className={`font-black text-sm uppercase tracking-wider ${theme === 'industrial' ? 'text-white' : 'text-slate-900'}`}>일간 기상 정보 조회</h3>
+              <p className="text-[10px] text-slate-400 font-bold">선택한 일자의 과거 기상 데이터를 확인합니다.</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <input 
+              type="date"
+              value={archiveDate}
+              onChange={e => setArchiveDate(e.target.value)}
+              className={`text-xs font-bold bg-slate-50 dark:bg-slate-800 border-none rounded-lg focus:ring-0 py-1.5 px-3`}
+            />
+            {location && (
+              <button 
+                onClick={() => fetchArchiveWeather(archiveDate)}
+                className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md transition-colors"
+              >
+                <RefreshCw className={`w-4 h-4 text-slate-400 ${isFetchingArchive ? 'animate-spin' : ''}`} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {!location ? (
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase flex items-center gap-1"><Sun className="w-3 h-3" /> 평균 기온</label>
+              <input 
+                type="text"
+                placeholder="25°C"
+                value={manualWeather.temp}
+                onChange={e => setManualWeather({...manualWeather, temp: e.target.value})}
+                className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-100 dark:border-slate-700 text-xs font-bold"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase flex items-center gap-1"><Droplets className="w-3 h-3" /> 평균 습도</label>
+              <input 
+                type="text"
+                placeholder="60%"
+                value={manualWeather.humidity}
+                onChange={e => setManualWeather({...manualWeather, humidity: e.target.value})}
+                className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-100 dark:border-slate-700 text-xs font-bold"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase flex items-center gap-1"><Droplets className="w-3 h-3 text-blue-400" /> 강수량</label>
+              <input 
+                type="text"
+                placeholder="0mm"
+                value={manualWeather.precip}
+                onChange={e => setManualWeather({...manualWeather, precip: e.target.value})}
+                className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-100 dark:border-slate-700 text-xs font-bold"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase flex items-center gap-1"><Wind className="w-3 h-3" /> 평균 풍속</label>
+              <input 
+                type="text"
+                placeholder="5km/h"
+                value={manualWeather.wind}
+                onChange={e => setManualWeather({...manualWeather, wind: e.target.value})}
+                className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-100 dark:border-slate-700 text-xs font-bold"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase flex items-center gap-1"><CloudSun className="w-3 h-3" /> 날씨 상태</label>
+              <select 
+                value={manualWeather.condition}
+                onChange={e => setManualWeather({...manualWeather, condition: e.target.value})}
+                className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-100 dark:border-slate-700 text-xs font-bold appearance-none"
+              >
+                <option>맑음</option>
+                <option>흐림</option>
+                <option>비</option>
+                <option>눈</option>
+                <option>안개</option>
+              </select>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+             {isFetchingArchive ? (
+                Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} className="h-20 bg-slate-50 dark:bg-slate-800 animate-pulse rounded-2xl" />
+                ))
+             ) : archiveWeather ? (
+               <>
+                 <div className={`p-4 rounded-2xl ${theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-50'} flex flex-col items-center justify-center text-center space-y-1`}>
+                    <Sun className="w-5 h-5 text-amber-500" />
+                    <span className="text-[10px] font-bold text-slate-400">평균 기온</span>
+                    <span className="text-sm font-black italic">{archiveWeather.temp}°C</span>
+                 </div>
+                 <div className={`p-4 rounded-2xl ${theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-50'} flex flex-col items-center justify-center text-center space-y-1`}>
+                    <Droplets className="w-5 h-5 text-blue-500" />
+                    <span className="text-[10px] font-bold text-slate-400">습도</span>
+                    <span className="text-sm font-black italic">{archiveWeather.humidity}%</span>
+                 </div>
+                 <div className={`p-4 rounded-2xl ${theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-50'} flex flex-col items-center justify-center text-center space-y-1`}>
+                    <Droplets className="w-5 h-5 text-indigo-400" />
+                    <span className="text-[10px] font-bold text-slate-400">강수량</span>
+                    <span className="text-sm font-black italic">{archiveWeather.precip}mm</span>
+                 </div>
+                 <div className={`p-4 rounded-2xl ${theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-50'} flex flex-col items-center justify-center text-center space-y-1`}>
+                    <Wind className="w-5 h-5 text-slate-400" />
+                    <span className="text-[10px] font-bold text-slate-400">풍속</span>
+                    <span className="text-sm font-black italic">{archiveWeather.wind}km/h</span>
+                 </div>
+                 <div className={`p-4 rounded-2xl ${theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-50'} flex flex-col items-center justify-center text-center space-y-1`}>
+                    <CloudSun className="w-5 h-5 text-indigo-500" />
+                    <span className="text-[10px] font-bold text-slate-400">날씨</span>
+                    <span className="text-sm font-black italic">{archiveWeather.condition}</span>
+                 </div>
+               </>
+             ) : (
+               <div className="col-span-full py-6 text-center text-slate-400 text-xs font-medium">
+                 해당 날짜의 기상 데이터를 가져올 수 없습니다.
+               </div>
+             )}
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -195,7 +396,7 @@ export default function DailyReportView({ reports, onAddReport, onDeleteReport, 
                     <span>현장 날씨</span>
                     {location && (
                       <button 
-                        onClick={fetchWeather}
+                        onClick={() => fetchWeather()}
                         disabled={isFetchingWeather}
                         className="text-[10px] text-blue-500 hover:text-blue-600 font-bold flex items-center gap-1 transition-all disabled:opacity-50"
                       >

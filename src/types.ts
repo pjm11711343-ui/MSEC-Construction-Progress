@@ -60,6 +60,7 @@ export interface ProjectSettings {
   textColor?: string;
   sitePassword?: string;
   location?: string;
+  locationCoords?: { lat: number; lng: number };
   endDate?: string;
   stairwellCount?: number;
   unitCount?: number;

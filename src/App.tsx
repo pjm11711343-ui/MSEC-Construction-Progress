@@ -53,6 +53,8 @@ import DailyReportView from './components/DailyReportView';
 import GanttView from './components/GanttView';
 import GalleryModal from './components/GalleryModal';
 import SiteSelector from './components/SiteSelector';
+import RestoreComparisonModal from './components/RestoreComparisonModal';
+import LocationPicker from './components/LocationPicker';
 import ReactMarkdown from 'react-markdown';
 import { 
   Sparkles, 
@@ -225,6 +227,11 @@ export default function App() {
   const [hoveredProgress, setHoveredProgress] = useState<{ buildingId: number, processName: string, x: number, y: number } | null>(null);
   const [isDiagnosing, setIsDiagnosing] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
+  const [pendingRestore, setPendingRestore] = useState<{
+    data: any;
+    mode: 'FULL' | 'SINGLE' | 'INITIAL';
+    targetSiteId?: string;
+  } | null>(null);
   const [trash, setTrash] = useState<any[]>([]);
   const [showTrash, setShowTrash] = useState(false);
   const [siteAuthenticatedId, setSiteAuthenticatedId] = useState<string | null>(null);
@@ -735,6 +742,60 @@ export default function App() {
     linkElement.click();
   };
 
+  const handleConfirmRestore = () => {
+    if (!pendingRestore) return;
+    const { data: json, mode, targetSiteId } = pendingRestore;
+
+    try {
+      if (mode === 'INITIAL' || (mode === 'FULL' && !isLockedToSite)) {
+         const restoredData = json as any;
+         const initialSite = migrateSite(restoredData.sites.find((s: any) => s.id === restoredData.activeSiteId) || restoredData.sites[0]);
+         
+         let finalSites = restoredData.sites.map(migrateSite);
+         if (finalSites.length < 10) {
+           const needed = 10 - finalSites.length;
+           const additional = Array.from({ length: needed }, (_, i) => createNewSite(`신규 현장 ${finalSites.length + i + 1}`));
+           finalSites = [...finalSites, ...additional];
+         }
+         
+         const mData = { ...multiData, activeSiteId: initialSite.id, sites: finalSites };
+         setMultiData(mData);
+         setData(initialSite);
+         localStorage.setItem(STORAGE_KEY, JSON.stringify(mData));
+         
+         if (initialSite.buildings && initialSite.buildings[0]) {
+           setProcesses(Object.keys(initialSite.buildings[0].processes));
+         }
+         
+         alert('전체 데이터 복원이 완료되었습니다.');
+         window.location.reload(); 
+      } else {
+        // Single site or specific site restore
+        const siteCandidate = mode === 'SINGLE' ? json : (json.sites ? (json.sites.find((s: any) => s.id === (targetSiteId || data.id)) || json.sites.find((s: any) => s.settings?.projectName === data.settings.projectName) || json.sites[0]) : json);
+        const finalSite = { ...migrateSite(siteCandidate), id: targetSiteId || data.id };
+        
+        setMultiData(prev => {
+          const updatedSites = prev.sites.map(s => s.id === (targetSiteId || data.id) ? finalSite : s);
+          const nextMulti = { ...prev, sites: updatedSites };
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(nextMulti));
+          return nextMulti;
+        });
+        setData(finalSite);
+        lastSavedContent.current = '';
+        if (finalSite.buildings && finalSite.buildings[0]) {
+          setProcesses(Object.keys(finalSite.buildings[0].processes));
+        }
+        alert('현장 데이터 복원이 완료되었습니다.');
+        window.location.reload();
+      }
+    } catch (err) {
+      console.error('Restore error:', err);
+      alert('데이터 복원 중 오류가 발생했습니다.');
+    } finally {
+      setPendingRestore(null);
+    }
+  };
+
   const handleImportData = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -753,80 +814,33 @@ export default function App() {
           return;
         }
 
-        if (isLockedToSite) {
-          let siteCandidate = null;
-          if (isMultiFile) {
-            siteCandidate = json.sites.find((s: any) => s.id === data.id) || 
-                            json.sites.find((s: any) => s.settings?.projectName === data.settings.projectName);
-            
-            if (!siteCandidate && json.sites.length > 0) {
-              if (window.confirm('파일에서 현재 현장과 일치하는 ID나 이름을 찾을 수 없습니다. 파일의 첫 번째 현장 데이터를 현재 현장에 강제로 복원하시겠습니까?')) {
-                siteCandidate = json.sites[0];
+          if (isLockedToSite) {
+            let siteCandidate = null;
+            if (isMultiFile) {
+              siteCandidate = json.sites.find((s: any) => s.id === data.id) || 
+                              json.sites.find((s: any) => s.settings?.projectName === data.settings.projectName);
+              
+              if (!siteCandidate && json.sites.length > 0) {
+                if (window.confirm('파일에서 현재 현장과 일치하는 ID나 이름을 찾을 수 없습니다. 파일의 첫 번째 현장 데이터를 현재 현장에 강제로 복원하시겠습니까?')) {
+                  siteCandidate = json.sites[0];
+                }
               }
+            } else {
+              siteCandidate = json;
             }
-          } else {
-            siteCandidate = json;
-          }
 
-          if (siteCandidate) {
-            const finalSite = { ...migrateSite(siteCandidate), id: data.id };
-            if (window.confirm(`'${data.settings.projectName}' 현장의 데이터를 복원하시겠습니까? 기존 데이터는 삭제됩니다.`)) {
-              setMultiData(prev => {
-                const updatedSites = prev.sites.map(s => s.id === data.id ? finalSite : s);
-                const nextMulti = { ...prev, sites: updatedSites };
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(nextMulti));
-                return nextMulti;
-              });
-              setData(finalSite);
-              lastSavedContent.current = ''; // Force next auto-save to consider it new
-              if (finalSite.buildings && finalSite.buildings[0]) {
-                setProcesses(Object.keys(finalSite.buildings[0].processes));
-              }
-              alert('현장 데이터 복원이 완료되었습니다.');
-              window.location.reload();
+            if (siteCandidate) {
+              setPendingRestore({ data: json, mode: isMultiFile ? 'FULL' : 'SINGLE', targetSiteId: data.id });
+            } else {
+              alert('복원 가능한 현장 데이터를 찾을 수 없습니다.');
             }
           } else {
-            alert('복원 가능한 현장 데이터를 찾을 수 없습니다.');
-          }
-        } else {
-          if (isMultiFile) {
-            if (window.confirm('전체 현장 데이터를 파일 내용으로 복원하시겠습니까? 기존 모든 데이터가 교체됩니다.')) {
-              const migratedJson = { ...json, sites: json.sites.map(migrateSite) };
-              if (migratedJson.sites.length < 10) {
-                const needed = 10 - migratedJson.sites.length;
-                const additional = Array.from({ length: needed }, (_, i) => createNewSite(`신규 현장 ${migratedJson.sites.length + i + 1}`));
-                migratedJson.sites = [...migratedJson.sites, ...additional];
-              }
-              localStorage.setItem(STORAGE_KEY, JSON.stringify(migratedJson));
-              setMultiData(migratedJson);
-              const active = migratedJson.sites.find((s: any) => s.id === migratedJson.activeSiteId) || migratedJson.sites[0];
-              setData(active);
-              lastSavedContent.current = '';
-              if (active.buildings && active.buildings[0]) {
-                setProcesses(Object.keys(active.buildings[0].processes));
-              }
-              alert('전체 데이터 복원이 완료되었습니다.');
-              window.location.reload();
-            }
-          } else {
-            if (window.confirm('가져온 파일은 단일 현장 데이터입니다. 현재 보고 있는 현장에 이 데이터를 복원하시겠습니까?')) {
-              const finalSite = { ...migrateSite(json), id: data.id };
-              setMultiData(prev => {
-                const updatedSites = prev.sites.map(s => s.id === data.id ? finalSite : s);
-                const nextMulti = { ...prev, sites: updatedSites };
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(nextMulti));
-                return nextMulti;
-              });
-              setData(finalSite);
-              lastSavedContent.current = '';
-              if (finalSite.buildings && finalSite.buildings[0]) {
-                setProcesses(Object.keys(finalSite.buildings[0].processes));
-              }
-              alert('단일 현장 데이터 복원이 완료되었습니다.');
-              window.location.reload();
+            if (isMultiFile) {
+              setPendingRestore({ data: json, mode: 'FULL' });
+            } else {
+              setPendingRestore({ data: json, mode: 'SINGLE', targetSiteId: data.id });
             }
           }
-        }
       } catch (err) {
         console.error('Import error:', err);
         alert('데이터 복원 중 오류가 발생했습니다.');
@@ -964,34 +978,7 @@ export default function App() {
   };
 
   const handleRestoreInitialData = () => {
-    if (window.confirm('제공된 명신기공 데이터로 전체 현장을 복원하시겠습니까? 현재 변경사항은 모두 삭제됩니다.')) {
-      try {
-        const restoredData = initialDataImport as any;
-        const initialSite = migrateSite(restoredData.sites.find((s: any) => s.id === restoredData.activeSiteId) || restoredData.sites[0]);
-        
-        let finalSites = restoredData.sites.map(migrateSite);
-        if (finalSites.length < 10) {
-          const needed = 10 - finalSites.length;
-          const additional = Array.from({ length: needed }, (_, i) => createNewSite(`신규 현장 ${finalSites.length + i + 1}`));
-          finalSites = [...finalSites, ...additional];
-        }
-        
-        const mData = { ...multiData, activeSiteId: initialSite.id, sites: finalSites };
-        setMultiData(mData);
-        setData(initialSite);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(mData));
-        
-        if (initialSite.buildings && initialSite.buildings[0]) {
-          setProcesses(Object.keys(initialSite.buildings[0].processes));
-        }
-        
-        alert('전체 데이터 복원이 완료되었습니다.');
-        window.location.reload(); 
-      } catch (e) {
-        console.error("Restore failed:", e);
-        alert('데이터 복원에 실패했습니다.');
-      }
-    }
+    setPendingRestore({ data: initialDataImport as any, mode: 'INITIAL' });
   };
 
   const addProcess = () => {
@@ -1724,36 +1711,36 @@ export default function App() {
             </div>
           </div>
 
-          <div className="flex items-center justify-end gap-1 flex-1 min-w-0">
+          <div className="flex items-center justify-end gap-0.5 flex-1 min-w-0">
               <div className={`flex items-center gap-0.5 ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-100'} rounded-lg p-0.5 mr-0.5 border ${activeTheme.border} shrink-1 min-w-0 overflow-hidden`}>
-                <div className="flex items-center px-1 py-0.5 gap-1 border-r border-slate-300 dark:border-slate-700 max-w-[150px]">
-                  <Building2 className={`w-3 h-3 ${activeTheme.text} shrink-0`} />
+                <div className="flex items-center px-0.5 py-0.5 gap-1 border-r border-slate-300 dark:border-slate-700 max-w-[120px]">
+                  <Building2 className={`w-2.5 h-2.5 ${activeTheme.text} shrink-0`} />
                   {isLockedToSite && role !== 'ADMIN' ? (
-                    <div className={`text-[9px] font-black ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'} px-0.5 truncate`}>
+                    <div className={`text-[8px] font-black ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'} px-0.5 truncate`}>
                       {data.settings.projectName}
                     </div>
                   ) : (
                     <select 
                       value={data.id} 
                       onChange={(e) => switchSite(e.target.value)}
-                      className={`bg-transparent text-[9px] font-black border-none focus:ring-0 cursor-pointer appearance-none ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'} px-0.5 truncate w-full`}
+                      className={`bg-transparent text-[8px] font-black border-none focus:ring-0 cursor-pointer appearance-none ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'} px-0.5 truncate w-full`}
                     >
                       {multiData.sites.map(s => (
                         <option key={s.id} value={s.id} className={data.settings.theme === 'industrial' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
-                          {s.settings.projectName} {role === 'ADMIN' && s.settings.sitePassword ? `[PW: ${s.settings.sitePassword}]` : ''}
+                          {s.settings.projectName}
                         </option>
                       ))}
                     </select>
                   )}
                 </div>
-                <div className="flex items-center gap-1 px-1">
+                <div className="flex items-center gap-0.5 px-0.5">
                   {role === 'FIELD' && !isLockedToSite && (
                     <button 
                       onClick={() => setSiteAuthenticatedId(null)}
                       className={`p-1 hover:bg-white dark:hover:bg-slate-700 rounded-md transition-all group`}
                       title="현장 목록으로 돌아가기"
                     >
-                      <LayoutGrid className={`w-3 h-3 ${activeTheme.text}`} />
+                      <LayoutGrid className={`w-2.5 h-2.5 ${activeTheme.text}`} />
                     </button>
                   )}
                   <button 
@@ -1761,14 +1748,14 @@ export default function App() {
                     className={`p-1 hover:bg-white dark:hover:bg-slate-700 rounded-md transition-all group relative`}
                     title="현장 링크 복사"
                   >
-                    {isCopied ? <CheckCircle2 className="w-3 h-3 text-green-500" /> : <LinkIcon className={`w-3 h-3 ${activeTheme.text}`} />}
+                    {isCopied ? <CheckCircle2 className="w-2.5 h-2.5 text-green-500" /> : <LinkIcon className={`w-2.5 h-2.5 ${activeTheme.text}`} />}
                   </button>
                   {role === 'ADMIN' && (
                     <button 
                       onClick={() => setIsAddingSite(true)}
                       className={`p-1 hover:bg-white dark:hover:bg-slate-700 rounded-md transition-all group`}
                     >
-                      <Plus className={`w-3.5 h-3.5 ${activeTheme.text}`} />
+                      <Plus className={`w-3 h-3 ${activeTheme.text}`} />
                     </button>
                   )}
                 </div>
@@ -1777,51 +1764,51 @@ export default function App() {
               <div className={`flex ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-100'} rounded-lg p-0.5 shrink-0`}>
               <button 
                 onClick={() => setViewMode('table')}
-                className={`px-1.5 py-1.5 rounded-md text-[9px] font-bold transition-all ${viewMode === 'table' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
+                className={`px-1 py-1 rounded-md text-[8px] font-black transition-all ${viewMode === 'table' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
               >
                 공정표
               </button>
               <button 
                 onClick={() => setViewMode('grid')}
-                className={`px-1.5 py-1.5 rounded-md text-[9px] font-bold transition-all ${viewMode === 'grid' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
+                className={`px-1 py-1 rounded-md text-[8px] font-black transition-all ${viewMode === 'grid' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
               >
                 대시보드
               </button>
               <button 
                 onClick={() => setViewMode('calendar')}
-                className={`px-1.5 py-1.5 rounded-md text-[9px] font-bold transition-all ${viewMode === 'calendar' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
+                className={`px-1 py-1 rounded-md text-[8px] font-black transition-all ${viewMode === 'calendar' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
               >
                 달력
               </button>
               <button 
                 onClick={() => setViewMode('daily_report')}
-                className={`px-1.5 py-1.5 rounded-md text-[9px] font-bold transition-all ${viewMode === 'daily_report' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
+                className={`px-1 py-1 rounded-md text-[8px] font-black transition-all ${viewMode === 'daily_report' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
               >
                 일보
               </button>
               <button 
                 onClick={() => setViewMode('gantt')}
-                className={`px-1.5 py-1.5 rounded-md text-[9px] font-bold transition-all ${viewMode === 'gantt' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
+                className={`px-1 py-1 rounded-md text-[8px] font-black transition-all ${viewMode === 'gantt' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
               >
                 간트
               </button>
               <button 
                 onClick={() => setViewMode('analytics')}
-                className={`px-1.5 py-1.5 rounded-md text-[9px] font-bold transition-all ${viewMode === 'analytics' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
+                className={`px-1 py-1 rounded-md text-[8px] font-black transition-all ${viewMode === 'analytics' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
               >
                 리포트
               </button>
               {(role === 'ADMIN' || role === 'FIELD') && (
                 <button 
                   onClick={() => setViewMode('settings')}
-                  className={`px-1.5 py-1.5 rounded-md text-[9px] font-bold transition-all ${viewMode === 'settings' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
+                  className={`px-1 py-1 rounded-md text-[8px] font-black transition-all ${viewMode === 'settings' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
                 >
-                  {role === 'ADMIN' ? '설정' : '비밀번호'}
+                  {role === 'ADMIN' ? '설정' : '보안'}
                 </button>
               )}
             </div>
 
-            <div className={`flex items-center gap-1 ml-auto border-r pr-2 ${activeTheme.border} no-print text-[9px] shrink-0`}>
+            <div className={`flex items-center gap-0.5 ml-auto border-r pr-1 ${activeTheme.border} no-print text-[8px] shrink-0`}>
                {role === 'ADMIN' && (
                  <button 
                   onClick={() => setIsEditMode(!isEditMode)}
@@ -2018,14 +2005,27 @@ export default function App() {
                         <p className="text-[10px] text-slate-400 mt-1">현장 모드 접속 시 요구되는 비밀번호입니다.</p>
                       </label>
                       {role === 'ADMIN' && (
-                        <label className="block">
-                          <span className="text-xs font-semibold text-slate-400 mb-1 block">현장 위치 (도시명)</span>
-                          <input type="text" value={data.settings.location || ''} onChange={e => setData({...data, settings: {...data.settings, location: e.target.value}})} placeholder="예: Seoul, Busan 등" className={`w-full px-3 py-2 rounded-lg border ${activeTheme.border} text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none ${data.settings.theme === 'industrial' ? 'bg-slate-800 text-white' : 'bg-white'}`} />
-                          <p className="text-[10px] text-slate-400 mt-1">날씨 정보를 자동으로 가져오기 위한 도시 이름입니다.</p>
-                        </label>
+                        <div className="col-span-full pt-4 space-y-3">
+                          <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">현장 정밀 위치 설정 (지도)</h3>
+                          <LocationPicker 
+                            initialLocation={data.settings.location}
+                            initialCoords={data.settings.locationCoords}
+                            onLocationSelect={(location, coords) => {
+                               setData({
+                                 ...data,
+                                 settings: {
+                                   ...data.settings,
+                                   location,
+                                   locationCoords: coords
+                                 }
+                               });
+                            }}
+                          />
+                          <p className="text-[10px] text-slate-400 font-bold">지도를 클릭하거나 주소를 검색하여 현장 위치를 정확하게 지정해 주세요. 날씨 정보 연동에 사용됩니다.</p>
+                        </div>
                       )}
-                   </div>
-                </div>
+                    </div>
+                 </div>
 
                 {role === 'ADMIN' && (
                   <>
@@ -2163,6 +2163,8 @@ export default function App() {
               activeTheme={activeTheme} 
               getFloorText={getFloorText}
               getMaterialText={getMaterialText}
+              location={data.settings.location}
+              coords={data.settings.locationCoords}
             />
           </motion.div>
         )}
@@ -2893,6 +2895,73 @@ export default function App() {
                   </div>
                 </div>
 
+                <div className="mt-8">
+                  <div className={`${data.settings.theme === 'industrial' ? 'bg-slate-800/30' : 'bg-slate-50/50'} p-6 rounded-2xl border ${activeTheme.border}`}>
+                    <div className="flex items-center gap-3 mb-6">
+                      <div className={`p-2 rounded-lg ${activeTheme.accent} text-white`}>
+                        <Building2 className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 className={`text-lg font-bold ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'}`}>동별 공정률 비교</h3>
+                        <p className="text-xs text-slate-400">각 건물별 전체 공정의 평균 완료 상태 비교</p>
+                      </div>
+                    </div>
+                    <div className="h-[300px] w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={data.buildings.map(b => {
+                          const processesValues = Object.values(b.processes) as number[];
+                          const avg = processesValues.length > 0 ? processesValues.reduce((s, v) => s + v, 0) / processesValues.length : 0;
+                          return { name: b.name, progress: Math.round(avg) };
+                        })}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={data.settings.theme === 'industrial' ? '#2d333d' : '#f1f5f9'} />
+                          <XAxis 
+                            dataKey="name" 
+                            fontSize={11} 
+                            tickLine={false} 
+                            axisLine={false} 
+                            tick={{ fill: '#94a3b8' }}
+                            dy={10}
+                          />
+                          <YAxis 
+                            domain={[0, 100]} 
+                            fontSize={11} 
+                            tickLine={false} 
+                            axisLine={false} 
+                            tick={{ fill: '#94a3b8' }}
+                            unit="%"
+                          />
+                          <Tooltip 
+                            contentStyle={{ 
+                              backgroundColor: data.settings.theme === 'industrial' ? '#1a1d23' : '#ffffff', 
+                              border: `1px solid ${activeTheme.border}`,
+                              borderRadius: '12px',
+                              boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)'
+                            }} 
+                            cursor={{ fill: data.settings.theme === 'industrial' ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.02)' }}
+                          />
+                          <Bar 
+                            dataKey="progress" 
+                            name="공정률"
+                            radius={[4, 4, 0, 0]}
+                            barSize={30}
+                          >
+                            {data.buildings.map((b, index) => {
+                              const processesValues = Object.values(b.processes) as number[];
+                              const avg = processesValues.length > 0 ? processesValues.reduce((s, v) => s + v, 0) / processesValues.length : 0;
+                              return (
+                                <Cell 
+                                  key={`cell-${index}`} 
+                                  fill={avg > 80 ? '#22c55e' : avg > 40 ? '#3b82f6' : '#ef4444'} 
+                                />
+                              );
+                            })}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Detailed Process Breakdown */}
                 <div className="mt-12 space-y-6">
                    <div className="flex items-center justify-between">
@@ -3168,6 +3237,7 @@ export default function App() {
                 acc[p] = values.length > 0 ? Math.round(values.reduce((a, b) => a + b, 0) / values.length) : 0;
                 return acc;
               }, {} as Record<string, number>)}
+              dailyReports={data.dailyReports}
             />
           </motion.div>
         )}
@@ -3227,7 +3297,16 @@ export default function App() {
 
         {/* Add Site Modal */}
         <AnimatePresence>
-          {isAddingSite && (
+          {pendingRestore && (
+           <RestoreComparisonModal 
+             currentData={multiData}
+             backupData={pendingRestore.data}
+             onConfirm={handleConfirmRestore}
+             onCancel={() => setPendingRestore(null)}
+           />
+         )}
+
+         {isAddingSite && (
             <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4 no-print">
               <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="bg-white dark:bg-slate-900 p-8 rounded-3xl shadow-2xl max-w-md w-full space-y-6">
                 <h3 className="text-xl font-black uppercase tracking-tight italic">New Site Add</h3>
@@ -3319,6 +3398,17 @@ export default function App() {
         className="hidden" 
         accept="image/*"
       />
+
+      <AnimatePresence>
+        {pendingRestore && (
+          <RestoreComparisonModal 
+            currentData={multiData}
+            backupData={pendingRestore.data}
+            onConfirm={handleConfirmRestore}
+            onCancel={() => setPendingRestore(null)}
+          />
+        )}
+      </AnimatePresence>
 
       <style>{`
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }

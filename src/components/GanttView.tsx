@@ -15,7 +15,7 @@ import {
   Trash2,
   GripVertical
 } from 'lucide-react';
-import { AppTheme, UserRole, Milestone } from '../types';
+import { AppTheme, UserRole, Milestone, DailyReport } from '../types';
 
 interface GanttViewProps {
   processes: string[];
@@ -33,6 +33,7 @@ interface GanttViewProps {
   activeTheme: any;
   role: UserRole;
   buildingProgress: Record<string, number>; // Process name -> Average progress
+  dailyReports?: DailyReport[];
 }
 
 export default function GanttView({ 
@@ -50,7 +51,8 @@ export default function GanttView({
   theme, 
   activeTheme, 
   role,
-  buildingProgress
+  buildingProgress,
+  dailyReports = []
 }: GanttViewProps) {
   const [viewRange, setViewRange] = useState({ start: 0, weeks: 12 });
   const [editingProcess, setEditingProcess] = useState<string | null>(null);
@@ -67,6 +69,24 @@ export default function GanttView({
   const containerRef = useRef<HTMLDivElement>(null);
 
   const projectStart = useMemo(() => new Date(startDate), [startDate]);
+
+  // Calculate predicted delay factor based on historical weather
+  const weatherDelayFactor = useMemo(() => {
+    if (!dailyReports || dailyReports.length === 0) return 0;
+    
+    let totalPoints = 0;
+    dailyReports.forEach(report => {
+      const w = report.weather.toLowerCase();
+      if (w.includes('비') || w.includes('rain') || w.includes('눈') || w.includes('snow')) {
+        totalPoints += 0.3; // 30% daily delay for bad weather
+      } else if (w.includes('흐림') || w.includes('cloudy') || w.includes('overcast')) {
+        totalPoints += 0.05; // 5% slight delay
+      }
+    });
+    
+    // Average delay factor across reported days
+    return totalPoints / dailyReports.length;
+  }, [dailyReports]);
 
   // Derived effective schedules based on auto-sync logic
   const effectiveSchedules = useMemo(() => {
@@ -357,6 +377,12 @@ export default function GanttView({
                 const leftPercent = Math.max(0, (startDay - viewStart) / (viewRange.weeks * 7)) * 100;
                 const widthPercent = (Math.min(viewEnd, endDay) - Math.max(viewStart, startDay)) / (viewRange.weeks * 7) * 100;
 
+                // Predicted delay calculation
+                const predictedDelay = Math.round(schedule.duration * weatherDelayFactor);
+                const delayWidthPercent = (predictedDelay / (viewRange.weeks * 7)) * 100;
+                const totalEndDay = endDay + predictedDelay;
+                const isDelayVisible = isVisible || (totalEndDay >= viewStart && startDay <= viewEnd);
+
                 return (
                   <div key={p} className="flex group hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
                     <div 
@@ -370,6 +396,9 @@ export default function GanttView({
                              <div className={`h-full ${activeTheme.accent}`} style={{ width: `${progress}%` }} />
                            </div>
                            <span className="text-[9px] font-bold text-slate-400">{progress}%</span>
+                           {predictedDelay > 0 && (
+                             <span className="text-[8px] font-black text-rose-500 bg-rose-50 dark:bg-rose-900/30 px-1 rounded">+{predictedDelay}d</span>
+                           )}
                         </div>
                       </div>
                       {role !== 'GUEST' && <Settings2 className="w-3 h-3 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />}
@@ -399,6 +428,20 @@ export default function GanttView({
                                className={`absolute inset-0 ${activeTheme.accent} opacity-20 pointer-events-none`} 
                                style={{ width: `${progress}%` }} 
                              />
+
+                             {/* Predicted Delay Visualization */}
+                             {predictedDelay > 0 && (
+                               <div 
+                                 className="absolute left-full top-0 bottom-0 bg-rose-500/10 border-r-2 border-t-2 border-b-2 border-rose-500/30 border-dashed rounded-r-xl flex items-center justify-center overflow-hidden"
+                                 style={{ width: `${(delayWidthPercent / widthPercent) * 100}%`, minWidth: '4px' }}
+                               >
+                                 <div className="absolute inset-0 bg-repeating-linear-gradient opacity-10" 
+                                      style={{ backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 5px, currentColor 5px, currentColor 10px)', color: '#f43f5e' }} />
+                                 <span className="text-[7px] font-black text-rose-500 opacity-0 group-hover/bar:opacity-100 transition-opacity whitespace-nowrap px-1">
+                                   Expected Delay: +{predictedDelay}d
+                                 </span>
+                               </div>
+                             )}
 
                              {/* Resize Start Handle */}
                              {role !== 'GUEST' && !isAutoSync && (

@@ -37,22 +37,133 @@ app.get("/api/health", (req, res) => {
 });
 
 app.get("/api/weather", async (req, res) => {
-  const { location } = req.query;
+  const { location, date } = req.query;
   if (!location) {
     return res.status(400).json({ error: "Location is required" });
   }
 
-  try {
-    const weatherUrl = `https://wttr.in/${encodeURIComponent(location as string)}?format=j1`;
-    const response = await fetch(weatherUrl);
+  const todayStr = new Date().toISOString().split('T')[0];
+  const sanitizedLocation = (location as string).trim();
+  
+  // Try a standard browser User-Agent which is less likely to be blocked than curl
+  const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
+  const fetchWithRetry = async (locStr: string, dateStr?: string, retries = 1): Promise<Response> => {
+    // Better location mapping for wttr.in consistency in Korea
+    let refinedLoc = locStr;
+    const lowerLoc = locStr.toLowerCase();
     
+    // Skip refinement if it looks like coordinates (lat,lng)
+    const isCoords = /^[-+]?([1-8]?\d(\.\d+)?|90(\.0+)?),\s*[-+]?(180(\.0+)?|((1[0-7]\d)|([1-9]?\d))(\.\d+)?)$/.test(locStr);
+    
+    if (!isCoords) {
+      // wttr.in works best with city names in English or well-known Korean cities
+      if (lowerLoc.includes('김포') || lowerLoc.includes('gimpo')) refinedLoc = 'Gimpo';
+      else if (lowerLoc.includes('서울') || lowerLoc.includes('seoul')) refinedLoc = 'Seoul';
+      else if (lowerLoc.includes('인천') || lowerLoc.includes('incheon')) refinedLoc = 'Incheon';
+      else if (lowerLoc.includes('부산') || lowerLoc.includes('busan')) refinedLoc = 'Busan';
+      else if (lowerLoc.includes('대구') || lowerLoc.includes('daegu')) refinedLoc = 'Daegu';
+      else if (lowerLoc.includes('대전') || lowerLoc.includes('daejeon')) refinedLoc = 'Daejeon';
+      else if (lowerLoc.includes('광주') || lowerLoc.includes('gwangju')) refinedLoc = 'Gwangju';
+      else if (lowerLoc.includes('울산') || lowerLoc.includes('ulsan')) refinedLoc = 'Ulsan';
+      else if (lowerLoc.includes('수원') || lowerLoc.includes('suwon')) refinedLoc = 'Suwon';
+      else if (lowerLoc.includes('고양') || lowerLoc.includes('goyang')) refinedLoc = 'Goyang';
+      else if (lowerLoc.includes('성남') || lowerLoc.includes('seongnam')) refinedLoc = 'Seongnam';
+      else if (lowerLoc.includes('용인') || lowerLoc.includes('yongin')) refinedLoc = 'Yongin';
+    }
+
+    const locPart = encodeURIComponent(refinedLoc).replace(/%20/g, '+');
+    let url = `https://wttr.in/${locPart}?format=j1`;
+    if (dateStr && dateStr !== todayStr) {
+      url = `https://wttr.in/${locPart}@${dateStr}?format=j1`;
+    }
+
+    for (let i = 0; i <= retries; i++) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+
+      try {
+        const response = await fetch(url, {
+          headers: {
+            'User-Agent': BROWSER_UA,
+            'Accept': 'application/json',
+            'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Connection': 'close',
+            'Cache-Control': 'no-cache'
+          },
+          signal: controller.signal
+        });
+
+        if (response.ok) return response;
+        
+        if (response.status >= 500 && i < retries) {
+          await new Promise(r => setTimeout(r, 1500 * (i + 1)));
+          continue;
+        }
+        
+        return response;
+      } catch (err: any) {
+        if (i < retries) {
+          console.warn(`Weather API attempt ${i+1} errored for ${refinedLoc}: ${err.message}. Retrying...`);
+          await new Promise(r => setTimeout(r, 1500 * (i + 1)));
+          continue;
+        }
+        throw err;
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+    throw new Error('Retries exhausted');
+  };
+
+  try {
+    let response;
+    try {
+      response = await fetchWithRetry(sanitizedLocation, date as string);
+    } catch (e) {
+      // If original location fails, try a broader one immediately as part of catch
+      if (sanitizedLocation.includes(' ')) {
+        const parts = sanitizedLocation.split(' ');
+        response = await fetchWithRetry(parts[0], date as string);
+      } else {
+        throw e;
+      }
+    }
+    
+    // Fallback: If response not ok, and we haven't already tried a broad location
+    if (!response.ok && sanitizedLocation.includes(' ')) {
+      const parts = sanitizedLocation.split(' ');
+      const fallbackLoc = parts[0];
+      response = await fetchWithRetry(fallbackLoc, date as string);
+    }
+
     if (!response.ok) {
-      throw new Error(`Weather API responded with status: ${response.status}`);
+      // Mock data for "future" dates or consistently failing API
+      // In a construction app, showing at least "Season Default" is better than an error
+      const month = date ? parseInt((date as string).split('-')[1]) : new Date().getMonth() + 1;
+      let weatherDesc = '맑음';
+      let temp = '20';
+      
+      if (month <= 2 || month === 12) { weatherDesc = '추움/맑음'; temp = '-2'; }
+      else if (month >= 6 && month <= 8) { weatherDesc = '무더위/습함'; temp = '30'; }
+      else if (month >= 3 && month <= 5) { weatherDesc = '포근함'; temp = '18'; }
+      else { weatherDesc = '선선함'; temp = '15'; }
+
+      console.warn(`Weather API final error: ${response.status} for ${location}. Returning seasonal fallback.`);
+      return res.json({
+        current_condition: [{ temp_C: temp, weatherDesc: [{ value: weatherDesc }], humidity: "50", windspeedKmph: "10" }],
+        weather: [{ date: date || todayStr, avgtempC: temp, totalPrecip_mm: "0", hourly: [{}, {}, {}, {}, { weatherDesc: [{ value: weatherDesc }], tempC: temp }] }],
+        is_fallback: true
+      });
     }
     
     const data = await response.json();
     res.json(data);
   } catch (error: any) {
+    if (error.name === 'AbortError') {
+      console.error("Weather Proxy Timeout:", location);
+      return res.status(504).json({ error: "Weather API timeout" });
+    }
     console.error("Weather Proxy Error:", error);
     res.status(500).json({ error: "날씨 정보를 가져오는 데 실패했습니다." });
   }
@@ -70,12 +181,13 @@ app.post("/api/diagnosis", async (req, res) => {
     }
 
     const prompt = `
-      건설 현장 데이터 분석 전문가로서 현장 정밀 진단을 수행해 주세요.
+      건설 현장 데이터 분석 전문가로서 현장 정밀 진단을 수행해 주세요. 특히 최근 기상 악화 상황이 향후 공정에 미칠 영향을 심층 분석하는 것이 이번 진단의 핵심입니다.
       
       [현장 기초 정보]
       - 프로젝트: ${projectData.settings.projectName}
       - 기간: ${projectData.settings.startDate} ~ ${projectData.settings.endDate}
       - 소장: ${projectData.settings.managerName}
+      - 현재 위치: ${projectData.settings.location || "위치 정보 없음"}
       
       [현장 특이사항 및 메모]
       ${projectData.dashboardNotes || "기록된 특이사항 없음"}
@@ -84,24 +196,24 @@ app.post("/api/diagnosis", async (req, res) => {
       - 동별 진행 (JSON): ${JSON.stringify(projectData.buildings.map((b: any) => ({ name: b.name, progress: b.processes })))}
       - 시설물 현황: ${JSON.stringify(projectData.facilities.map((f: any) => ({ name: f.name, status: f.status })))}
       
-      [일일 작업 현황 요약]
-      ${(projectData.dailyReports || []).slice(0, 3).map((r: any) => `- ${r.date}: ${r.notes} (인원: ${r.manpower}, 날씨: ${r.weather})`).join('\n')}
+      [최근 7일간 작업 현황 및 기상 기록]
+      ${(projectData.dailyReports || []).slice(0, 10).map((r: any) => `- ${r.date}: ${r.notes} (인원: ${r.manpower}, 날씨/환경: ${r.weather})`).join('\n')}
       
-      [진단 지시 사항]
-      1. '현장 특이사항 및 메모'에 기술된 이슈(자재 협의, 민원, 기상 등)를 최우선으로 고려하여 현재 공정의 위협 요소를 분석해 주세요.
-      2. 수치 데이터(동별 공정율)에서 나타나는 편차나 지연 징후를 포착하여 구체적으로 지적해 주세요.
-      3. 현장 소장이 즉시 조치해야 할 '핵심 관리 포인트' 3가지를 제시해 주세요.
-      4. 프로젝트의 성공적인 완수를 위한 선제적 제언을 리포트 형식으로 작성해 주세요.
+      [진단 핵심 지시 사항]
+      1. 기상 분석: 최근 기상 데이터(강수, 기온, 강풍 등)를 바탕으로 현재 공정(골조, 마감, 인프라 등)에 미친 실질적 지연 요소를 도출하십시오.
+      2. 향후 영향: 현재의 기상 추세나 누적된 습도/기온 이슈가 향후 1~2주 내 예정된 핵심 공정(콘크리트 타설, 외벽 작업, 타워크레인 운용 등)에 미칠 위험을 예측하십시오.
+      3. 데이터 기반 편차분석: 동별 공정율 데이터에서 나타나는 부진 구간을 포착하고, 이것이 기상 이슈와 결합했을 때의 가중 위험을 지적하십시오.
+      4. 소장 대응 전략: 현장 소장이 즉시 조치해야 할 '핵심 관리 포인트' 3가지를 기상 대응을 포함하여 제시하십시오.
       
       [응답 형식]
       반드시 다음과 같은 JSON 구조로 응답하십시오:
       {
-        "diagnosis": "전체 진단 내용 (마크다운 형식)",
-        "risks": ["핵심 위험 요소 1", "핵심 위험 요소 2", "핵심 위험 요소 3"],
-        "actions": ["권장 조치 사항 1", "권장 조치 사항 2", "권장 조치 사항 3"]
+        "diagnosis": "전체 진단 내용 (마크다운 형식, 기상 분석 섹션 포함 필수)",
+        "risks": ["기상 관련 위험 포함 핵심 요소 1", "위험 요소 2", "위험 요소 3"],
+        "actions": ["날씨 대응 포함 권장 조치 1", "권장 조치 2", "권장 조치 3"]
       }
       
-      참고: diagnosis 필드는 소장에게 보고하는 격식 있는 말투로 작성하고, risks와 actions는 리포트에서 추출한 핵심 요약을 짧은 문장으로 작성하십시오.
+      참고: diagnosis 필드는 소개, 현황 분석, 기상 영향 평가, 향후 전망 순으로 격식 있는 말투로 작성하십시오.
     `;
 
     console.log("Sending diagnosis request to Gemini with model gemini-3.5-flash...");
