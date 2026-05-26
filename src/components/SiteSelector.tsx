@@ -48,7 +48,7 @@ export default function SiteSelector({ sites, onSelect }: SiteSelectorProps) {
             const hasPassword = !!site.settings.sitePassword;
             return (
               <motion.button
-                key={site.id}
+                key={`${site.id || site.settings.projectName || 'site'}-${index}`}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.05 }}

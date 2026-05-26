@@ -4,6 +4,7 @@
  */
 
 import React, { useEffect, useState, useRef } from 'react';
+import * as XLSX from 'xlsx';
 import { 
   Plus, 
   Trash2, 
@@ -223,6 +224,13 @@ export default function App() {
   const [newProcessName, setNewProcessName] = useState('');
   const [photoTarget, setPhotoTarget] = useState<{ buildingId: number, processName: string } | null>(null);
   const [galleryTarget, setGalleryTarget] = useState<{ buildingId: number, processName: string } | null>(null);
+  const excelUploadRef = useRef<HTMLInputElement>(null);
+  const [excelFileDropActive, setExcelFileDropActive] = useState(false);
+  const [excelOptions, setExcelOptions] = useState({
+    autoCreateProcesses: true,
+    autoCreateBuildings: true,
+    truncateProgress: true
+  });
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
   const [hoveredProgress, setHoveredProgress] = useState<{ buildingId: number, processName: string, x: number, y: number } | null>(null);
   const [isDiagnosing, setIsDiagnosing] = useState(false);
@@ -338,9 +346,154 @@ export default function App() {
         setProcesses(Object.keys(initialSite.buildings[0].processes));
       }
     }
+
+    // Auto-login from query params and clean url immediately
+    const roleParam = urlParams.get('role');
+    const pwParam = urlParams.get('pw');
+    if (roleParam === 'ADMIN') {
+      const savedMData = localStorage.getItem(STORAGE_KEY);
+      let adminPw = '1111';
+      if (savedMData) {
+        try {
+          const parsed = JSON.parse(savedMData);
+          adminPw = parsed.adminPassword || '1111';
+        } catch (e) {}
+      }
+      if (pwParam === adminPw) {
+        setRole('ADMIN');
+        const newUrlParams = new URLSearchParams(window.location.search);
+        newUrlParams.delete('role');
+        newUrlParams.delete('pw');
+        const qs = newUrlParams.toString();
+        const cleanUrl = window.location.pathname + (qs ? `?${qs}` : '');
+        window.history.replaceState({}, '', cleanUrl);
+      }
+    } else if (roleParam === 'FIELD') {
+      setRole('FIELD');
+      const newUrlParams = new URLSearchParams(window.location.search);
+      newUrlParams.delete('role');
+      const qs = newUrlParams.toString();
+      const cleanUrl = window.location.pathname + (qs ? `?${qs}` : '');
+      window.history.replaceState({}, '', cleanUrl);
+    }
   }, []);
 
   const lastSavedContent = useRef<string>('');
+  const lastSyncedContentRef = useRef<string>('');
+
+  // 1. Initial load from server-side database
+  useEffect(() => {
+    const fetchInitialData = async () => {
+      try {
+        const response = await fetch('/api/project-data');
+        if (response.ok) {
+          const res = await response.json();
+          if (res.data) {
+            const serverMulti = res.data;
+            const serialized = JSON.stringify(serverMulti);
+            lastSyncedContentRef.current = serialized;
+            
+            const urlParams = new URLSearchParams(window.location.search);
+            const siteParam = urlParams.get('site');
+            
+            setMultiData(serverMulti);
+            if (serverMulti.trash) setTrash(serverMulti.trash);
+            
+            const targetId = siteParam || serverMulti.activeSiteId;
+            const activeSite = serverMulti.sites.find((s: any) => s.id === targetId) || serverMulti.sites[0];
+            
+            if (activeSite) {
+              setData(activeSite);
+              if (activeSite.buildings?.[0]?.processes) {
+                setProcesses(Object.keys(activeSite.buildings[0].processes));
+              }
+            }
+            
+            localStorage.setItem(STORAGE_KEY, serialized);
+            console.log("[Sync] Initial project data sync from server succeeded.");
+          } else {
+            console.log("[Sync] Server has no project data yet, using local storage or fallback.");
+          }
+        }
+      } catch (err) {
+        console.error("[Sync] Failed to fetch initial data from server:", err);
+      }
+    };
+    fetchInitialData();
+  }, []);
+
+  // 2. Auto-save multiData to Express server when it changes
+  useEffect(() => {
+    const serialized = JSON.stringify(multiData);
+    if (!multiData.sites || multiData.sites.length === 0) return;
+    if (serialized === lastSyncedContentRef.current) return;
+
+    const timer = setTimeout(() => {
+      fetch('/api/project-data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: multiData }),
+      }).then(res => {
+        if (res.ok) {
+          lastSyncedContentRef.current = serialized;
+          console.log("[Sync] Project data successfully saved to server.");
+        }
+      }).catch(err => {
+        console.error("[Sync] Failed to save project data to server:", err);
+      });
+    }, 1500); // 1.5 seconds debounce
+
+    return () => clearTimeout(timer);
+  }, [multiData]);
+
+  // 3. Real-time polling for changes from other tabs/iframes
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        // Only pull update if there are no local unsaved changes
+        const currentLocalStr = JSON.stringify(multiData);
+        if (currentLocalStr !== lastSyncedContentRef.current) {
+          // Local changes are pending save, do not overwrite them with server data yet
+          return;
+        }
+
+        const response = await fetch('/api/project-data');
+        if (response.ok) {
+          const res = await response.json();
+          if (res.data) {
+            const serverMulti = res.data;
+            const serialized = JSON.stringify(serverMulti);
+            
+            if (serialized !== lastSyncedContentRef.current) {
+              console.log("[Sync] Remote update detected. Pulling changes from server.");
+              lastSyncedContentRef.current = serialized;
+              
+              setMultiData(serverMulti);
+              if (serverMulti.trash) setTrash(serverMulti.trash);
+              
+              const urlParams = new URLSearchParams(window.location.search);
+              const siteParam = urlParams.get('site');
+              const targetId = siteParam || serverMulti.activeSiteId;
+              const activeSite = serverMulti.sites.find((s: any) => s.id === targetId) || serverMulti.sites[0];
+              
+              if (activeSite) {
+                setData(activeSite);
+                if (activeSite.buildings?.[0]?.processes) {
+                  setProcesses(Object.keys(activeSite.buildings[0].processes));
+                }
+              }
+              
+              localStorage.setItem(STORAGE_KEY, serialized);
+            }
+          }
+        }
+      } catch (err) {
+        console.error("[Sync] Error during real-time polling:", err);
+      }
+    }, 3000); // Poll every 3 seconds for fast real-time synchronization
+
+    return () => clearInterval(interval);
+  }, [multiData]);
 
   // Auto-save logic
   useEffect(() => {
@@ -793,6 +946,202 @@ export default function App() {
       alert('데이터 복원 중 오류가 발생했습니다.');
     } finally {
       setPendingRestore(null);
+    }
+  };
+
+  const handleDownloadExcelTemplate = () => {
+    try {
+      const wb = XLSX.utils.book_new();
+      
+      // Sorted process names
+      const sortedProcs = [...processes].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+      // Header row
+      const headerRow = ["동 명칭", ...sortedProcs];
+      // Data rows
+      const dataRows = data.buildings.map(b => {
+        const row: (string | number)[] = [b.name];
+        sortedProcs.forEach(p => {
+          row.push(b.processes[p] ?? 0);
+        });
+        return row;
+      });
+
+      const ws = XLSX.utils.aoa_to_sheet([headerRow, ...dataRows]);
+      
+      // Auto-fit column widths
+      const colWidths = headerRow.map((h, i) => {
+        const maxLen = Math.max(
+          h.length,
+          ...dataRows.map(row => String(row[i] || '').length)
+        );
+        return { wch: Math.max(maxLen + 4, 10) };
+      });
+      ws['!cols'] = colWidths;
+
+      XLSX.utils.book_append_sheet(wb, ws, "공정진행률_업로드");
+      
+      const fileName = `${data.settings.projectName.trim() || '현장'}_공정진행률_업로드_템플릿.xlsx`;
+      XLSX.writeFile(wb, fileName);
+    } catch (err: any) {
+      console.error(err);
+      alert(`엑셀 템플릿 생성 실패: ${err.message || err}`);
+    }
+  };
+
+  const handleExcelFile = (file: File) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const ab = e.target?.result as ArrayBuffer;
+        const wb = XLSX.read(ab, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const sheetData = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+        
+        if (!sheetData || sheetData.length < 2) {
+          alert("엑셀 파일에 유효한 데이터가 없습니다. 최소한 '동 명칭' 헤더 행과 1개 이상의 데이터 행이 필요합니다.");
+          return;
+        }
+
+        // Filter out completely empty rows
+        const rows = sheetData.filter(row => row && row.length > 0 && row.some(cell => cell !== null && cell !== undefined && cell !== ""));
+        if (rows.length < 2) {
+          alert("유효한 데이터 행이 부족합니다. (최소한 헤더와 1개 이상의 데이터 행 필요)");
+          return;
+        }
+
+        const currentBuildingNames = data.buildings.map(b => b.name.trim());
+        
+        // Decide if transposition is needed
+        const firstColCells = rows.slice(1).map(r => String(r[0] || '').trim());
+        const firstRowCells = rows[0].slice(1).map(c => String(c || '').trim());
+
+        // Count match scores
+        const colMatches = firstColCells.filter(cell => currentBuildingNames.includes(cell) || cell.endsWith('동') || cell.endsWith('호') || /^\d+$/.test(cell)).length;
+        const rowMatches = firstRowCells.filter(cell => currentBuildingNames.includes(cell) || cell.endsWith('동') || cell.endsWith('호') || /^\d+$/.test(cell)).length;
+
+        let isTransposed = false;
+        if (rowMatches > colMatches) {
+          isTransposed = true; // Columns match buildings, rows match processes
+        }
+
+        let parsedRows: any[][] = rows;
+        if (isTransposed) {
+          const maxCols = Math.max(...rows.map(r => r.length));
+          const transposed: any[][] = [];
+          for (let c = 0; c < maxCols; c++) {
+            const newRow: any[] = [];
+            for (let r = 0; r < rows.length; r++) {
+              newRow.push(rows[r][c]);
+            }
+            transposed.push(newRow);
+          }
+          parsedRows = transposed.filter(row => row && row.length > 0 && row.some(cell => cell !== null && cell !== undefined && cell !== ""));
+        }
+
+        const headers = parsedRows[0].map(h => String(h || '').trim());
+        const importedProgressColumns = headers.slice(1).filter(h => h !== '');
+
+        if (importedProgressColumns.length === 0) {
+          alert("엑셀 시트에서 유효한 공정 열 이름을 식별할 수 없습니다.");
+          return;
+        }
+
+        setData(prev => {
+          let updatedProcesses = [...processes];
+          const existingProcSet = new Set(processes);
+          
+          if (excelOptions.autoCreateProcesses) {
+            importedProgressColumns.forEach(p => {
+              if (!existingProcSet.has(p)) {
+                updatedProcesses.push(p);
+              }
+            });
+            setTimeout(() => {
+              setProcesses(updatedProcesses);
+            }, 50);
+          }
+
+          let updatedBuildings = [...prev.buildings];
+          
+          parsedRows.slice(1).forEach(row => {
+            const rawBName = String(row[0] || '').trim();
+            if (!rawBName) return;
+
+            let bName = rawBName;
+            if (/^\d+$/.test(bName)) {
+              bName = `${bName}동`;
+            }
+
+            let bIdx = updatedBuildings.findIndex(b => b.name.trim() === bName || b.name.trim() === rawBName);
+
+            if (bIdx === -1 && excelOptions.autoCreateBuildings) {
+              const nextId = Math.max(0, ...updatedBuildings.map(b => b.id)) + 1;
+              const newBuilding: BuildingData = {
+                id: nextId,
+                name: bName,
+                processes: {}
+              };
+              updatedBuildings.push(newBuilding);
+              bIdx = updatedBuildings.length - 1;
+            }
+
+            if (bIdx !== -1) {
+              const b = updatedBuildings[bIdx];
+              const updatedProcMap = { ...b.processes };
+              
+              importedProgressColumns.forEach((procName, colIdx) => {
+                const cellVal = row[colIdx + 1];
+                if (cellVal !== undefined && cellVal !== null && cellVal !== "") {
+                  if (excelOptions.autoCreateProcesses || existingProcSet.has(procName)) {
+                    let val = parseFloat(cellVal);
+                    if (!isNaN(val)) {
+                      if (excelOptions.truncateProgress) {
+                        val = Math.max(0, Math.min(100, Math.round(val)));
+                      } else {
+                        val = Math.max(0, Math.min(100, val));
+                      }
+                      updatedProcMap[procName] = val;
+                    }
+                  }
+                }
+              });
+
+              updatedBuildings[bIdx] = {
+                ...b,
+                processes: updatedProcMap
+              };
+            }
+          });
+
+          const buildingCount = updatedBuildings.length;
+
+          return {
+            ...prev,
+            buildings: updatedBuildings,
+            settings: {
+              ...prev.settings,
+              buildingCount
+            }
+          };
+        });
+
+        alert(`공정 엑셀 데이터 파싱이 정상적으로 처리되었습니다!\n지정된 동/공정의 진행률 데이터가 연동되었습니다.`);
+      } catch (err: any) {
+        console.error(err);
+        alert(`엑셀 파일 구문 분석 실패: ${err.message || err}`);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+    if (excelUploadRef.current) {
+      excelUploadRef.current.value = '';
+    }
+  };
+
+  const handleExcelUploadChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      handleExcelFile(file);
     }
   };
 
@@ -1448,9 +1797,9 @@ export default function App() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {multiData.sites.map(site => (
+            {multiData.sites.map((site, index) => (
               <motion.button
-                key={site.id}
+                key={`${site.id || site.settings.projectName || 'site'}-${index}`}
                 whileHover={{ scale: 1.02, translateY: -4 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={() => switchSite(site.id)}
@@ -1725,8 +2074,8 @@ export default function App() {
                       onChange={(e) => switchSite(e.target.value)}
                       className={`bg-transparent text-[8px] font-black border-none focus:ring-0 cursor-pointer appearance-none ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'} px-0.5 truncate w-full`}
                     >
-                      {multiData.sites.map(s => (
-                        <option key={s.id} value={s.id} className={data.settings.theme === 'industrial' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
+                      {multiData.sites.map((s, index) => (
+                        <option key={`${s.id || s.settings.projectName || 's'}-${index}`} value={s.id} className={data.settings.theme === 'industrial' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
                           {s.settings.projectName}
                         </option>
                       ))}
@@ -1751,12 +2100,26 @@ export default function App() {
                     {isCopied ? <CheckCircle2 className="w-2.5 h-2.5 text-green-500" /> : <LinkIcon className={`w-2.5 h-2.5 ${activeTheme.text}`} />}
                   </button>
                   {role === 'ADMIN' && (
-                    <button 
-                      onClick={() => setIsAddingSite(true)}
-                      className={`p-1 hover:bg-white dark:hover:bg-slate-700 rounded-md transition-all group`}
-                    >
-                      <Plus className={`w-3 h-3 ${activeTheme.text}`} />
-                    </button>
+                    <>
+                      <button 
+                        onClick={() => {
+                          const adminUrl = `${window.location.origin}${window.location.pathname}?role=ADMIN&pw=${multiData.adminPassword || '1111'}${data.id ? `&site=${data.id}` : ''}`;
+                          setShareUrl(adminUrl);
+                          copyToClipboard(adminUrl);
+                        }}
+                        className={`p-1 hover:bg-white dark:hover:bg-slate-700 rounded-md transition-all group`}
+                        title="관리자 접속 링크 복사"
+                      >
+                        <ShieldCheck className={`w-2.5 h-2.5 text-indigo-650 dark:text-indigo-400`} />
+                      </button>
+                      <button 
+                        onClick={() => setIsAddingSite(true)}
+                        className={`p-1 hover:bg-white dark:hover:bg-slate-700 rounded-md transition-all group`}
+                        title="신규 현장 추가"
+                      >
+                        <Plus className={`w-3 h-3 ${activeTheme.text}`} />
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
@@ -1940,11 +2303,11 @@ export default function App() {
                       <Lock className="w-5 h-5" />
                     </div>
                     <div>
-                      <p className="font-bold text-slate-800 text-sm">시스템 관리자 비밀번호</p>
-                      <p className="text-[10px] text-slate-500">모든 현장을 관리할 수 있는 마스터 비밀번호입니다.</p>
+                      <p className="font-bold text-slate-800 text-sm">시스템 관리자 비밀번호 및 링크</p>
+                      <p className="text-[10px] text-slate-500">모든 현장을 관리할 수 있는 마스터 비밀번호와 직접 진입할 수 있는 링크입니다.</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap md:flex-nowrap w-full md:w-auto">
                     <input 
                       type="password" 
                       value={multiData.adminPassword || ''}
@@ -1956,9 +2319,20 @@ export default function App() {
                           return updated;
                         });
                       }}
-                      className="px-4 py-2 border-2 border-indigo-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all w-full md:w-48 bg-white"
+                      className="px-4 py-2 border-2 border-indigo-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all w-full md:w-48 bg-white font-bold"
                       placeholder="비밀번호 설정"
                     />
+                    <button
+                      onClick={() => {
+                        const adminUrl = `${window.location.origin}${window.location.pathname}?role=ADMIN&pw=${multiData.adminPassword || '1111'}${data.id ? `&site=${data.id}` : ''}`;
+                        setShareUrl(adminUrl);
+                        copyToClipboard(adminUrl);
+                      }}
+                      className="whitespace-nowrap bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs px-4 py-2.5 rounded-lg flex items-center gap-1.5 shadow-md shadow-indigo-100 transition-all w-full md:w-auto justify-center"
+                    >
+                      <LinkIcon className="w-3.5 h-3.5" />
+                      관리자 링크 복사
+                    </button>
                   </div>
                </div>
              )}
@@ -2145,7 +2519,126 @@ export default function App() {
                   </>
                 )}
              </div>
-          </div>
+
+             {role !== 'GUEST' && (
+               <div className="space-y-4 pt-8 border-t border-slate-200/40" id="upload-options-card">
+                 <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider text-center lg:text-left">현장 공정 데이터 일괄 업로드 및 파싱 옵션</h3>
+                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                   {/* Left: Drag and Drop Upload Zone */}
+                   <div className="lg:col-span-2 flex flex-col">
+                     <div 
+                       onDragOver={(e) => {
+                         e.preventDefault();
+                         setExcelFileDropActive(true);
+                       }}
+                       onDragLeave={() => setExcelFileDropActive(false)}
+                       onDrop={(e) => {
+                         e.preventDefault();
+                         setExcelFileDropActive(false);
+                         const file = e.dataTransfer.files?.[0];
+                         if (file) handleExcelFile(file);
+                       }}
+                       className={`w-full h-full min-h-[220px] border-2 border-dashed rounded-2xl p-6 flex flex-col items-center justify-center text-center transition-all cursor-pointer ${
+                         data.settings.theme === 'industrial' 
+                           ? (excelFileDropActive 
+                               ? 'border-[#00ff9f] bg-[#00ff9f]/5 text-slate-100 scale-[0.99]' 
+                               : 'border-[#2d333d] hover:border-slate-500 bg-[#1e2229] text-slate-100')
+                           : (excelFileDropActive 
+                               ? `${activeTheme.border} bg-blue-50/50 scale-[0.99]` 
+                               : 'border-slate-200 hover:border-slate-400 bg-slate-50/10 backdrop-blur-sm')
+                       }`}
+                       onClick={() => excelUploadRef.current?.click()}
+                     >
+                       <div className={`p-4 rounded-full ${data.settings.theme === 'industrial' ? 'bg-[#2d333d]' : 'bg-green-50'} mb-3`}>
+                         <Upload className={`w-8 h-8 ${data.settings.theme === 'industrial' ? 'text-[#00ff9f]' : 'text-green-600'}`} />
+                       </div>
+                       <h4 className={`text-base font-black flex items-center gap-1.5 justify-center ${data.settings.theme === 'industrial' ? 'text-[#00ff9f]' : 'text-slate-900'}`}>
+                         현장별 공정 엑셀 (Excel) 및 CSV 업로드
+                       </h4>
+                       <p className={`text-xs font-semibold mt-2 ${data.settings.theme === 'industrial' ? 'text-slate-200' : 'text-slate-600'}`}>
+                         여기에 마우스로 파일을 끌어 구성원들과 공유하거나 <span className={`${activeTheme.text} font-bold underline`}>파일 찾아보기</span>를 눌러주세요.
+                       </p>
+                       <p className={`text-[10px] mt-1 ${data.settings.theme === 'industrial' ? 'text-slate-400' : 'text-slate-500'}`}>
+                         지원은 .xlsx, .xls, .csv 포맷이며 동 이름 또는 번호를 기준으로 데이터를 매핑합니다.
+                       </p>
+                       <input 
+                         type="file" 
+                         ref={excelUploadRef} 
+                         onChange={handleExcelUploadChange} 
+                         accept=".xlsx,.xls,.csv" 
+                         className="hidden" 
+                       />
+                     </div>
+                   </div>
+
+                   {/* Right: Upload Settings Option Card Column */}
+                   <div className="flex flex-col">
+                   <div className={`p-5 rounded-2xl border ${activeTheme.border} ${data.settings.theme === 'industrial' ? 'bg-[#1a1d23] text-slate-200' : 'bg-slate-50 text-slate-800'} flex flex-col gap-4 shadow-sm`}>
+                     <div className="flex items-center justify-between gap-2 border-b border-slate-200/50 pb-2">
+                       <span className={`text-xs font-black ${data.settings.theme === 'industrial' ? 'text-[#00ff9f]' : 'text-slate-900'}`}>엑셀 / CSV 파싱 설정</span>
+                       <button 
+                         onClick={(e) => {
+                           e.stopPropagation();
+                           handleDownloadExcelTemplate();
+                         }}
+                         className={`px-2.5 py-1 text-[9px] font-black ${activeTheme.button} ${data.settings.theme === 'industrial' ? 'text-black' : 'text-white'} rounded-lg flex items-center gap-1 transition-all hover:scale-105 active:scale-95`}
+                         title="현재 현장 기준 전용 템플릿 파일 생성"
+                       >
+                         <Download className="w-2.5 h-2.5" />
+                         템플릿 양식 받기
+                       </button>
+                     </div>
+
+                     <div className="space-y-4 pt-1">
+                       <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                         <input 
+                           type="checkbox" 
+                           checked={excelOptions.autoCreateProcesses}
+                           onChange={(e) => setExcelOptions(prev => ({ ...prev, autoCreateProcesses: e.target.checked }))}
+                           className="rounded text-blue-600 border-slate-300 w-4 h-4 mt-0.5 focus:ring-blue-500"
+                         />
+                         <div className="flex flex-col gap-0.5">
+                           <span className={`text-[10px] font-bold ${data.settings.theme === 'industrial' ? 'text-slate-200' : 'text-slate-800'}`}>신규 공정 자동 생성</span>
+                           <span className={`text-[8.5px] leading-tight ${data.settings.theme === 'industrial' ? 'text-slate-400' : 'text-slate-500'}`}>엑셀 열에 명시된 새로운 공정을 공정표에 자동 추가합니다.</span>
+                         </div>
+                       </label>
+
+                       <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                         <input 
+                           type="checkbox" 
+                           checked={excelOptions.autoCreateBuildings}
+                           onChange={(e) => setExcelOptions(prev => ({ ...prev, autoCreateBuildings: e.target.checked }))}
+                           className="rounded text-blue-600 border-slate-300 w-4 h-4 mt-0.5 focus:ring-blue-500"
+                         />
+                         <div className="flex flex-col gap-0.5">
+                           <span className={`text-[10px] font-bold ${data.settings.theme === 'industrial' ? 'text-slate-200' : 'text-slate-800'}`}>없는 '동(건물)' 자동 추가</span>
+                           <span className={`text-[8.5px] leading-tight ${data.settings.theme === 'industrial' ? 'text-slate-400' : 'text-slate-500'}`}>기존 데이터에 등록되지 않은 동을 엑셀 기준으로 자동 신설합니다.</span>
+                         </div>
+                       </label>
+
+                       <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                         <input 
+                           type="checkbox" 
+                           checked={excelOptions.truncateProgress}
+                           onChange={(e) => setExcelOptions(prev => ({ ...prev, truncateProgress: e.target.checked }))}
+                           className="rounded text-blue-600 border-slate-300 w-4 h-4 mt-0.5 focus:ring-blue-500"
+                         />
+                         <div className="flex flex-col gap-0.5">
+                           <span className={`text-[10px] font-bold ${data.settings.theme === 'industrial' ? 'text-slate-200' : 'text-slate-800'}`}>진행률 정수로 반올림</span>
+                           <span className={`text-[8.5px] leading-tight ${data.settings.theme === 'industrial' ? 'text-slate-400' : 'text-slate-500'}`}>소수점 단위 수치 데이터를 완결도 높게 일반 정수(0~100)로 자동 보정합니다.</span>
+                         </div>
+                       </label>
+                     </div>
+
+                     <div className={`text-[8.5px] p-2 leading-normal rounded border font-medium mt-2 ${data.settings.theme === 'industrial' ? 'text-amber-400 bg-amber-950/30 border-amber-500/20' : 'text-[#9a3412] bg-[#fffbeb] border-[#fef3c7]'}`}>
+                       ⚠️ 엑셀의 첫 번째 열은 <span className="font-bold underline">반드시 동 이름</span>이어야 하며, 나머지 열 이름은 입력할 공정 명칭이어야 함에 유의해 주세요. 템플릿을 받아 사용하시는 것을 적극 권장합니다.
+                     </div>
+                   </div>
+                 </div>
+               </div>
+             </div>
+           )}
+         </div>
           </motion.div>
         )}
 
@@ -2419,7 +2912,12 @@ export default function App() {
                             </div>
                                 <div className={`w-full h-1.5 rounded-full overflow-hidden ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-100'}`}>
                                   {bProcesses[p] !== -1 && (
-                                    <div className={`h-full transition-all duration-500 ${bProcesses[p] === 100 ? (data.settings.theme === 'industrial' ? 'bg-emerald-400' : 'bg-green-500') : activeTheme.accent}`} style={{ width: `${bProcesses[p] ?? 0}%` }} />
+                                    <motion.div 
+                                      initial={{ width: 0 }}
+                                      animate={{ width: `${bProcesses[p] ?? 0}%` }}
+                                      transition={{ duration: 0.5, ease: 'easeOut' }}
+                                      className={`h-full ${bProcesses[p] === 100 ? (data.settings.theme === 'industrial' ? 'bg-emerald-400' : 'bg-green-500') : activeTheme.accent}`} 
+                                    />
                                   )}
                                 </div>
                               </div>
@@ -2455,7 +2953,12 @@ export default function App() {
                                         )}
                                       </select>
                                       <div className={`w-10 h-1.5 rounded-full overflow-hidden ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-100'}`}>
-                                        <div className={`h-full transition-all duration-500 ${mProcesses[p] === 100 ? 'bg-amber-500' : 'bg-amber-400/50'}`} style={{ width: `${mProcesses[p] ?? 0}%` }} />
+                                        <motion.div 
+                                          initial={{ width: 0 }}
+                                          animate={{ width: `${mProcesses[p] ?? 0}%` }}
+                                          transition={{ duration: 0.5, ease: 'easeOut' }}
+                                          className={`h-full ${mProcesses[p] === 100 ? 'bg-amber-500' : 'bg-amber-400/50'}`} 
+                                        />
                                       </div>
                                       <span className="text-[8px] font-black text-amber-500/60 ml-0.5">{mProcesses[p] === -1 ? '-' : `${mProcesses[p] ?? 0}%`}</span>
                                   </div>
@@ -2521,7 +3024,12 @@ export default function App() {
                      </div>
 
                      <div className={`w-full h-1.5 rounded-full ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-100'} overflow-hidden`}>
-                       <div className={`h-full transition-all duration-500 ${avgProgress === 100 ? 'bg-green-500' : activeTheme.accent}`} style={{ width: `${avgProgress}%` }} />
+                       <motion.div 
+                         initial={{ width: 0 }}
+                         animate={{ width: `${avgProgress}%` }}
+                         transition={{ duration: 0.5, ease: 'easeOut' }}
+                         className={`h-full ${avgProgress === 100 ? 'bg-green-500' : activeTheme.accent}`} 
+                       />
                      </div>
                      
                      <div className="grid grid-cols-2 gap-2">
@@ -2748,11 +3256,21 @@ export default function App() {
                                  </div>
                                  <div className="w-[60px] flex flex-col gap-0.5">
                                    <div className={`h-1.5 rounded-full overflow-hidden ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-100'}`}>
-                                      <div className={`${progressVal === 100 ? 'bg-green-500' : activeTheme.accent} h-full`} style={{ width: `${progressVal}%` }} />
+                                      <motion.div 
+                                        initial={{ width: 0 }}
+                                        animate={{ width: `${progressVal}%` }}
+                                        transition={{ duration: 0.5, ease: 'easeOut' }}
+                                        className={`${progressVal === 100 ? 'bg-green-500' : activeTheme.accent} h-full`} 
+                                      />
                                    </div>
                                    {materialVal !== 0 && materialVal !== -1 && (
                                       <div className={`h-1 rounded-full overflow-hidden ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-100'}`}>
-                                         <div className={`bg-blue-400 h-full`} style={{ width: `${materialVal}%` }} />
+                                         <motion.div 
+                                           initial={{ width: 0 }}
+                                           animate={{ width: `${materialVal}%` }}
+                                           transition={{ duration: 0.5, ease: 'easeOut' }}
+                                           className={`bg-blue-400 h-full`} 
+                                         />
                                       </div>
                                     )}
                                   </div>
@@ -2766,9 +3284,9 @@ export default function App() {
                    </div>
                  );
                })}
-             </div>
-           </div>
-           </motion.div>
+            </div>
+          </div>
+          </motion.div>
          )}
          {viewMode === 'analytics' && (
           <motion.div
@@ -3313,14 +3831,14 @@ export default function App() {
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <span className="text-[10px] font-bold text-slate-400 uppercase ml-1">현장 명칭</span>
-                    <input autoFocus placeholder="현장 이름을 입력하세요..." value={newSiteName} onChange={e => setNewSiteName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addNewSite()} className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-bold" />
+                    <input autoFocus placeholder="현장 이름을 입력하세요..." value={newSiteName} onChange={e => setNewSiteName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addNewSite()} className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-bold text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-300" />
                   </div>
                   <div className="space-y-2">
                     <span className="text-[10px] font-bold text-slate-400 uppercase ml-1">접속 비밀번호 (선택사항)</span>
-                    <input type="text" placeholder="비밀번호를 입력하세요 (생략 시 무인증)" value={newSitePassword} onChange={e => setNewSitePassword(e.target.value)} onKeyDown={e => e.key === 'Enter' && addNewSite()} className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-bold" />
+                    <input type="text" placeholder="비밀번호를 입력하세요 (생략 시 무인증)" value={newSitePassword} onChange={e => setNewSitePassword(e.target.value)} onKeyDown={e => e.key === 'Enter' && addNewSite()} className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-bold text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-300" />
                   </div>
                   <div className="flex gap-3 pt-2">
-                    <button onClick={() => { setIsAddingSite(false); setNewSiteName(''); setNewSitePassword(''); }} className="flex-1 bg-slate-100 dark:bg-slate-800 text-slate-500 py-3 rounded-xl font-bold">취소</button>
+                    <button onClick={() => { setIsAddingSite(false); setNewSiteName(''); setNewSitePassword(''); }} className="flex-1 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-300 py-3 rounded-xl font-bold">취소</button>
                     <button onClick={addNewSite} className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-bold">현장 생성</button>
                   </div>
                 </div>

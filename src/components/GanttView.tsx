@@ -393,7 +393,12 @@ export default function GanttView({
                         <span className="text-[11px] font-black tracking-tight truncate">{p}</span>
                         <div className="flex items-center gap-2">
                            <div className="flex-1 h-1 bg-slate-100 dark:bg-slate-700 rounded-full w-12 overflow-hidden">
-                             <div className={`h-full ${activeTheme.accent}`} style={{ width: `${progress}%` }} />
+                             <motion.div 
+                               initial={{ width: 0 }}
+                               animate={{ width: `${progress}%` }}
+                               transition={{ duration: 0.5, ease: 'easeOut' }}
+                               className={`h-full ${activeTheme.accent}`} 
+                             />
                            </div>
                            <span className="text-[9px] font-bold text-slate-400">{progress}%</span>
                            {predictedDelay > 0 && (
@@ -424,9 +429,11 @@ export default function GanttView({
                             onMouseDown={(e) => handleDragStart(e, p, 'move')}
                           >
                              {/* Progress Overlay */}
-                             <div 
+                             <motion.div 
+                               initial={{ width: 0 }}
+                               animate={{ width: `${progress}%` }}
+                               transition={{ duration: 0.5, ease: 'easeOut' }}
                                className={`absolute inset-0 ${activeTheme.accent} opacity-20 pointer-events-none`} 
-                               style={{ width: `${progress}%` }} 
                              />
 
                              {/* Predicted Delay Visualization */}
@@ -502,7 +509,7 @@ export default function GanttView({
                      disabled={isAutoSync}
                      value={effectiveSchedules[editingProcess]?.startOffset || 0}
                      onChange={(e) => onUpdateSchedule(editingProcess, parseInt(e.target.value) || 0, schedules[editingProcess]?.duration || 30)}
-                     className={`w-full p-4 rounded-2xl border font-bold ${isAutoSync ? 'bg-slate-100 text-slate-400 border-slate-200' : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}
+                     className={`w-full p-4 rounded-2xl border font-bold ${isAutoSync ? 'bg-slate-100 text-slate-400 border-slate-200' : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-300'}`}
                    />
                 </div>
                 <div className="space-y-2">
@@ -511,7 +518,7 @@ export default function GanttView({
                      type="number" 
                      value={schedules[editingProcess]?.duration || 30}
                      onChange={(e) => onUpdateSchedule(editingProcess, schedules[editingProcess]?.startOffset || 0, parseInt(e.target.value) || 0)}
-                     className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 font-bold"
+                     className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 font-bold text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-300"
                    />
                 </div>
               </div>
@@ -577,12 +584,12 @@ export default function GanttView({
                     id="newMilestoneName"
                     type="text" 
                     placeholder="마일스톤 명칭"
-                    className="w-full bg-white dark:bg-slate-900 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-bold"
+                    className="w-full bg-white dark:bg-slate-900 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-300"
                   />
                   <input 
                     id="newMilestoneDate"
                     type="date" 
-                    className="w-full bg-white dark:bg-slate-900 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-bold"
+                    className="w-full bg-white dark:bg-slate-900 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white"
                   />
                 </div>
                 <button 

@@ -143,8 +143,8 @@ export default function RestoreComparisonModal({ currentData, backupData, onConf
                     추가될 현장 ({diff.newSites.length})
                   </h3>
                   <div className="flex flex-wrap gap-2">
-                    {diff.newSites.map(name => (
-                      <span key={name} className="px-3 py-1.5 bg-blue-50 text-blue-700 text-xs font-bold rounded-lg border border-blue-100">
+                    {diff.newSites.map((name, index) => (
+                      <span key={`${name}-${index}`} className="px-3 py-1.5 bg-blue-50 text-blue-700 text-xs font-bold rounded-lg border border-blue-100">
                         {name}
                       </span>
                     ))}
@@ -160,8 +160,8 @@ export default function RestoreComparisonModal({ currentData, backupData, onConf
                     삭제될 현장 ({diff.removedSites.length})
                   </h3>
                   <div className="flex flex-wrap gap-2">
-                    {diff.removedSites.map(name => (
-                      <span key={name} className="px-3 py-1.5 bg-amber-50 text-amber-700 text-xs font-bold rounded-lg border border-amber-100">
+                    {diff.removedSites.map((name, index) => (
+                      <span key={`${name}-${index}`} className="px-3 py-1.5 bg-amber-50 text-amber-700 text-xs font-bold rounded-lg border border-amber-100">
                         {name}
                       </span>
                     ))}
@@ -170,8 +170,8 @@ export default function RestoreComparisonModal({ currentData, backupData, onConf
               )}
 
               {/* Changed Details */}
-              {diff.changedSites.map(site => (
-                <div key={site.name} className="p-5 bg-slate-50 rounded-2xl border border-slate-100 space-y-4">
+              {diff.changedSites.map((site, index) => (
+                <div key={`${site.name}-${index}`} className="p-5 bg-slate-50 rounded-2xl border border-slate-100 space-y-4">
                   <div className="flex items-center gap-2 border-b border-slate-200 pb-3">
                     <Building2 className="w-4 h-4 text-slate-400" />
                     <span className="font-bold text-slate-800">{site.name}</span>

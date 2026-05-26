@@ -192,7 +192,7 @@ export default function DailyReportView({ reports, onAddReport, onDeleteReport, 
               type="date"
               value={archiveDate}
               onChange={e => setArchiveDate(e.target.value)}
-              className={`text-xs font-bold bg-slate-50 dark:bg-slate-800 border-none rounded-lg focus:ring-0 py-1.5 px-3`}
+              className={`text-xs font-bold bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 border-none rounded-lg focus:ring-0 py-1.5 px-3`}
             />
             {location && (
               <button 
@@ -214,7 +214,7 @@ export default function DailyReportView({ reports, onAddReport, onDeleteReport, 
                 placeholder="25°C"
                 value={manualWeather.temp}
                 onChange={e => setManualWeather({...manualWeather, temp: e.target.value})}
-                className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-100 dark:border-slate-700 text-xs font-bold"
+                className="w-full bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-300 p-3 rounded-xl border border-slate-100 dark:border-slate-700 text-xs font-bold"
               />
             </div>
             <div className="space-y-2">
@@ -224,7 +224,7 @@ export default function DailyReportView({ reports, onAddReport, onDeleteReport, 
                 placeholder="60%"
                 value={manualWeather.humidity}
                 onChange={e => setManualWeather({...manualWeather, humidity: e.target.value})}
-                className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-100 dark:border-slate-700 text-xs font-bold"
+                className="w-full bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-300 p-3 rounded-xl border border-slate-100 dark:border-slate-700 text-xs font-bold"
               />
             </div>
             <div className="space-y-2">
@@ -234,7 +234,7 @@ export default function DailyReportView({ reports, onAddReport, onDeleteReport, 
                 placeholder="0mm"
                 value={manualWeather.precip}
                 onChange={e => setManualWeather({...manualWeather, precip: e.target.value})}
-                className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-100 dark:border-slate-700 text-xs font-bold"
+                className="w-full bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-300 p-3 rounded-xl border border-slate-100 dark:border-slate-700 text-xs font-bold"
               />
             </div>
             <div className="space-y-2">
@@ -244,7 +244,7 @@ export default function DailyReportView({ reports, onAddReport, onDeleteReport, 
                 placeholder="5km/h"
                 value={manualWeather.wind}
                 onChange={e => setManualWeather({...manualWeather, wind: e.target.value})}
-                className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-100 dark:border-slate-700 text-xs font-bold"
+                className="w-full bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-300 p-3 rounded-xl border border-slate-100 dark:border-slate-700 text-xs font-bold"
               />
             </div>
             <div className="space-y-2">
@@ -252,13 +252,13 @@ export default function DailyReportView({ reports, onAddReport, onDeleteReport, 
               <select 
                 value={manualWeather.condition}
                 onChange={e => setManualWeather({...manualWeather, condition: e.target.value})}
-                className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-100 dark:border-slate-700 text-xs font-bold appearance-none"
+                className="w-full bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white p-3 rounded-xl border border-slate-100 dark:border-slate-700 text-xs font-bold appearance-none"
               >
-                <option>맑음</option>
-                <option>흐림</option>
-                <option>비</option>
-                <option>눈</option>
-                <option>안개</option>
+                <option className="bg-white dark:bg-slate-800 text-slate-900 dark:text-white">맑음</option>
+                <option className="bg-white dark:bg-slate-800 text-slate-900 dark:text-white">흐림</option>
+                <option className="bg-white dark:bg-slate-800 text-slate-900 dark:text-white">비</option>
+                <option className="bg-white dark:bg-slate-800 text-slate-900 dark:text-white">눈</option>
+                <option className="bg-white dark:bg-slate-800 text-slate-900 dark:text-white">안개</option>
               </select>
             </div>
           </div>
@@ -388,7 +388,7 @@ export default function DailyReportView({ reports, onAddReport, onDeleteReport, 
                     type="date" 
                     value={newReport.date} 
                     onChange={e => setNewReport({...newReport, date: e.target.value})}
-                    className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 font-bold"
+                    className="w-full bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white p-4 rounded-2xl border border-slate-200 dark:border-slate-700 font-bold"
                   />
                 </div>
                 <div className="space-y-2 relative">
@@ -411,7 +411,7 @@ export default function DailyReportView({ reports, onAddReport, onDeleteReport, 
                       value={newReport.weather}
                       onChange={e => setNewReport({...newReport, weather: e.target.value})}
                       placeholder="날씨 입력 (예: 맑음, 25°C)"
-                      className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 font-bold pr-12"
+                      className="w-full bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-300 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 font-bold pr-12"
                     />
                     <div className="absolute right-4 top-1/2 -translate-y-1/2">
                       <CloudSun className={`w-5 h-5 text-slate-300`} />
@@ -430,7 +430,7 @@ export default function DailyReportView({ reports, onAddReport, onDeleteReport, 
                   placeholder="예: 25명" 
                   value={newReport.manpower} 
                   onChange={e => setNewReport({...newReport, manpower: e.target.value})}
-                  className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 font-bold"
+                  className="w-full bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-300 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 font-bold"
                 />
               </div>
 
@@ -441,7 +441,7 @@ export default function DailyReportView({ reports, onAddReport, onDeleteReport, 
                   placeholder="금일 진행된 주요 공종 및 특이사항을 입력하세요..."
                   value={newReport.notes} 
                   onChange={e => setNewReport({...newReport, notes: e.target.value})}
-                  className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 font-bold resize-none"
+                  className="w-full bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-300 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 font-bold resize-none"
                 />
               </div>
 

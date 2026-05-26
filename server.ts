@@ -4,6 +4,7 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import cors from "cors";
+import fs from "fs";
 
 dotenv.config();
 
@@ -12,6 +13,30 @@ const PORT = 3000;
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
+
+// Server-side project data persistence
+const DATA_FILE = path.join(process.cwd(), "project_data.json");
+let serverProjectDataMemory: any = null;
+
+async function saveProjectData(data: any) {
+  try {
+    await fs.promises.writeFile(DATA_FILE, JSON.stringify(data, null, 2), "utf-8");
+  } catch (error) {
+    console.error("Failed to save project data to disk:", error);
+  }
+}
+
+async function loadProjectData() {
+  try {
+    if (fs.existsSync(DATA_FILE)) {
+      const content = await fs.promises.readFile(DATA_FILE, "utf-8");
+      return JSON.parse(content);
+    }
+  } catch (error) {
+    console.error("Failed to load project data from disk:", error);
+  }
+  return null;
+}
 
 // Logging middleware
 app.use((req, res, next) => {
@@ -34,6 +59,32 @@ const genAI = new GoogleGenAI({
 // API routes
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", env: process.env.NODE_ENV, timestamp: new Date().toISOString() });
+});
+
+app.get("/api/project-data", async (req, res) => {
+  try {
+    let data = serverProjectDataMemory;
+    if (!data) {
+      data = await loadProjectData();
+      if (data) {
+        serverProjectDataMemory = data;
+      }
+    }
+    res.json({ data: data || null });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/project-data", async (req, res) => {
+  try {
+    const { data } = req.body;
+    serverProjectDataMemory = data;
+    await saveProjectData(data);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get("/api/weather", async (req, res) => {
