@@ -130,65 +130,78 @@ const createNewSite = (name: string): AppState => ({
 
 const migrateSite = (site: any) => {
   if (!site || !site.buildings) return site;
-  
-  // Ensure essential fields exist
-  const defaultedSite = {
-    ...site,
-    processSchedules: site.processSchedules || DEFAULT_PROCESSES.reduce((acc, p, i) => ({ ...acc, [p]: { startOffset: i * 7, duration: 30 } }), {}),
-    milestones: site.milestones || [],
-    dailyReports: site.dailyReports || [],
-    history: site.history || []
+
+  const fuzzyMatch = (obj: any, targetK: string, fallbackVal: any = undefined) => {
+    if (!obj) return fallbackVal;
+    if (obj[targetK] !== undefined) return obj[targetK];
+    const strippedTarget = targetK.replace(/^\d+\.\s*/, '').trim();
+    const keys = Object.keys(obj);
+    const matchedKey = keys.find(k => k.replace(/^\d+\.\s*/, '').trim() === strippedTarget);
+    if (matchedKey !== undefined) {
+      return obj[matchedKey];
+    }
+    return fallbackVal;
   };
 
-  // Standardize processModes if they have numbers
-  const originalModes = defaultedSite.settings?.processModes || {};
-  const normalizedModes: Record<string, 'floor' | 'percent'> = {};
-  
-  DEFAULT_PROCESSES.forEach(p => {
-    let mode = originalModes[p];
-    if (mode === undefined) {
-      const matchingKey = Object.keys(originalModes).find(k => k.replace(/^\d+\.\s*/, '') === p);
-      if (matchingKey) mode = originalModes[matchingKey];
-    }
-    normalizedModes[p] = mode || 'floor';
+  const newProcessSchedules: Record<string, { startOffset: number; duration: number }> = {};
+  const originalSchedules = site.processSchedules || {};
+  DEFAULT_PROCESSES.forEach((p, idx) => {
+    const existing = fuzzyMatch(originalSchedules, p);
+    newProcessSchedules[p] = existing || { startOffset: idx * 7, duration: 30 };
   });
 
-  // We always want to standardize on DEFAULT_PROCESSES
+  const originalModes = site.settings?.processModes || {};
+  const normalizedModes: Record<string, 'floor' | 'percent'> = {};
+  DEFAULT_PROCESSES.forEach(p => {
+    normalizedModes[p] = fuzzyMatch(originalModes, p, 'floor');
+  });
+
   return {
-    ...defaultedSite,
+    ...site,
+    processSchedules: newProcessSchedules,
+    milestones: site.milestones || [],
+    dailyReports: site.dailyReports || [],
+    history: site.history || [],
     settings: {
-      ...defaultedSite.settings,
+      ...site.settings,
       processModes: normalizedModes
     },
-    buildings: defaultedSite.buildings.map((b: any) => {
+    buildings: site.buildings.map((b: any) => {
       const newProcesses: Record<string, number> = {};
-      const sourceKeys = Object.keys(b.processes || {});
-      
-      DEFAULT_PROCESSES.forEach(targetP => {
-        // Try exact match
-        let val = b.processes[targetP];
-        
-        if (val === undefined) {
-          // Try matching by stripping numbers from source keys
-          const matchingKey = sourceKeys.find(k => {
-            const strippedK = k.replace(/^\d+\.\s*/, '');
-            return strippedK === targetP;
-          });
-          if (matchingKey) {
-            val = b.processes[matchingKey];
-          }
-        }
-        
-        if (val === undefined) {
+      const newMaterialProcesses: Record<string, number> = {};
+      const newMaterialDates: Record<string, string> = {};
+
+      DEFAULT_PROCESSES.forEach(p => {
+        // Try fuzzy matching for each
+        let procVal = fuzzyMatch(b.processes, p);
+        if (procVal === undefined) {
           // Special cases
-          if (targetP === "스리브" || targetP === "이중관배관") {
-            val = b.processes["스리브&이중관배관"] || (b.processes as any)["4. 스리브"] || (b.processes as any)["5. 스리브"] || (b.processes as any)["9. 이중관배관"] || 0;
+          const stripped = p.replace(/^\d+\.\s*/, '').trim();
+          if (stripped === "스리브" || stripped === "이중관배관") {
+            const keysToTry = ["스리브&이중관배관", "4. 스리브", "5. 스리브", "9. 이중관배관", "스리브", "이중관배관"];
+            for (const tk of keysToTry) {
+              if (b.processes && b.processes[tk] !== undefined) {
+                procVal = b.processes[tk];
+                break;
+              }
+            }
           }
         }
-        
-        newProcesses[targetP] = val ?? 0;
+        newProcesses[p] = procVal ?? 0;
+
+        // Try fuzzy matching for material progress
+        newMaterialProcesses[p] = fuzzyMatch(b.materialProcesses, p, 0);
+
+        // Try fuzzy matching for material dates
+        newMaterialDates[p] = fuzzyMatch(b.materialDates, p, "");
       });
-      return { ...b, processes: newProcesses };
+
+      return {
+        ...b,
+        processes: newProcesses,
+        materialProcesses: newMaterialProcesses,
+        materialDates: newMaterialDates
+      };
     })
   };
 };
@@ -390,6 +403,9 @@ export default function App() {
           const res = await response.json();
           if (res.data) {
             const serverMulti = res.data;
+            if (serverMulti.sites) {
+              serverMulti.sites = serverMulti.sites.map(migrateSite);
+            }
             const serialized = JSON.stringify(serverMulti);
             lastSyncedContentRef.current = serialized;
             
@@ -462,6 +478,9 @@ export default function App() {
           const res = await response.json();
           if (res.data) {
             const serverMulti = res.data;
+            if (serverMulti.sites) {
+              serverMulti.sites = serverMulti.sites.map(migrateSite);
+            }
             const serialized = JSON.stringify(serverMulti);
             
             if (serialized !== lastSyncedContentRef.current) {
@@ -487,8 +506,13 @@ export default function App() {
             }
           }
         }
-      } catch (err) {
-        console.error("[Sync] Error during real-time polling:", err);
+      } catch (err: any) {
+        const errMsg = err?.message || '';
+        if (errMsg.includes('Failed to fetch') || errMsg.includes('Load failed') || errMsg.includes('NetworkError')) {
+          console.warn("[Sync] Server offline or restarting, retrying on next poll...");
+        } else {
+          console.error("[Sync] Error during real-time polling:", err);
+        }
       }
     }, 3000); // Poll every 3 seconds for fast real-time synchronization
 
@@ -3807,6 +3831,60 @@ export default function App() {
                   >
                     {isCopied ? '복사됨!' : '링크 복사'}
                   </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* Add Process Modal */}
+        <AnimatePresence>
+          {newProcessInput && (
+            <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4 no-print">
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.9 }} 
+                animate={{ opacity: 1, scale: 1 }} 
+                exit={{ opacity: 0, scale: 0.9 }} 
+                className="bg-white dark:bg-slate-900 p-8 rounded-3xl shadow-2xl max-w-md w-full space-y-6"
+              >
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xl font-black uppercase tracking-tight flex items-center gap-2 italic text-slate-900 dark:text-white">
+                    <Construction className={`w-5 h-5 ${activeTheme.text}`} />
+                    공종 추가
+                  </h3>
+                  <button 
+                    onClick={() => { setNewProcessInput(false); setNewProcessName(''); }} 
+                    className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors text-slate-500 dark:text-slate-400"
+                  >
+                    <Plus className="w-5 h-5 rotate-45" />
+                  </button>
+                </div>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase ml-1">신규 공종 명칭</span>
+                    <input 
+                      autoFocus 
+                      placeholder="예: 23. 미장공사 또는 타일공사" 
+                      value={newProcessName} 
+                      onChange={e => setNewProcessName(e.target.value)} 
+                      onKeyDown={e => e.key === 'Enter' && addProcess()} 
+                      className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-bold text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500" 
+                    />
+                  </div>
+                  <div className="flex gap-3 pt-2">
+                    <button 
+                      onClick={() => { setNewProcessInput(false); setNewProcessName(''); }} 
+                      className="flex-1 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-300 py-3 rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                    >
+                      취소
+                    </button>
+                    <button 
+                      onClick={addProcess} 
+                      className={`flex-1 text-white py-3 rounded-xl font-bold transition-colors ${data.settings.theme === 'industrial' ? 'bg-[#00ff9f]/80 text-black hover:bg-[#00ff9f]' : 'bg-blue-600 hover:bg-blue-700'}`}
+                    >
+                      추가
+                    </button>
+                  </div>
                 </div>
               </motion.div>
             </div>

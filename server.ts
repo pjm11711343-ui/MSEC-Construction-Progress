@@ -16,7 +16,56 @@ app.use(express.json({ limit: '10mb' }));
 
 // Server-side project data persistence
 const DATA_FILE = path.join(process.cwd(), "project_data.json");
+const BACKUPS_DIR = path.join(process.cwd(), "backups");
 let serverProjectDataMemory: any = null;
+
+// Ensure backups directory exists
+if (!fs.existsSync(BACKUPS_DIR)) {
+  fs.mkdirSync(BACKUPS_DIR, { recursive: true });
+}
+
+async function performBackup() {
+  try {
+    if (!fs.existsSync(BACKUPS_DIR)) {
+      await fs.promises.mkdir(BACKUPS_DIR, { recursive: true });
+    }
+    const data = serverProjectDataMemory || await loadProjectData();
+    if (!data) {
+      console.warn("[Backup] No project data loaded yet. Skipping automated backup.");
+      return;
+    }
+
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const dd = String(now.getDate()).padStart(2, '0');
+    const dateStr = `${yyyy}-${mm}-${dd}`;
+
+    const backupFile = path.join(BACKUPS_DIR, `project_data_backup_${dateStr}.json`);
+    await fs.promises.writeFile(backupFile, JSON.stringify(data, null, 2), "utf-8");
+    console.log(`[Backup] Automated daily backup saved successfully: ${backupFile}`);
+  } catch (error) {
+    console.error("[Backup] Failed to save automatic backup:", error);
+  }
+}
+
+// Recursive scheduling to run exactly at midnight
+function scheduleNextMidnightBackup() {
+  const now = new Date();
+  const nextMidnight = new Date(now);
+  nextMidnight.setHours(24, 0, 0, 0); // Sets to midnight (00:00:00) of the next calendar day
+  const msUntilMidnight = nextMidnight.getTime() - now.getTime();
+
+  setTimeout(async () => {
+    await performBackup();
+    scheduleNextMidnightBackup();
+  }, msUntilMidnight);
+
+  console.log(`[Backup] Next automated midnight backup scheduled in ${Math.round(msUntilMidnight / 1000 / 60)} minutes.`);
+}
+
+// Start the scheduler immediately on server boot
+scheduleNextMidnightBackup();
 
 async function saveProjectData(data: any) {
   try {
