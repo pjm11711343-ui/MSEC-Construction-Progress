@@ -263,6 +263,14 @@ export default function App() {
   const [siteAuthenticatedId, setSiteAuthenticatedId] = useState<string | null>(null);
   const captureInputRef = useRef<HTMLInputElement>(null);
 
+  const getPublicOrigin = () => {
+    let origin = window.location.origin;
+    if (origin.includes('ais-dev-')) {
+      origin = origin.replace('ais-dev-', 'ais-pre-');
+    }
+    return origin;
+  };
+
   const checkStorageUsage = () => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -736,7 +744,7 @@ export default function App() {
   };
 
   const copySiteLink = () => {
-    const url = `${window.location.origin}${window.location.pathname}?site=${data.id}`;
+    const url = `${getPublicOrigin()}${window.location.pathname}?site=${data.id}`;
     setShareUrl(url);
     copyToClipboard(url);
     setCopiedLinkType('guest');
@@ -2260,7 +2268,7 @@ export default function App() {
                     <>
                       <button 
                         onClick={() => {
-                          const adminUrl = `${window.location.origin}${window.location.pathname}?role=ADMIN&pw=${multiData.adminPassword || '1111'}${data.id ? `&site=${data.id}` : ''}`;
+                          const adminUrl = `${getPublicOrigin()}${window.location.pathname}?role=ADMIN&pw=${multiData.adminPassword || '1111'}${data.id ? `&site=${data.id}` : ''}`;
                           setShareUrl(adminUrl);
                           copyToClipboard(adminUrl);
                         }}
@@ -2498,7 +2506,7 @@ export default function App() {
                     />
                     <button
                       onClick={() => {
-                        const adminUrl = `${window.location.origin}${window.location.pathname}?role=ADMIN&pw=${multiData.adminPassword || '1111'}${data.id ? `&site=${data.id}` : ''}`;
+                        const adminUrl = `${getPublicOrigin()}${window.location.pathname}?role=ADMIN&pw=${multiData.adminPassword || '1111'}${data.id ? `&site=${data.id}` : ''}`;
                         setShareUrl(adminUrl);
                         copyToClipboard(adminUrl);
                       }}
@@ -4121,9 +4129,9 @@ export default function App() {
         {/* Share Link Modal */}
         <AnimatePresence>
           {shareUrl && (() => {
-            const adminUrl = `${window.location.origin}${window.location.pathname}?role=ADMIN&pw=${multiData.adminPassword || '1111'}${data.id ? `&site=${data.id}` : ''}`;
-            const fieldUrl = `${window.location.origin}${window.location.pathname}?role=FIELD${data.id ? `&site=${data.id}` : ''}`;
-            const guestUrl = `${window.location.origin}${window.location.pathname}?role=GUEST${data.id ? `&site=${data.id}` : ''}`;
+            const adminUrl = `${getPublicOrigin()}${window.location.pathname}?role=ADMIN&pw=${multiData.adminPassword || '1111'}${data.id ? `&site=${data.id}` : ''}`;
+            const fieldUrl = `${getPublicOrigin()}${window.location.pathname}?role=FIELD${data.id ? `&site=${data.id}` : ''}`;
+            const guestUrl = `${getPublicOrigin()}${window.location.pathname}?role=GUEST${data.id ? `&site=${data.id}` : ''}`;
             
             const handleModalCopy = (url: string, type: 'admin' | 'field' | 'guest') => {
               copyToClipboard(url);
