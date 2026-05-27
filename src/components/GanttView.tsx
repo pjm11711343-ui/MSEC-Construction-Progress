@@ -491,7 +491,9 @@ export default function GanttView({
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl p-8 max-w-sm w-full space-y-6"
+              className={`rounded-3xl shadow-2xl p-8 max-w-sm w-full space-y-6 ${
+                theme === 'industrial' ? 'bg-[#1a1d23] border border-[#2d333d] text-white' : 'bg-white text-slate-900 border border-slate-100'
+              }`}
             >
               <div className="space-y-1">
                 <h3 className="text-lg font-black">{editingProcess}</h3>
@@ -509,7 +511,13 @@ export default function GanttView({
                      disabled={isAutoSync}
                      value={effectiveSchedules[editingProcess]?.startOffset || 0}
                      onChange={(e) => onUpdateSchedule(editingProcess, parseInt(e.target.value) || 0, schedules[editingProcess]?.duration || 30)}
-                     className={`w-full p-4 rounded-2xl border font-bold ${isAutoSync ? 'bg-slate-100 text-slate-400 border-slate-200' : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-300'}`}
+                     className={`w-full p-4 rounded-2xl border font-bold ${
+                       isAutoSync 
+                         ? 'bg-slate-100 text-slate-400 border-slate-200' 
+                         : theme === 'industrial' 
+                           ? 'bg-slate-800 border-slate-705 text-white placeholder-slate-500' 
+                           : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
+                     }`}
                    />
                 </div>
                 <div className="space-y-2">
@@ -518,7 +526,11 @@ export default function GanttView({
                      type="number" 
                      value={schedules[editingProcess]?.duration || 30}
                      onChange={(e) => onUpdateSchedule(editingProcess, schedules[editingProcess]?.startOffset || 0, parseInt(e.target.value) || 0)}
-                     className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 font-bold text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-300"
+                     className={`w-full p-4 rounded-2xl border font-bold ${
+                       theme === 'industrial' 
+                         ? 'bg-slate-800 border-slate-705 text-white placeholder-slate-500' 
+                         : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
+                     }`}
                    />
                 </div>
               </div>
@@ -539,7 +551,9 @@ export default function GanttView({
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl p-8 max-w-md w-full space-y-6"
+              className={`rounded-3xl shadow-2xl p-8 max-w-md w-full space-y-6 ${
+                theme === 'industrial' ? 'bg-[#1a1d23] border border-[#2d333d] text-white' : 'bg-white text-slate-900 border border-slate-100'
+              }`}
             >
               <div className="flex items-center justify-between">
                 <div>
@@ -548,7 +562,9 @@ export default function GanttView({
                 </div>
                 <button 
                   onClick={() => setIsManagingMilestones(false)}
-                  className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
+                  className={`p-2 rounded-xl transition-colors ${
+                    theme === 'industrial' ? 'hover:bg-slate-800 text-slate-400' : 'hover:bg-slate-100 text-slate-500'
+                  }`}
                 >
                   <Trash2 className="w-5 h-5 text-slate-400" />
                 </button>
@@ -562,7 +578,9 @@ export default function GanttView({
                   </div>
                 )}
                 {milestones.map((m) => (
-                  <div key={m.id} className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800 p-3 rounded-xl group">
+                  <div key={m.id} className={`flex items-center gap-3 p-3 rounded-xl group ${
+                    theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-50'
+                  }`}>
                     <div className="flex-1 min-w-0">
                       <div className="text-xs font-black truncate">{m.name}</div>
                       <div className="text-[10px] text-slate-500 font-bold">{m.date}</div>
@@ -577,19 +595,29 @@ export default function GanttView({
                 ))}
               </div>
 
-              <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl space-y-3">
+              <div className={`p-4 rounded-2xl space-y-3 ${
+                theme === 'industrial' ? 'bg-slate-800/50' : 'bg-slate-50'
+              }`}>
                 <div className="text-[10px] font-black text-slate-400 uppercase">새 마일스톤 추가</div>
                 <div className="grid grid-cols-2 gap-2">
                   <input 
                     id="newMilestoneName"
                     type="text" 
                     placeholder="마일스톤 명칭"
-                    className="w-full bg-white dark:bg-slate-900 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-300"
+                    className={`w-full px-3 py-2 rounded-lg border text-xs font-bold focus:outline-none ${
+                      theme === 'industrial' 
+                        ? 'bg-slate-900 border-slate-705 text-white placeholder-slate-500' 
+                        : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400'
+                    }`}
                   />
                   <input 
                     id="newMilestoneDate"
                     type="date" 
-                    className="w-full bg-white dark:bg-slate-900 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white"
+                    className={`w-full px-3 py-2 rounded-lg border text-xs font-bold focus:outline-none ${
+                      theme === 'industrial' 
+                        ? 'bg-slate-900 border-slate-705 text-white' 
+                        : 'bg-white border-slate-200 text-slate-900'
+                    }`}
                   />
                 </div>
                 <button 
@@ -614,7 +642,11 @@ export default function GanttView({
 
               <button 
                 onClick={() => setIsManagingMilestones(false)}
-                className={`w-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-black py-4 rounded-2xl transition-all shadow-xl`}
+                className={`w-full font-black py-4 rounded-2xl transition-all shadow-xl border ${
+                  theme === 'industrial' 
+                    ? 'bg-white hover:bg-slate-150 text-slate-900' 
+                    : 'bg-slate-900 hover:bg-slate-800 text-white border-transparent'
+                }`}
               >
                 닫기
               </button>

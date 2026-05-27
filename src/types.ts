@@ -112,6 +112,7 @@ export interface MultiProjectData {
   sites: AppState[];
   trash?: any[];
   adminPassword?: string;
+  syncMode?: 'auto' | 'manual';
 }
 
 export const DEFAULT_PROCESSES = [

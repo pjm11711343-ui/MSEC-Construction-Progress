@@ -171,13 +171,22 @@ export default function CalendarView({ buildings, theme, activeTheme, getFloorTe
     return '108';
   };
 
+  const isIndustrial = theme === 'industrial';
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between no-print">
-        <h2 className={`text-xl font-black uppercase tracking-tight ${theme === 'industrial' ? 'text-white' : 'text-slate-900'}`}>자재 입고 예정표</h2>
-        <div className={`flex items-center gap-4 bg-white dark:bg-slate-800 p-2 rounded-xl border ${activeTheme.border} shadow-sm`}>
-          <button onClick={prevMonth} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors">
-            <ChevronLeft className="w-5 h-5 text-slate-500" />
+        <h2 className={`text-xl font-black uppercase tracking-tight ${isIndustrial ? 'text-white' : 'text-slate-900'}`}>자재 입고 예정표</h2>
+        <div className={`flex items-center gap-4 p-2 rounded-xl border shadow-sm ${
+          isIndustrial ? 'bg-slate-800/90 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-800'
+        }`}>
+          <button 
+            onClick={prevMonth} 
+            className={`p-1 rounded-lg transition-colors ${
+              isIndustrial ? 'hover:bg-slate-700 text-slate-300' : 'hover:bg-slate-100 text-slate-600'
+            }`}
+          >
+            <ChevronLeft className="w-5 h-5" />
           </button>
           <span className="text-sm font-black min-w-[100px] text-center">
             {year}년 {month + 1}월
@@ -188,30 +197,37 @@ export default function CalendarView({ buildings, theme, activeTheme, getFloorTe
               <span className="text-[9px] font-bold text-blue-500">날씨 조회 중...</span>
             </div>
           )}
-          <button onClick={nextMonth} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors">
-            <ChevronRight className="w-5 h-5 text-slate-500" />
+          <button 
+            onClick={nextMonth} 
+            className={`p-1 rounded-lg transition-colors ${
+              isIndustrial ? 'hover:bg-slate-700 text-slate-300' : 'hover:bg-slate-100 text-slate-600'
+            }`}
+          >
+            <ChevronRight className="w-5 h-5" />
           </button>
         </div>
       </div>
 
       <div className={`${activeTheme.card} rounded-3xl border ${activeTheme.border} shadow-xl overflow-hidden print:border-none print:shadow-none`}>
-        <div className="grid grid-cols-7 border-b border-slate-100 dark:border-slate-800">
+        <div className={`grid grid-cols-7 border-b ${isIndustrial ? 'border-slate-800' : 'border-slate-100'}`}>
           {['일', '월', '화', '수', '목', '금', '토'].map((d, i) => (
             <div key={d} className={`py-4 text-center text-[10px] font-black uppercase tracking-widest ${i === 0 ? 'text-red-400' : (i === 6 ? 'text-blue-400' : 'text-slate-400')}`}>
               {d}
             </div>
           ))}
         </div>
-        <div className="grid grid-cols-7 divide-x divide-y divide-slate-100 dark:divide-slate-800 border-l border-t border-transparent">
+        <div className={`grid grid-cols-7 border-l border-t border-transparent divide-x divide-y ${
+          isIndustrial ? 'divide-slate-800' : 'divide-slate-100'
+        }`}>
           {days.map((day, idx) => {
-            if (day === null) return <div key={`empty-${idx}`} className={`${theme === 'industrial' ? 'bg-slate-900/30' : 'bg-slate-50/50'}`} />;
+            if (day === null) return <div key={`empty-${idx}`} className={`${isIndustrial ? 'bg-slate-900/30' : 'bg-slate-50/50'}`} />;
             
             const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
             const dayEvents = events[dateStr] || [];
             const dayWeather = weatherData[dateStr];
 
             return (
-              <div key={day} className={`min-h-[140px] p-2 space-y-2 group transition-all ${isToday(day) ? (theme === 'industrial' ? 'bg-slate-800/50' : 'bg-blue-50/30') : ''}`}>
+              <div key={day} className={`min-h-[140px] p-2 space-y-2 group transition-all ${isToday(day) ? (isIndustrial ? 'bg-slate-800/50' : 'bg-blue-50/30') : ''}`}>
                 <div className="flex items-center justify-between">
                   <span className={`text-xs font-black ${isToday(day) ? activeTheme.text : (idx % 7 === 0 ? 'text-red-500' : (idx % 7 === 6 ? 'text-blue-500' : 'text-slate-400'))}`}>
                     {day}
@@ -223,13 +239,19 @@ export default function CalendarView({ buildings, theme, activeTheme, getFloorTe
                         target="_blank"
                         rel="noreferrer"
                         title="기상청 과거관측 보기"
-                        className="flex items-center gap-1 bg-slate-50 dark:bg-slate-800/80 px-1.5 py-0.5 rounded-md border border-slate-100 dark:border-slate-700/50 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors group/weather"
+                        className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md border transition-colors group/weather ${
+                          isIndustrial 
+                            ? 'bg-slate-800/80 border-slate-700/50 hover:bg-blue-900/30' 
+                            : 'bg-slate-50 border-slate-100 hover:bg-blue-50'
+                        }`}
                       >
                         {dayWeather.icon}
                         <span className="text-[8px] font-black text-slate-500 group-hover/weather:text-blue-500">{dayWeather.temp}°</span>
                       </a>
                       {parseFloat(dayWeather.precip) > 0 && (
-                        <span className="text-[7px] font-bold text-blue-500 bg-blue-50/50 dark:bg-blue-900/20 px-1 rounded">
+                        <span className={`text-[7px] font-bold px-1 rounded ${
+                          isIndustrial ? 'text-blue-400 bg-blue-900/20' : 'text-blue-500 bg-blue-50/50'
+                        }`}>
                           {dayWeather.precip}mm
                         </span>
                       )}
@@ -239,13 +261,13 @@ export default function CalendarView({ buildings, theme, activeTheme, getFloorTe
                 
                 <div className="space-y-1">
                   {dayEvents.map((ev, ei) => (
-                    <div key={ei} className={`p-1.5 rounded-lg border text-[9px] font-bold shadow-sm transition-all hover:scale-105 ${theme === 'industrial' ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-white border-blue-100 text-slate-700'}`}>
+                    <div key={ei} className={`p-1.5 rounded-lg border text-[9px] font-bold shadow-sm transition-all hover:scale-105 ${isIndustrial ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-white border-blue-100 text-slate-700'}`}>
                       <div className="flex items-center justify-between mb-0.5">
                         <div className="flex items-center gap-1 text-blue-500 min-w-0">
                           <Package className="w-2.5 h-2.5 flex-shrink-0" />
                           <span className="truncate">{ev.proc}</span>
                         </div>
-                        <span className={`text-[7px] px-1 rounded-full ${theme === 'industrial' ? 'bg-slate-700 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>
+                        <span className={`text-[7px] px-1 rounded-full ${isIndustrial ? 'bg-slate-700 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>
                            {ev.floor}
                         </span>
                       </div>
@@ -273,14 +295,18 @@ export default function CalendarView({ buildings, theme, activeTheme, getFloorTe
               .filter(([date]) => date.startsWith(`${year}-${String(month + 1).padStart(2, '0')}`))
               .sort(([a], [b]) => a.localeCompare(b))
               .map(([date, evList]) => (
-                <div key={date} className="flex items-center justify-between text-xs border-b border-dashed border-slate-200 dark:border-slate-800 pb-2">
+                <div key={date} className={`flex items-center justify-between text-xs pb-2 border-b border-dashed ${
+                  isIndustrial ? 'border-slate-800' : 'border-slate-200'
+                }`}>
                   <span className="font-bold text-slate-400">{date.split('-')[2]}일</span>
                   <div className="flex -space-x-1">
                     {evList.slice(0, 5).map((_, i) => (
-                      <div key={i} className={`w-4 h-4 rounded-full border border-white dark:border-slate-800 ${activeTheme.accent}`} />
+                      <div key={i} className={`w-4 h-4 rounded-full border ${isIndustrial ? 'border-slate-800' : 'border-white'} ${activeTheme.accent}`} />
                     ))}
                     {evList.length > 5 && (
-                      <div className="w-4 h-4 rounded-full border border-white dark:border-slate-800 bg-slate-200 text-[8px] flex items-center justify-center font-bold">
+                      <div className={`w-4 h-4 rounded-full border text-[8px] flex items-center justify-center font-bold ${
+                        isIndustrial ? 'border-slate-800 bg-slate-700 text-slate-300' : 'border-white bg-slate-200 text-slate-700'
+                      }`}>
                         +{evList.length - 5}
                       </div>
                     )}

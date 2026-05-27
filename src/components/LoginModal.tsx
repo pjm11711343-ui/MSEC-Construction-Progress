@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { User, ShieldCheck, Lock } from 'lucide-react';
+import { User, ShieldCheck, Lock, Eye } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { UserRole } from '../types';
 
@@ -32,6 +32,8 @@ export default function LoginModal({ onLogin, adminPassword = '1111' }: LoginMod
   const selectRole = (role: UserRole) => {
     if (role === 'FIELD') {
       onLogin('FIELD');
+    } else if (role === 'GUEST') {
+      onLogin('GUEST');
     } else {
       setSelectedRole('ADMIN');
       setPassword('');
@@ -44,32 +46,59 @@ export default function LoginModal({ onLogin, adminPassword = '1111' }: LoginMod
       <motion.div 
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
+        className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden"
       >
         <div className="bg-slate-900 p-8 text-white text-center">
-          <h2 className="text-2xl font-bold tracking-tight">현장 관리 시스템</h2>
-          <p className="text-slate-400 mt-2 text-sm">접속 권한을 선택하세요.</p>
+          <h2 className="text-2xl font-black tracking-tight tracking-wider">현장 공정 통합 시스템</h2>
+          <p className="text-slate-400 mt-2 text-sm font-semibold">어떤 보안 등급으로 접속하시겠습니까?</p>
         </div>
 
-        <div className="p-8 space-y-6">
-          <div className="grid grid-cols-2 gap-4">
+        <div className="p-8 space-y-4">
+          <div className="space-y-3">
+            {/* ADMIN Role Button */}
             <button
               onClick={() => selectRole('ADMIN')}
-              className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${
+              className={`w-full p-4 rounded-2xl border-2 transition-all flex items-center gap-4 text-left ${
                 selectedRole === 'ADMIN' 
-                  ? 'border-blue-600 bg-blue-50 text-blue-700' 
-                  : 'border-slate-100 hover:border-slate-200 text-slate-500'
+                  ? 'border-blue-600 bg-blue-50/50 text-blue-900' 
+                  : 'border-slate-100 hover:border-slate-200 text-slate-700 bg-white shadow-sm'
               }`}
             >
-              <ShieldCheck className="w-8 h-8" />
-              <span className="font-semibold text-sm">관리자 모드</span>
+              <div className={`p-3 rounded-xl ${selectedRole === 'ADMIN' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                <ShieldCheck className="w-6 h-6" />
+              </div>
+              <div className="flex-1">
+                <span className="font-extrabold text-sm block">관리자 모드</span>
+                <span className="text-xs text-slate-400 font-semibold">동별 관리, 설정 변경, 현장 제어 (비밀번호 검증 필요)</span>
+              </div>
             </button>
+
+            {/* FIELD Role Button */}
             <button
               onClick={() => selectRole('FIELD')}
-              className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 hover:border-blue-600 hover:bg-blue-50 group`}
+              className="w-full p-4 rounded-2xl border-2 border-slate-100 hover:border-slate-200 transition-all flex items-center gap-4 text-left bg-white shadow-sm group"
             >
-              <User className="w-8 h-8 group-hover:text-blue-600" />
-              <span className="font-semibold text-sm group-hover:text-blue-700">현장 모드</span>
+              <div className="p-3 rounded-xl bg-slate-100 text-slate-500 group-hover:bg-blue-100 group-hover:text-blue-600 transition-colors">
+                <User className="w-6 h-6" />
+              </div>
+              <div className="flex-1">
+                <span className="font-extrabold text-sm block group-hover:text-slate-900">현장 관리인 모드</span>
+                <span className="text-xs text-slate-400 font-semibold text-wrap">현장 별 공정율 업데이트, 기상정보 확인 및 공정일 기록</span>
+              </div>
+            </button>
+
+            {/* GUEST Role Button (Read Only) */}
+            <button
+              onClick={() => selectRole('GUEST')}
+              className="w-full p-4 rounded-2xl border-2 border-slate-100 hover:border-slate-200 transition-all flex items-center gap-4 text-left bg-white shadow-sm group"
+            >
+              <div className="p-3 rounded-xl bg-slate-100 text-slate-500 group-hover:bg-emerald-100 group-hover:text-emerald-600 transition-colors">
+                <Eye className="w-6 h-6" />
+              </div>
+              <div className="flex-1">
+                <span className="font-extrabold text-sm block group-hover:text-slate-900">외부인 / 게스트 모드 (조회 전용)</span>
+                <span className="text-xs text-slate-400 font-semibold block">공정율 조회, 기상청 예측 정보 및 자재 예정표 실시간 모니터링</span>
+              </div>
             </button>
           </div>
 

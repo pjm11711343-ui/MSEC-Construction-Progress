@@ -372,11 +372,18 @@ export default function DailyReportView({ reports, onAddReport, onDeleteReport, 
               initial={{ opacity: 0, scale: 0.9, y: 20 }} 
               animate={{ opacity: 1, scale: 1, y: 0 }} 
               exit={{ opacity: 0, scale: 0.9, y: 20 }} 
-              className="bg-white dark:bg-slate-900 p-8 rounded-[2rem] shadow-2xl max-w-xl w-full space-y-6"
+              className={`p-8 rounded-[2rem] shadow-2xl max-w-xl w-full space-y-6 ${
+                theme === 'industrial' ? 'bg-[#1a1d23] border border-[#2d333d] text-white' : 'bg-white text-slate-900 border border-slate-100'
+              }`}
             >
               <div className="flex items-center justify-between">
                 <h3 className="text-2xl font-black uppercase tracking-tight italic">Create Daily Report</h3>
-                <button onClick={() => setIsAdding(false)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full">
+                <button 
+                  onClick={() => setIsAdding(false)} 
+                  className={`p-2 rounded-full transition-colors ${
+                    theme === 'industrial' ? 'hover:bg-slate-800 text-slate-400' : 'hover:bg-slate-100 text-slate-500'
+                  }`}
+                >
                   <Plus className="w-6 h-6 rotate-45" />
                 </button>
               </div>
@@ -388,7 +395,11 @@ export default function DailyReportView({ reports, onAddReport, onDeleteReport, 
                     type="date" 
                     value={newReport.date} 
                     onChange={e => setNewReport({...newReport, date: e.target.value})}
-                    className="w-full bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white p-4 rounded-2xl border border-slate-200 dark:border-slate-700 font-bold"
+                    className={`w-full p-4 rounded-2xl border font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                      theme === 'industrial' 
+                        ? 'bg-slate-800 border-slate-705 text-white' 
+                        : 'bg-slate-50 border-slate-200 text-slate-900'
+                    }`}
                   />
                 </div>
                 <div className="space-y-2 relative">
@@ -411,7 +422,11 @@ export default function DailyReportView({ reports, onAddReport, onDeleteReport, 
                       value={newReport.weather}
                       onChange={e => setNewReport({...newReport, weather: e.target.value})}
                       placeholder="날씨 입력 (예: 맑음, 25°C)"
-                      className="w-full bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-300 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 font-bold pr-12"
+                      className={`w-full p-4 rounded-2xl border font-bold pr-12 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                        theme === 'industrial' 
+                          ? 'bg-slate-800 border-slate-705 text-white placeholder-slate-500' 
+                          : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
+                      }`}
                     />
                     <div className="absolute right-4 top-1/2 -translate-y-1/2">
                       <CloudSun className={`w-5 h-5 text-slate-300`} />
@@ -430,7 +445,11 @@ export default function DailyReportView({ reports, onAddReport, onDeleteReport, 
                   placeholder="예: 25명" 
                   value={newReport.manpower} 
                   onChange={e => setNewReport({...newReport, manpower: e.target.value})}
-                  className="w-full bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-300 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 font-bold"
+                  className={`w-full p-4 rounded-2xl border font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                    theme === 'industrial' 
+                      ? 'bg-slate-800 border-slate-705 text-white placeholder-slate-500' 
+                      : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
+                  }`}
                 />
               </div>
 
@@ -441,20 +460,32 @@ export default function DailyReportView({ reports, onAddReport, onDeleteReport, 
                   placeholder="금일 진행된 주요 공종 및 특이사항을 입력하세요..."
                   value={newReport.notes} 
                   onChange={e => setNewReport({...newReport, notes: e.target.value})}
-                  className="w-full bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-300 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 font-bold resize-none"
+                  className={`w-full p-4 rounded-2xl border font-bold resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                    theme === 'industrial' 
+                      ? 'bg-slate-800 border-slate-705 text-white placeholder-slate-500' 
+                      : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
+                  }`}
                 />
               </div>
 
               <div className="flex gap-4 pt-4">
                 <button 
                   onClick={() => setIsAdding(false)}
-                  className="flex-1 bg-slate-100 dark:bg-slate-800 text-slate-500 py-4 rounded-2xl font-black"
+                  className={`flex-1 py-4 rounded-2xl font-black transition-colors ${
+                    theme === 'industrial' 
+                      ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' 
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
                 >
                   취소
                 </button>
                 <button 
                   onClick={handleAdd}
-                  className="flex-1 bg-blue-600 text-white py-4 rounded-2xl font-black"
+                  className={`flex-1 py-4 rounded-2xl font-black transition-all ${
+                    theme === 'industrial' 
+                      ? 'bg-[#00ff9f]/80 text-black hover:bg-[#00ff9f]' 
+                      : 'bg-blue-600 text-white hover:bg-blue-700'
+                  }`}
                 >
                   일보 저장하기
                 </button>

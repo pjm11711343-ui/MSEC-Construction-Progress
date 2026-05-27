@@ -31,7 +31,8 @@ import {
   Link as LinkIcon,
   ClipboardList,
   CloudSun,
-  Lock
+  Lock,
+  Eye
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -228,13 +229,17 @@ export default function App() {
   const [newSiteName, setNewSiteName] = useState('');
   const [newSitePassword, setNewSitePassword] = useState('');
   const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [copiedLinkType, setCopiedLinkType] = useState<'admin' | 'field' | 'guest' | null>(null);
   const [isCopied, setIsCopied] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [isLockedToSite, setIsLockedToSite] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [processToDelete, setProcessToDelete] = useState<string | null>(null);
   const [buildingToDelete, setBuildingToDelete] = useState<number | null>(null);
   const [newProcessInput, setNewProcessInput] = useState(false);
   const [newProcessName, setNewProcessName] = useState('');
+  const [analyticsSelectedProcess, setAnalyticsSelectedProcess] = useState<string>(processes[0] || '1. 건축골조');
   const [photoTarget, setPhotoTarget] = useState<{ buildingId: number, processName: string } | null>(null);
   const [galleryTarget, setGalleryTarget] = useState<{ buildingId: number, processName: string } | null>(null);
   const excelUploadRef = useRef<HTMLInputElement>(null);
@@ -312,9 +317,11 @@ export default function App() {
           // Persistence fix
           localStorage.setItem(STORAGE_KEY, JSON.stringify(mData));
           
-          if (siteParam && siteParam !== activeSite.id) {
-            const newUrl = window.location.pathname + `?site=${activeSite.id}`;
-            window.history.replaceState({}, '', newUrl);
+          if (siteParam && mData.sites.some((s: any) => s.id === siteParam)) {
+            if (siteParam !== activeSite.id) {
+              const newUrl = window.location.pathname + `?site=${activeSite.id}`;
+              window.history.replaceState({}, '', newUrl);
+            }
           }
         } else {
           // Migration or first run
@@ -388,11 +395,26 @@ export default function App() {
       const qs = newUrlParams.toString();
       const cleanUrl = window.location.pathname + (qs ? `?${qs}` : '');
       window.history.replaceState({}, '', cleanUrl);
+    } else if (roleParam === 'GUEST') {
+      setRole('GUEST');
+      const newUrlParams = new URLSearchParams(window.location.search);
+      newUrlParams.delete('role');
+      const qs = newUrlParams.toString();
+      const cleanUrl = window.location.pathname + (qs ? `?${qs}` : '');
+      window.history.replaceState({}, '', cleanUrl);
+    } else if (siteParam && !role) {
+      // If shared site parameter is specified, auto-login as GUEST to bypass access screen completely for external guests!
+      setRole('GUEST');
+    }
+    
+    if (siteParam) {
+      setIsLockedToSite(true);
     }
   }, []);
 
   const lastSavedContent = useRef<string>('');
   const lastSyncedContentRef = useRef<string>('');
+  const hasFetchedFromServer = useRef<boolean>(false);
 
   // 1. Initial load from server-side database
   useEffect(() => {
@@ -433,6 +455,8 @@ export default function App() {
         }
       } catch (err) {
         console.error("[Sync] Failed to fetch initial data from server:", err);
+      } finally {
+        hasFetchedFromServer.current = true;
       }
     };
     fetchInitialData();
@@ -440,6 +464,8 @@ export default function App() {
 
   // 2. Auto-save multiData to Express server when it changes
   useEffect(() => {
+    if (!hasFetchedFromServer.current) return;
+    if (multiData.syncMode === 'manual') return;
     const serialized = JSON.stringify(multiData);
     if (!multiData.sites || multiData.sites.length === 0) return;
     if (serialized === lastSyncedContentRef.current) return;
@@ -464,6 +490,7 @@ export default function App() {
 
   // 3. Real-time polling for changes from other tabs/iframes
   useEffect(() => {
+    if (multiData.syncMode === 'manual') return;
     const interval = setInterval(async () => {
       try {
         // Only pull update if there are no local unsaved changes
@@ -598,6 +625,67 @@ export default function App() {
     setTimeout(() => setIsAutoSaving(false), 1000);
   };
 
+  const handleManualSync = async () => {
+    setIsSyncing(true);
+    setSyncStatus('idle');
+    try {
+      console.log("[Manual Sync] Starting synchronization...");
+      // 1. First, save our current local data to the server
+      const responsePost = await fetch('/api/project-data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: multiData }),
+      });
+      if (responsePost.ok) {
+        lastSyncedContentRef.current = JSON.stringify(multiData);
+        console.log("[Manual Sync] Project data pushed to server successfully.");
+      }
+
+      // 2. Then, pull latest changes from the server
+      const responseGet = await fetch('/api/project-data');
+      if (responseGet.ok) {
+        const res = await responseGet.json();
+        if (res.data) {
+          const serverMulti = res.data;
+          if (serverMulti.sites) {
+            serverMulti.sites = serverMulti.sites.map(migrateSite);
+          }
+          const serialized = JSON.stringify(serverMulti);
+          
+          if (serialized !== lastSyncedContentRef.current) {
+            console.log("[Manual Sync] Remote update detected. Pulling changes into local view.");
+            lastSyncedContentRef.current = serialized;
+            
+            setMultiData(serverMulti);
+            if (serverMulti.trash) setTrash(serverMulti.trash);
+            
+            const urlParams = new URLSearchParams(window.location.search);
+            const siteParam = urlParams.get('site');
+            const targetId = siteParam || serverMulti.activeSiteId;
+            const activeSite = serverMulti.sites.find((s: any) => s.id === targetId) || serverMulti.sites[0];
+            
+            if (activeSite) {
+              setData(activeSite);
+              if (activeSite.buildings?.[0]?.processes) {
+                setProcesses(Object.keys(activeSite.buildings[0].processes));
+              }
+            }
+            
+            localStorage.setItem(STORAGE_KEY, serialized);
+          }
+        }
+      }
+      setSyncStatus('success');
+      setTimeout(() => setSyncStatus('idle'), 3000);
+    } catch (err) {
+      console.error("[Manual Sync] Error during synchronization:", err);
+      setSyncStatus('error');
+      setTimeout(() => setSyncStatus('idle'), 3000);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const switchSite = (id: string) => {
     const site = multiData.sites.find(s => s.id === id);
     if (site) {
@@ -651,6 +739,8 @@ export default function App() {
     const url = `${window.location.origin}${window.location.pathname}?site=${data.id}`;
     setShareUrl(url);
     copyToClipboard(url);
+    setCopiedLinkType('guest');
+    setTimeout(() => setCopiedLinkType(null), 2000);
   };
 
   const addNewSite = () => {
@@ -977,33 +1067,72 @@ export default function App() {
     try {
       const wb = XLSX.utils.book_new();
       
-      // Sorted process names
-      const sortedProcs = [...processes].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+      // Start with standard DEFAULT_PROCESSES in the exact correct sequence
+      const finalProcs = [...DEFAULT_PROCESSES];
+      // Append any additional custom processes currently active in the view that are not in the standard list
+      processes.forEach(p => {
+        if (!finalProcs.includes(p)) {
+          finalProcs.push(p);
+        }
+      });
+
       // Header row
-      const headerRow = ["동 명칭", ...sortedProcs];
+      const headerRow = ["동 명칭", ...finalProcs];
       // Data rows
       const dataRows = data.buildings.map(b => {
         const row: (string | number)[] = [b.name];
-        sortedProcs.forEach(p => {
+        finalProcs.forEach(p => {
           row.push(b.processes[p] ?? 0);
         });
         return row;
       });
 
-      const ws = XLSX.utils.aoa_to_sheet([headerRow, ...dataRows]);
+      // Sheet 1: Main Upload Sheet (Must be the first sheet)
+      const wsMain = XLSX.utils.aoa_to_sheet([headerRow, ...dataRows]);
       
-      // Auto-fit column widths
-      const colWidths = headerRow.map((h, i) => {
+      // Auto-fit column widths for the main sheet
+      const colWidthsMain = headerRow.map((h, i) => {
         const maxLen = Math.max(
           h.length,
           ...dataRows.map(row => String(row[i] || '').length)
         );
-        return { wch: Math.max(maxLen + 4, 10) };
+        return { wch: Math.max(maxLen + 4, 12) };
       });
-      ws['!cols'] = colWidths;
+      wsMain['!cols'] = colWidthsMain;
+      XLSX.utils.book_append_sheet(wb, wsMain, "공정진행률_업로드");
 
-      XLSX.utils.book_append_sheet(wb, ws, "공정진행률_업로드");
+      // Sheet 2: Detailed Guide Sheet (For user reference)
+      const guideRows = [
+        ["MSEC 스마트 아파트 공정관리 시스템 - 엑셀 업로드 작성 가이드", ""],
+        ["계정 역할: 관리자, 공무, 소장 등 (GUEST는 불가능)", ""],
+        ["", ""],
+        ["[1. 기본 규칙 안내]", ""],
+        ["규칙 ① - 첫 번째 열(A열) 헤더명", "반드시 '동 명칭'이어야 하며, 행별로 실제 등록된 동 명칭(예: 101동, 102동 등)을 세로로 기입해야 합니다."],
+        ["규칙 ② - 공정(열) 이름", "두 번째 열(B열)부터 가로로 공정명(예: '1. 건축골조', '2. HOIST' 등)을 기입합니다. 다운로드받으신 표준 양식을 그대로 유지하는 것을 권장합니다."],
+        ["규칙 ③ - 진행률 데이터 범위", "실제 현장의 공정률은 0부터 100 사이의 숫자로만 입력해 주십시오. (기호 % 제외)"],
+        ["규칙 ④ - 공정제외 지정하기", "해당 동에서 특정 공정이 성격상 제외되는 경우 숫자 '-1' 또는 공란(빈칸)으로 두시면 자동으로 '공정제외' 상태로 파싱 및 셋팅됩니다."],
+        ["규칙 ⑤ - 대소문자 및 띄어쓰기", "공종명에 띄어쓰기가 있는 경우 가능하면 표준 명칭과 똑같이 맞춰 주셔야 오류 매칭을 방지할 수 있습니다."],
+        ["", ""],
+        ["[2. 시스템 필수 표준 22대 공종 목록]", ""],
+        ...DEFAULT_PROCESSES.map((p, idx) => [`순번 ${idx + 1}`, p]),
+        ["", ""],
+        ["[3. 엑셀 데이터 예시]", ""],
+        ["동 명칭", "1. 건축골조", "2. HOIST", "3. 기초매립배관", "4. 알폼세팅", "5. 스리브", "...기타 공종..."],
+        ["101동", "100", "0", "100", "100", "45", "0 ~ 100 숫자 입력"],
+        ["102동", "85", "-1", "100", "100", "20", "'-1' 입력 시 공정제외 처리"],
+        ["103동", "0", "0", "0", "0", "0", "미착공 상태"]
+      ];
+
+      const wsGuide = XLSX.utils.aoa_to_sheet(guideRows);
       
+      // Auto-fit column widths for the guide sheet
+      const colWidthsGuide = [
+        { wch: 30 },
+        { wch: 80 }
+      ];
+      wsGuide['!cols'] = colWidthsGuide;
+      XLSX.utils.book_append_sheet(wb, wsGuide, "업로드_작성_가이드");
+
       const fileName = `${data.settings.projectName.trim() || '현장'}_공정진행률_업로드_템플릿.xlsx`;
       XLSX.writeFile(wb, fileName);
     } catch (err: any) {
@@ -1655,6 +1784,7 @@ export default function App() {
       bg: 'bg-slate-50',
       text: 'text-blue-600',
       accent: 'bg-blue-600',
+      accentHex: '#2563eb',
       card: 'bg-white',
       border: 'border-slate-200',
       header: 'bg-slate-900',
@@ -1665,6 +1795,7 @@ export default function App() {
       bg: 'bg-[#f0f4f8]',
       text: 'text-[#0077be]',
       accent: 'bg-[#0077be]',
+      accentHex: '#0077be',
       card: 'bg-white',
       border: 'border-[#dae1e7]',
       header: 'bg-[#1b4b72]',
@@ -1675,6 +1806,7 @@ export default function App() {
       bg: 'bg-[#0f1115]',
       text: 'text-[#00ff9f]',
       accent: 'bg-[#00ff9f]',
+      accentHex: '#00ff9f',
       card: 'bg-[#1a1d23]',
       border: 'border-[#2d333d]',
       header: 'bg-[#000000]',
@@ -1685,6 +1817,7 @@ export default function App() {
       bg: 'bg-[#faf7f2]',
       text: 'text-[#4a6741]',
       accent: 'bg-[#4a6741]',
+      accentHex: '#4a6741',
       card: 'bg-white',
       border: 'border-[#e5e1d8]',
       header: 'bg-[#2c3e2d]',
@@ -2218,6 +2351,23 @@ export default function App() {
                   {role === 'ADMIN' ? '현장 모드' : '관리자 모드'}
                 </button>
                )}
+               {multiData.syncMode === 'manual' && (
+                 <button 
+                   onClick={handleManualSync}
+                   disabled={isSyncing}
+                   className={`flex items-center gap-1 font-bold px-2.5 py-0.5 rounded-full transition-all hover:scale-105 active:scale-95 ${
+                     syncStatus === 'success' 
+                       ? 'bg-green-100 text-green-700 hover:bg-green-200' 
+                       : syncStatus === 'error' 
+                       ? 'bg-rose-100 text-rose-700 hover:bg-rose-200' 
+                       : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                   }`}
+                   title="수동 동기화 실행 (로컬 저장 후 원격 데이터 가져오기)"
+                 >
+                   <Save className={`w-2.5 h-2.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                   {isSyncing ? '동기화 중' : syncStatus === 'success' ? '동기화 완료' : syncStatus === 'error' ? '실패' : '수동 동기화'}
+                 </button>
+               )}
               <div className="flex items-center gap-1 text-slate-400 min-w-[70px]">
                 {isAutoSaving ? (
                   <span className="flex items-center gap-1"><div className={`w-1.5 h-1.5 ${activeTheme.accent} rounded-full animate-pulse`} /> 저장중...</span>
@@ -2403,6 +2553,69 @@ export default function App() {
                         <p className="text-[10px] text-slate-400 mt-1">현장 모드 접속 시 요구되는 비밀번호입니다.</p>
                       </label>
                       {role === 'ADMIN' && (
+                        <div className="pt-3 border-t border-slate-200/40 space-y-2">
+                          <span className="text-xs font-semibold text-slate-400 mb-1 block">데이터 동기화 방식 설정</span>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMultiData(prev => {
+                                  const updated = { ...prev, syncMode: 'auto' as const };
+                                  localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+                                  return updated;
+                                });
+                              }}
+                              className={`flex-1 px-3 py-2 rounded-lg text-xs font-bold transition-all border ${
+                                (multiData.syncMode || 'auto') === 'auto'
+                                  ? 'bg-blue-600 border-blue-600 text-white shadow-lg'
+                                  : `${activeTheme.border} ${data.settings.theme === 'industrial' ? 'bg-slate-800 text-slate-400' : 'bg-white text-slate-600 hover:bg-slate-50'}`
+                              }`}
+                            >
+                              실시간 연동 (3초 자동)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMultiData(prev => {
+                                  const updated = { ...prev, syncMode: 'manual' as const };
+                                  localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+                                  return updated;
+                                });
+                              }}
+                              className={`flex-1 px-3 py-2 rounded-lg text-xs font-bold transition-all border ${
+                                multiData.syncMode === 'manual'
+                                  ? 'bg-blue-600 border-blue-600 text-white shadow-lg'
+                                  : `${activeTheme.border} ${data.settings.theme === 'industrial' ? 'bg-slate-800 text-slate-400' : 'bg-white text-slate-600 hover:bg-slate-50'}`
+                              }`}
+                            >
+                              수동 연동 (트래픽 차단)
+                            </button>
+                          </div>
+                          <p className={`text-[10px] leading-relaxed ${data.settings.theme === 'industrial' ? 'text-slate-400' : 'text-slate-500'}`}>
+                            {multiData.syncMode === 'manual' 
+                              ? '⚠️ 수동 설정 시 백그라운드 서버 통신이 발생하지 않으며, 우측 상단이나 아래 버튼을 눌러야 명시적으로 동기화가 실행됩니다.' 
+                              : '동 구성원 및 여러 기기 간 실시간 변경 사항을 3초마다 가져옵니다.'}
+                          </p>
+                          {multiData.syncMode === 'manual' && (
+                            <button
+                              type="button"
+                              onClick={handleManualSync}
+                              disabled={isSyncing}
+                              className={`w-full py-2 rounded-lg text-xs font-black transition-all flex items-center justify-center gap-1.5 border mt-1 ${
+                                syncStatus === 'success'
+                                  ? 'bg-green-100 border-green-200 text-green-700 dark:bg-green-950/20 dark:text-green-300'
+                                  : syncStatus === 'error'
+                                  ? 'bg-rose-100 border-rose-200 text-rose-700 dark:bg-rose-950/20 dark:text-rose-300'
+                                  : 'bg-indigo-50 border-indigo-100 text-indigo-600 hover:bg-indigo-100 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-[#00ff9f]'
+                              }`}
+                            >
+                              <Save className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                              {isSyncing ? '동기화 통신 중...' : syncStatus === 'success' ? '동기화 완결!' : syncStatus === 'error' ? '동기화 실패' : '지금 즉시 동기화 실행'}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      {role === 'ADMIN' && (
                         <div className="col-span-full pt-4 space-y-3">
                           <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">현장 정밀 위치 설정 (지도)</h3>
                           <LocationPicker 
@@ -2418,6 +2631,7 @@ export default function App() {
                                  }
                                });
                             }}
+                            theme={data.settings.theme}
                           />
                           <p className="text-[10px] text-slate-400 font-bold">지도를 클릭하거나 주소를 검색하여 현장 위치를 정확하게 지정해 주세요. 날씨 정보 연동에 사용됩니다.</p>
                         </div>
@@ -2810,28 +3024,47 @@ export default function App() {
                     ? Math.round(processValues.reduce((a, v) => a + v, 0) / processValues.length) 
                     : 0;
                   const cellPadding = `${data.settings.tableSpacing || 4}px`;
+                  const isIndustrial = data.settings.theme === 'industrial';
+                  const isEven = bIdx % 2 === 0;
+
+                  // Alternating row background colors for clear visual separation
+                  const rowBgClass = isIndustrial
+                    ? (isEven ? 'bg-[#15181d]' : 'bg-[#1e2229]')
+                    : (isEven ? 'bg-white' : 'bg-slate-50/70');
+
+                  // Specific colored background for sticky columns to avoid opacity transparency bleed
+                  const stickyBgClass = isIndustrial
+                    ? (isEven ? 'bg-[#15181d]' : 'bg-[#1e2229]')
+                    : (isEven ? 'bg-white' : 'bg-slate-100');
+
                   return (
-                    <tr key={b.id} className={`${data.settings.theme === 'industrial' ? 'hover:bg-slate-800/80' : 'hover:bg-blue-100/30'} transition-colors`}>
+                    <tr key={b.id} className={`${rowBgClass} ${isIndustrial ? 'hover:bg-slate-800/80 text-white border-b border-slate-800' : 'hover:bg-blue-100/30'} transition-colors`}>
                       <td 
-                        className={`border-r-2 ${data.settings.theme === 'industrial' ? 'border-slate-800 bg-slate-900' : 'border-slate-200 bg-slate-50'} text-center font-black text-[10px] text-slate-500 sticky left-0 z-10`}
+                        className={`border-r-2 ${isIndustrial ? 'border-slate-800 text-slate-400' : 'border-slate-200 text-slate-500'} ${stickyBgClass} text-center font-black text-[10px] sticky left-0 z-10`}
                         style={{ padding: cellPadding }}
                       >
                         {bIdx + 1}
                       </td>
                       <td 
-                        className={`border-r-2 ${data.settings.theme === 'industrial' ? 'border-slate-800 bg-slate-900 text-white' : 'border-slate-200 bg-slate-50 text-slate-900'} text-center font-black group relative sticky left-8 z-10`}
+                        className={`border-r-2 ${isIndustrial ? 'border-[#2d333d] text-white' : 'border-slate-200 text-slate-900'} ${stickyBgClass} text-center font-black group relative sticky left-8 z-10`}
                         style={{ padding: cellPadding }}
                       >
                         <div 
                           className={`flex flex-col items-center justify-center gap-0.5`}
                           style={{ padding: cellPadding }}
                         >
-                          <input type="text" value={b.name} disabled={role === 'GUEST'} onChange={(e) => renameBuilding(b.id, e.target.value)} className="w-full text-center bg-transparent border-none focus:ring-0 p-0 font-black text-xs tracking-tighter" />
+                          <input 
+                            type="text" 
+                            value={b.name} 
+                            disabled={role === 'GUEST'} 
+                            onChange={(e) => renameBuilding(b.id, e.target.value)} 
+                            className={`w-full text-center bg-transparent border-none focus:ring-0 p-0 font-black text-xs tracking-tighter ${isIndustrial ? 'text-white' : 'text-slate-900'}`} 
+                          />
                           
                           {role !== 'GUEST' && (
                             <div className="flex items-center gap-1 no-print">
-                              <div className="flex items-center gap-0.5 px-1 py-0 rounded bg-slate-200/50 dark:bg-slate-800/50">
-                                <span className="text-[8px] text-slate-500 font-black">B</span>
+                              <div className={`flex items-center gap-0.5 px-1 py-0 rounded ${isIndustrial ? 'bg-slate-800/80 border border-slate-700 text-slate-200' : 'bg-slate-200/50'}`}>
+                                <span className={`text-[8px] font-black ${isIndustrial ? 'text-slate-400' : 'text-slate-500'}`}>B</span>
                                 <input 
                                   type="text" 
                                   value={Math.abs(b.minFloor !== undefined ? b.minFloor : data.settings.minFloor)} 
@@ -2844,11 +3077,11 @@ export default function App() {
                                       }));
                                     }
                                   }}
-                                  className={`w-4 h-3 text-[8px] text-center p-0 bg-transparent border-none focus:ring-0 font-black ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'}`}
+                                  className={`w-4 h-3 text-[8px] text-center p-0 bg-transparent border-none focus:ring-0 font-black ${isIndustrial ? 'text-white' : 'text-slate-900'}`}
                                 />
                               </div>
-                              <div className="flex items-center gap-0.5 px-1 py-0 rounded bg-slate-200/50 dark:bg-slate-800/50">
-                                <span className="text-[8px] text-slate-500 font-black">F</span>
+                              <div className={`flex items-center gap-0.5 px-1 py-0 rounded ${isIndustrial ? 'bg-slate-800/80 border border-slate-700 text-slate-200' : 'bg-slate-200/50'}`}>
+                                <span className={`text-[8px] font-black ${isIndustrial ? 'text-slate-400' : 'text-slate-500'}`}>F</span>
                                 <input 
                                   type="text" 
                                   value={b.maxFloor !== undefined ? b.maxFloor : data.settings.maxFloor} 
@@ -2861,7 +3094,7 @@ export default function App() {
                                       }));
                                     }
                                   }}
-                                  className={`w-4 h-3 text-[8px] text-center p-0 bg-transparent border-none focus:ring-0 font-black ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'}`}
+                                  className={`w-4 h-3 text-[8px] text-center p-0 bg-transparent border-none focus:ring-0 font-black ${isIndustrial ? 'text-white' : 'text-slate-900'}`}
                                 />
                               </div>
                             </div>
@@ -2876,7 +3109,7 @@ export default function App() {
                         const cellPadding = `${data.settings.tableSpacing || 4}px`;
                         
                         return (
-                          <td key={p} className={`border-r-2 ${data.settings.theme === 'industrial' ? 'border-slate-800' : 'border-slate-200'} p-0 relative`}>
+                          <td key={p} className={`border-r-2 ${isIndustrial ? 'border-slate-800' : 'border-slate-200'} p-0 relative`}>
                             <div 
                               className={`space-y-1`}
                               style={{ padding: cellPadding }}
@@ -2888,22 +3121,22 @@ export default function App() {
                                 value={bProcesses[p] ?? 0} 
                                 disabled={role === 'GUEST'} 
                                 onChange={e => handleUpdateProgress(b.id, p, Number(e.target.value))}
-                                className={`text-[10px] font-black bg-transparent border-none focus:ring-0 focus:outline-none cursor-pointer appearance-none text-center p-0 m-0 ${bProcesses[p] === 100 ? (data.settings.theme === 'industrial' ? 'text-emerald-400' : 'text-green-600') : (bProcesses[p] === -1 ? 'text-slate-400' : (data.settings.theme === 'industrial' ? 'text-slate-300' : 'text-slate-700'))}`}
+                                className={`text-[10px] font-black bg-transparent border-none focus:ring-0 focus:outline-none cursor-pointer appearance-none text-center p-0 m-0 ${bProcesses[p] === 100 ? (isIndustrial ? 'text-emerald-400 font-extrabold' : 'text-green-600') : (bProcesses[p] === -1 ? 'text-slate-500 font-medium' : (isIndustrial ? 'text-slate-100 font-extrabold' : 'text-slate-700'))}`}
                               >
                                 <option value={0}>대기</option>
                                 <option value={1}>진행</option>
                                 <option value={-1}>N/A</option>
                                 <option value={100}>완료</option>
                                 {getProcessMode(p) === 'percent' ? (
-                                  <optgroup label="진행율 선택" className={data.settings.theme === 'industrial' ? 'bg-slate-900 text-slate-400' : 'bg-slate-50 text-slate-400'}>
+                                  <optgroup label="진행율 선택" className={isIndustrial ? 'bg-slate-900 text-slate-400' : 'bg-slate-50 text-slate-400'}>
                                     {[5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95].map(v => (
-                                      <option key={v} value={v} className={data.settings.theme === 'industrial' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>{v}%</option>
+                                      <option key={v} value={v} className={isIndustrial ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>{v}%</option>
                                     ))}
                                   </optgroup>
                                 ) : (
-                                  <optgroup label="층수 선택" className={data.settings.theme === 'industrial' ? 'bg-slate-900 text-slate-400' : 'bg-slate-50 text-slate-400'}>
+                                  <optgroup label="층수 선택" className={isIndustrial ? 'bg-slate-900 text-slate-400' : 'bg-slate-50 text-slate-400'}>
                                     {floors.map(f => (
-                                      <option key={f} value={floorToPercent(f, b)} className={data.settings.theme === 'industrial' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
+                                      <option key={f} value={floorToPercent(f, b)} className={isIndustrial ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
                                         {formatFloor(f)}
                                       </option>
                                     ))}
@@ -2912,14 +3145,14 @@ export default function App() {
                               </select>
                             </div>
                             <div className="flex items-center justify-center gap-0.5 mt-0">
-                              <span className="text-[8px] font-black text-slate-400 opacity-60 pointer-events-none">{bProcesses[p] === -1 ? '-' : `${bProcesses[p] ?? 0}%`}</span>
+                              <span className={`text-[8px] font-black pointer-events-none ${isIndustrial ? 'text-slate-300' : 'text-slate-400 opacity-60'}`}>{bProcesses[p] === -1 ? '-' : `${bProcesses[p] ?? 0}%`}</span>
                               <div className="flex items-center gap-0.5 no-print">
                                 <button 
                                   onClick={() => {
                                     setPhotoTarget({ buildingId: b.id, processName: p });
                                     setTimeout(() => photoUploadRef.current?.click(), 100);
                                   }}
-                                  className={`p-0 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors ${b.photos?.[p]?.length ? 'text-blue-500' : 'text-slate-300'}`}
+                                  className={`p-0 rounded-full transition-colors ${b.photos?.[p]?.length ? 'text-blue-500' : (isIndustrial ? 'text-slate-500 hover:text-slate-400' : 'text-slate-300 hover:text-slate-400')}`}
                                   title="사진 첨부"
                                 >
                                   <ImageIcon className="w-2.5 h-2.5" />
@@ -2927,56 +3160,56 @@ export default function App() {
                                 {(b.photos?.[p] || []).length > 0 && (
                                   <button 
                                     onClick={() => setGalleryTarget({ buildingId: b.id, processName: p })}
-                                    className="text-[8px] font-black text-blue-500"
+                                    className={`text-[8px] font-black ${isIndustrial ? 'text-blue-400' : 'text-blue-500'}`}
                                   >
                                     [{b.photos[p].length}]
                                   </button>
                                 )}
                               </div>
                             </div>
-                                <div className={`w-full h-1.5 rounded-full overflow-hidden ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-100'}`}>
+                                <div className={`w-full h-1.5 rounded-full overflow-hidden ${isIndustrial ? 'bg-slate-800' : 'bg-slate-100'}`}>
                                   {bProcesses[p] !== -1 && (
                                     <motion.div 
                                       initial={{ width: 0 }}
                                       animate={{ width: `${bProcesses[p] ?? 0}%` }}
                                       transition={{ duration: 0.5, ease: 'easeOut' }}
-                                      className={`h-full ${bProcesses[p] === 100 ? (data.settings.theme === 'industrial' ? 'bg-emerald-400' : 'bg-green-500') : activeTheme.accent}`} 
+                                      className={`h-full ${bProcesses[p] === 100 ? (isIndustrial ? 'bg-emerald-400' : 'bg-green-500') : activeTheme.accent}`} 
                                     />
                                   )}
                                 </div>
                               </div>
 
                               {/* Material Progress & Date */}
-                              <div className="flex flex-col gap-0.5 border-t border-slate-100 dark:border-slate-800 pt-1">
-                                  <div className="flex items-center justify-center gap-1.5 border-t border-slate-200 dark:border-slate-800 pt-2">
-                                      <span className="text-[8px] font-black text-slate-400 uppercase">자재</span>
+                              <div className={`flex flex-col gap-0.5 border-t pt-1 ${isIndustrial ? 'border-slate-800' : 'border-slate-100'}`}>
+                                  <div className={`flex items-center justify-center gap-1.5 pt-2 border-t ${isIndustrial ? 'border-slate-800' : 'border-slate-200'}`}>
+                                      <span className={`text-[8px] font-black uppercase ${isIndustrial ? 'text-slate-300' : 'text-slate-400'}`}>자재</span>
                                       <select 
                                         value={mProcesses[p] ?? 0} 
                                         disabled={role === 'GUEST'} 
                                         onChange={e => handleUpdateMaterialProgress(b.id, p, Number(e.target.value))}
-                                        className={`text-[9px] font-black bg-transparent border-none focus:ring-0 focus:outline-none cursor-pointer appearance-none text-center ${mProcesses[p] === 100 ? (data.settings.theme === 'industrial' ? 'text-amber-400' : 'text-amber-600') : (data.settings.theme === 'industrial' ? 'text-slate-400' : 'text-slate-500')}`}
+                                        className={`text-[9px] font-black bg-transparent border-none focus:ring-0 focus:outline-none cursor-pointer appearance-none text-center p-0 m-0 ${mProcesses[p] === 100 ? (isIndustrial ? 'text-amber-400 font-extrabold' : 'text-amber-600') : (isIndustrial ? 'text-slate-200' : 'text-slate-500')}`}
                                       >
                                         <option value={0}>자재미입고</option>
                                         <option value={1}>진행중</option>
                                         <option value={-1}>N/A</option>
                                         <option value={100}>입고완료</option>
                                         {getProcessMode(p) === 'percent' ? (
-                                          <optgroup label="진행율 선택" className={data.settings.theme === 'industrial' ? 'bg-slate-900 text-slate-400' : 'bg-slate-50 text-slate-400'}>
+                                          <optgroup label="진행율 선택" className={isIndustrial ? 'bg-slate-900 text-slate-400' : 'bg-slate-50 text-slate-400'}>
                                             {[5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95].map(v => (
-                                              <option key={v} value={v} className={data.settings.theme === 'industrial' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>{v}%</option>
+                                              <option key={v} value={v} className={isIndustrial ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>{v}%</option>
                                             ))}
                                           </optgroup>
                                         ) : (
-                                          <optgroup label="층수 선택" className={data.settings.theme === 'industrial' ? 'bg-slate-900 text-slate-400' : 'bg-slate-50 text-slate-400'}>
+                                          <optgroup label="층수 선택" className={isIndustrial ? 'bg-slate-900 text-slate-400' : 'bg-slate-50 text-slate-400'}>
                                             {floors.map(f => (
-                                              <option key={f} value={floorToPercent(f, b)} className={data.settings.theme === 'industrial' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
+                                              <option key={f} value={floorToPercent(f, b)} className={isIndustrial ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
                                                 {formatFloor(f)}
                                               </option>
                                             ))}
                                           </optgroup>
                                         )}
                                       </select>
-                                      <div className={`w-10 h-1.5 rounded-full overflow-hidden ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-100'}`}>
+                                      <div className={`w-10 h-1.5 rounded-full overflow-hidden ${isIndustrial ? 'bg-slate-800' : 'bg-slate-100'}`}>
                                         <motion.div 
                                           initial={{ width: 0 }}
                                           animate={{ width: `${mProcesses[p] ?? 0}%` }}
@@ -2984,16 +3217,16 @@ export default function App() {
                                           className={`h-full ${mProcesses[p] === 100 ? 'bg-amber-500' : 'bg-amber-400/50'}`} 
                                         />
                                       </div>
-                                      <span className="text-[8px] font-black text-amber-500/60 ml-0.5">{mProcesses[p] === -1 ? '-' : `${mProcesses[p] ?? 0}%`}</span>
+                                      <span className={`text-[8px] font-black ml-0.5 ${isIndustrial ? 'text-amber-300' : 'text-amber-500/60'}`}>{mProcesses[p] === -1 ? '-' : `${mProcesses[p] ?? 0}%`}</span>
                                   </div>
-                                  <div className="flex items-center justify-center gap-1 mt-1 border-t border-slate-100 dark:border-slate-800 pt-1.5">
+                                  <div className={`flex items-center justify-center gap-1 mt-1 border-t pt-1.5 ${isIndustrial ? 'border-slate-800' : 'border-slate-100'}`}>
                                     <Calendar className="w-2.5 h-2.5 text-slate-400" />
                                     <input 
                                       type="date" 
                                       value={mDates[p] || ''} 
                                       disabled={role === 'GUEST'}
                                       onChange={e => handleUpdateMaterialDate(b.id, p, e.target.value)}
-                                      className="bg-transparent border-none p-0 text-[8px] font-black focus:ring-0 cursor-pointer text-slate-400 text-center"
+                                      className={`bg-transparent border-none p-0 text-[8px] font-black focus:ring-0 cursor-pointer text-center ${isIndustrial ? 'text-slate-200 hover:text-white' : 'text-slate-400'}`}
                                     />
                                   </div>
                                 </div>
@@ -3001,11 +3234,11 @@ export default function App() {
                             </td>
                           );
                         })}
-                        <td className={`text-center font-black text-[12px] border-l-2 ${data.settings.theme === 'industrial' ? 'bg-emerald-900/30 text-emerald-400 border-slate-800' : 'bg-blue-50/50 text-blue-600 border-slate-200'}`}>
+                        <td className={`text-center font-black text-[12px] border-l-2 ${isIndustrial ? 'bg-emerald-950/40 text-[#00ff9f] border-slate-800' : 'bg-blue-50/50 text-blue-600 border-slate-200'}`}>
                           {avg}%
                         </td>
                         {role !== 'GUEST' && (
-                          <td className={`border-l-2 ${data.settings.theme === 'industrial' ? 'border-slate-800' : 'border-slate-200'} text-center px-1 no-print py-2`}>
+                          <td className={`border-l-2 ${isIndustrial ? 'border-slate-800' : 'border-slate-200'} text-center px-1 no-print py-2`}>
                             <button 
                               onClick={() => deleteBuilding(b.id)} 
                               className="text-slate-300 hover:text-red-500 transition-colors p-1"
@@ -3437,7 +3670,7 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="mt-8">
+                <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-8">
                   <div className={`${data.settings.theme === 'industrial' ? 'bg-slate-800/30' : 'bg-slate-50/50'} p-6 rounded-2xl border ${activeTheme.border}`}>
                     <div className="flex items-center gap-3 mb-6">
                       <div className={`p-2 rounded-lg ${activeTheme.accent} text-white`}>
@@ -3451,7 +3684,7 @@ export default function App() {
                     <div className="h-[300px] w-full">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={data.buildings.map(b => {
-                          const processesValues = Object.values(b.processes) as number[];
+                          const processesValues = (Object.values(b.processes) as number[]).filter(v => v !== -1);
                           const avg = processesValues.length > 0 ? processesValues.reduce((s, v) => s + v, 0) / processesValues.length : 0;
                           return { name: b.name, progress: Math.round(avg) };
                         })}>
@@ -3488,12 +3721,87 @@ export default function App() {
                             barSize={30}
                           >
                             {data.buildings.map((b, index) => {
-                              const processesValues = Object.values(b.processes) as number[];
+                              const processesValues = (Object.values(b.processes) as number[]).filter(v => v !== -1);
                               const avg = processesValues.length > 0 ? processesValues.reduce((s, v) => s + v, 0) / processesValues.length : 0;
                               return (
                                 <Cell 
                                   key={`cell-${index}`} 
                                   fill={avg > 80 ? '#22c55e' : avg > 40 ? '#3b82f6' : '#ef4444'} 
+                                />
+                              );
+                            })}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+
+                  <div className={`${data.settings.theme === 'industrial' ? 'bg-slate-800/30' : 'bg-slate-50/50'} p-6 rounded-2xl border ${activeTheme.border}`}>
+                    <div className="flex items-center justify-between mb-6">
+                      <div className="flex items-center gap-3">
+                        <div className={`p-2 rounded-lg ${activeTheme.accent} text-white`}>
+                          <Construction className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <h3 className={`text-lg font-bold ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'}`}>공종별 동 대조</h3>
+                          <p className="text-xs text-slate-400">선택한 공종의 동별 진행 단계(층수/%) 비교</p>
+                        </div>
+                      </div>
+                      <select 
+                        value={analyticsSelectedProcess}
+                        onChange={(e) => setAnalyticsSelectedProcess(e.target.value)}
+                        className={`text-[10px] font-bold px-3 py-1.5 rounded-lg border ${activeTheme.border} ${data.settings.theme === 'industrial' ? 'bg-slate-900 text-white' : 'bg-white text-slate-700'} focus:outline-none focus:ring-2 focus:ring-blue-500/20`}
+                      >
+                        {processes.map(p => (
+                          <option key={p} value={p}>{p}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="h-[300px] w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={data.buildings.map(b => {
+                          const val = b.processes[analyticsSelectedProcess] ?? 0;
+                          return { name: b.name, progress: val === -1 ? 0 : val, isExcluded: val === -1 };
+                        })}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={data.settings.theme === 'industrial' ? '#2d333d' : '#f1f5f9'} />
+                          <XAxis 
+                            dataKey="name" 
+                            fontSize={11} 
+                            tickLine={false} 
+                            axisLine={false} 
+                            tick={{ fill: '#94a3b8' }}
+                            dy={10}
+                          />
+                          <YAxis 
+                            domain={[0, 100]} 
+                            fontSize={11} 
+                            tickLine={false} 
+                            axisLine={false} 
+                            tick={{ fill: '#94a3b8' }}
+                            unit="%"
+                          />
+                          <Tooltip 
+                            contentStyle={{ 
+                              backgroundColor: data.settings.theme === 'industrial' ? '#1a1d23' : '#ffffff', 
+                              border: `1px solid ${activeTheme.border}`,
+                              borderRadius: '12px',
+                              boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)'
+                            }} 
+                            cursor={{ fill: data.settings.theme === 'industrial' ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.02)' }}
+                          />
+                          <Bar 
+                            dataKey="progress" 
+                            name="진행 단계"
+                            radius={[4, 4, 0, 0]}
+                            barSize={30}
+                          >
+                            {data.buildings.map((b, index) => {
+                              const val = b.processes[analyticsSelectedProcess] ?? 0;
+                              if (val === -1) return <Cell key={`cell-${index}`} fill="#94a3b8" opacity={0.3} />;
+                              return (
+                                <Cell 
+                                  key={`cell-${index}`} 
+                                  fill={val === 100 ? '#22c55e' : val > 0 ? activeTheme.accentHex || '#3b82f6' : '#94a3b8'} 
                                 />
                               );
                             })}
@@ -3812,29 +4120,206 @@ export default function App() {
 
         {/* Share Link Modal */}
         <AnimatePresence>
-          {shareUrl && (
-            <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4 no-print">
-              <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="bg-white dark:bg-slate-900 p-8 rounded-3xl shadow-2xl max-w-lg w-full space-y-6">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-xl font-black uppercase tracking-tight flex items-center gap-2 italic">
-                    <LinkIcon className={`w-5 h-5 ${activeTheme.text}`} />
-                    Share Site
-                  </h3>
-                  <button onClick={() => setShareUrl(null)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"><Plus className="w-5 h-5 rotate-45" /></button>
-                </div>
-                <p className="text-sm text-slate-500 font-medium leading-relaxed">아래 링크를 공유하여 다른 사용자가 이 현장의 데이터를 조회하게 할 수 있습니다.</p>
-                <div className="flex gap-2">
-                  <input readOnly value={shareUrl} className="flex-1 bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-mono text-blue-600 truncate" />
-                  <button 
-                    onClick={() => copyToClipboard(shareUrl)} 
-                    className="bg-blue-600 text-white px-6 font-black rounded-xl hover:bg-blue-700 transition-colors"
-                  >
-                    {isCopied ? '복사됨!' : '링크 복사'}
-                  </button>
-                </div>
-              </motion.div>
-            </div>
-          )}
+          {shareUrl && (() => {
+            const adminUrl = `${window.location.origin}${window.location.pathname}?role=ADMIN&pw=${multiData.adminPassword || '1111'}${data.id ? `&site=${data.id}` : ''}`;
+            const fieldUrl = `${window.location.origin}${window.location.pathname}?role=FIELD${data.id ? `&site=${data.id}` : ''}`;
+            const guestUrl = `${window.location.origin}${window.location.pathname}?role=GUEST${data.id ? `&site=${data.id}` : ''}`;
+            
+            const handleModalCopy = (url: string, type: 'admin' | 'field' | 'guest') => {
+              copyToClipboard(url);
+              setCopiedLinkType(type);
+              setTimeout(() => setCopiedLinkType(null), 2000);
+            };
+
+            return (
+              <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 overflow-y-auto no-print">
+                <motion.div 
+                  initial={{ opacity: 0, scale: 0.95, y: 15 }} 
+                  animate={{ opacity: 1, scale: 1, y: 0 }} 
+                  exit={{ opacity: 0, scale: 0.95, y: 15 }} 
+                  className={`p-6 sm:p-8 rounded-3xl shadow-2xl max-w-2xl w-full space-y-6 my-8 border ${
+                    data.settings.theme === 'industrial' 
+                      ? 'bg-[#181a20] border-slate-800 text-white' 
+                      : 'bg-white border-slate-100 text-slate-900'
+                  }`}
+                >
+                  {/* Modal Header */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className={`text-xl font-black uppercase tracking-tight flex items-center gap-2 italic ${
+                        data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'
+                      }`}>
+                        <LinkIcon className={`w-5 h-5 ${activeTheme.text}`} />
+                        현장 통합 공유 링크 설정
+                      </h3>
+                      <p className={`text-xs mt-1 ${data.settings.theme === 'industrial' ? 'text-slate-400' : 'text-slate-500'} font-semibold`}>
+                        현재 현장: <span className="font-bold text-blue-500">{data.settings.projectName || '스마트 아파트 현장'}</span>
+                      </p>
+                    </div>
+                    <button 
+                      onClick={() => setShareUrl(null)} 
+                      className={`p-2 rounded-full transition-colors ${
+                        data.settings.theme === 'industrial' ? 'hover:bg-slate-800 text-slate-400' : 'hover:bg-slate-100 text-slate-500'
+                      }`}
+                    >
+                      <Plus className="w-5 h-5 rotate-45" />
+                    </button>
+                  </div>
+
+                  {/* Links Dashboard */}
+                  <div className="space-y-4">
+                    {/* 1. MASTER ADMIN LINK */}
+                    <div className={`p-4 rounded-2xl border transition-all ${
+                      data.settings.theme === 'industrial' 
+                        ? 'bg-[#1e2330]/60 border-indigo-500/20 hover:border-indigo-500/40' 
+                        : 'bg-indigo-50/50 border-indigo-100 hover:border-indigo-200'
+                    }`}>
+                      <div className="flex items-start gap-3 mb-2">
+                        <div className="p-2 bg-indigo-600 text-white rounded-xl shadow-lg shadow-indigo-100 dark:shadow-none">
+                          <ShieldCheck className="w-4 h-4" />
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-black text-indigo-700 dark:text-indigo-400">마스터 관리자 접속 링크</span>
+                            <span className="px-1.5 py-0.5 rounded text-[8px] font-black bg-indigo-100 dark:bg-indigo-900/60 text-indigo-800 dark:text-indigo-300">최고 권한</span>
+                          </div>
+                          <p className={`text-[10px] sm:text-xs leading-relaxed mt-0.5 ${
+                            data.settings.theme === 'industrial' ? 'text-slate-400' : 'text-slate-500 font-semibold'
+                          }`}>
+                            모든 아파트 동별 관리, 공무 설정 변경, 비밀번호 관리 등을 제어할 수 있는 총괄 계정 주소입니다.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <input 
+                          readOnly 
+                          value={adminUrl} 
+                          className={`flex-1 px-3 py-2 rounded-xl border text-[10px] sm:text-xs font-mono truncate focus:outline-none ${
+                            data.settings.theme === 'industrial' 
+                              ? 'bg-slate-900/80 border-slate-700 text-[#00ff9f]' 
+                              : 'bg-white border-slate-200 text-slate-600'
+                          }`} 
+                        />
+                        <button 
+                          onClick={() => handleModalCopy(adminUrl, 'admin')} 
+                          className={`px-4 font-black rounded-xl text-xs whitespace-nowrap transition-colors ${
+                            copiedLinkType === 'admin'
+                              ? 'bg-green-600 text-white'
+                              : data.settings.theme === 'industrial' 
+                                ? 'bg-indigo-600 hover:bg-indigo-700 text-white' 
+                                : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                          }`}
+                        >
+                          {copiedLinkType === 'admin' ? '복사됨!' : '링크 복사'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* 2. FIELD REGISTER LINK */}
+                    <div className={`p-4 rounded-2xl border transition-all ${
+                      data.settings.theme === 'industrial' 
+                        ? 'bg-[#1e2330]/60 border-blue-500/20 hover:border-blue-500/40' 
+                        : 'bg-blue-50/30 border-blue-100 hover:border-blue-200'
+                    }`}>
+                      <div className="flex items-start gap-3 mb-2">
+                        <div className="p-2 bg-blue-600 text-white rounded-xl shadow-lg shadow-blue-100 dark:shadow-none">
+                          <User className="w-4 h-4" />
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-black text-blue-700 dark:text-blue-400">현장 실무자 등록/입력 링크</span>
+                            <span className="px-1.5 py-0.5 rounded text-[8px] font-black bg-blue-100 dark:bg-blue-900/60 text-blue-800 dark:text-blue-300">수정/등록 권한</span>
+                          </div>
+                          <p className={`text-[10px] sm:text-xs leading-relaxed mt-0.5 ${
+                            data.settings.theme === 'industrial' ? 'text-slate-400' : 'text-slate-500 font-semibold'
+                          }`}>
+                            현장별 아파트 동별 즉시 공정률 업데이트, 실시간 기상 상태 기록 및 자재 입고관리가 가능한 실무 링크입니다.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <input 
+                          readOnly 
+                          value={fieldUrl} 
+                          className={`flex-1 px-3 py-2 rounded-xl border text-[10px] sm:text-xs font-mono truncate focus:outline-none ${
+                            data.settings.theme === 'industrial' 
+                              ? 'bg-slate-900/80 border-slate-700 text-[#00ff9f]' 
+                              : 'bg-white border-slate-200 text-slate-600'
+                          }`} 
+                        />
+                        <button 
+                          onClick={() => handleModalCopy(fieldUrl, 'field')} 
+                          className={`px-4 font-black rounded-xl text-xs whitespace-nowrap transition-colors ${
+                            copiedLinkType === 'field'
+                              ? 'bg-green-600 text-white'
+                              : data.settings.theme === 'industrial' 
+                                ? 'bg-blue-600 hover:bg-blue-700 text-white' 
+                                : 'bg-blue-600 text-white hover:bg-blue-700'
+                          }`}
+                        >
+                          {copiedLinkType === 'field' ? '복사됨!' : '링크 복사'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* 3. GUEST VIEWER LINK */}
+                    <div className={`p-4 rounded-2xl border transition-all ${
+                      data.settings.theme === 'industrial' 
+                        ? 'bg-[#1e2330]/60 border-emerald-500/20 hover:border-emerald-500/40' 
+                        : 'bg-emerald-50/30 border-emerald-100 hover:border-emerald-200'
+                    }`}>
+                      <div className="flex items-start gap-3 mb-2">
+                        <div className="p-2 bg-emerald-600 text-white rounded-xl shadow-lg shadow-emerald-100 dark:shadow-none">
+                          <Eye className="w-4 h-4" />
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-black text-emerald-700 dark:text-emerald-400">외부인 / 게스트 조회 전용 링크</span>
+                            <span className="px-1.5 py-0.5 rounded text-[8px] font-black bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">조회 전용 (안전)</span>
+                          </div>
+                          <p className={`text-[10px] sm:text-xs leading-relaxed mt-0.5 ${
+                            data.settings.theme === 'industrial' ? 'text-slate-400' : 'text-slate-500 font-semibold'
+                          }`}>
+                            비밀번호 없이 즉시 접속되며, Gantt 표, 아파트 공정, 기상 정보 및 기상청 예측을 실시간 조회만 가능합니다.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <input 
+                          readOnly 
+                          value={guestUrl} 
+                          className={`flex-1 px-3 py-2 rounded-xl border text-[10px] sm:text-xs font-mono truncate focus:outline-none ${
+                            data.settings.theme === 'industrial' 
+                              ? 'bg-slate-900/80 border-slate-700 text-[#00ff9f]' 
+                              : 'bg-white border-slate-200 text-slate-600'
+                          }`} 
+                        />
+                        <button 
+                          onClick={() => handleModalCopy(guestUrl, 'guest')} 
+                          className={`px-4 font-black rounded-xl text-xs whitespace-nowrap transition-colors ${
+                            copiedLinkType === 'guest'
+                              ? 'bg-green-600 text-white'
+                              : data.settings.theme === 'industrial' 
+                                ? 'bg-emerald-600 hover:bg-emerald-750 text-white' 
+                                : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                          }`}
+                        >
+                          {copiedLinkType === 'guest' ? '복사됨!' : '링크 복사'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Footnote */}
+                  <div className={`p-3 rounded-xl text-[10px] flex items-center gap-2 font-semibold ${
+                    data.settings.theme === 'industrial' ? 'bg-slate-900/60 text-slate-400' : 'bg-slate-50 text-slate-500'
+                  }`}>
+                    💡 누르시면 자동으로 해당 기기의 클립보드에 주소가 즉시 저장됩니다. 카톡이나 메일로 전송하세요!
+                  </div>
+                </motion.div>
+              </div>
+            );
+          })()}
         </AnimatePresence>
 
         {/* Add Process Modal */}
@@ -3845,42 +4330,60 @@ export default function App() {
                 initial={{ opacity: 0, scale: 0.9 }} 
                 animate={{ opacity: 1, scale: 1 }} 
                 exit={{ opacity: 0, scale: 0.9 }} 
-                className="bg-white dark:bg-slate-900 p-8 rounded-3xl shadow-2xl max-w-md w-full space-y-6"
+                className={`p-8 rounded-3xl shadow-2xl max-w-md w-full space-y-6 ${
+                  data.settings.theme === 'industrial' ? 'bg-[#1a1d23] border border-[#2d333d]' : 'bg-white'
+                }`}
               >
                 <div className="flex items-center justify-between">
-                  <h3 className="text-xl font-black uppercase tracking-tight flex items-center gap-2 italic text-slate-900 dark:text-white">
+                  <h3 className={`text-xl font-black uppercase tracking-tight flex items-center gap-2 italic ${
+                    data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'
+                  }`}>
                     <Construction className={`w-5 h-5 ${activeTheme.text}`} />
                     공종 추가
                   </h3>
                   <button 
                     onClick={() => { setNewProcessInput(false); setNewProcessName(''); }} 
-                    className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors text-slate-500 dark:text-slate-400"
+                    className={`p-2 rounded-full transition-colors ${
+                      data.settings.theme === 'industrial' ? 'hover:bg-slate-800 text-slate-400' : 'hover:bg-slate-100 text-slate-500'
+                    }`}
                   >
                     <Plus className="w-5 h-5 rotate-45" />
                   </button>
                 </div>
                 <div className="space-y-4">
                   <div className="space-y-2">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase ml-1">신규 공종 명칭</span>
+                    <span className={`text-[10px] font-bold uppercase ml-1 ${
+                      data.settings.theme === 'industrial' ? 'text-slate-400' : 'text-slate-500'
+                    }`}>신규 공종 명칭</span>
                     <input 
                       autoFocus 
                       placeholder="예: 23. 미장공사 또는 타일공사" 
                       value={newProcessName} 
                       onChange={e => setNewProcessName(e.target.value)} 
                       onKeyDown={e => e.key === 'Enter' && addProcess()} 
-                      className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-bold text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500" 
+                      className={`w-full p-4 rounded-xl border text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                        data.settings.theme === 'industrial' 
+                        ? 'bg-slate-800 border-slate-700 text-white placeholder-slate-500' 
+                        : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
+                      }`} 
                     />
                   </div>
                   <div className="flex gap-3 pt-2">
                     <button 
                       onClick={() => { setNewProcessInput(false); setNewProcessName(''); }} 
-                      className="flex-1 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-300 py-3 rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                      className={`flex-1 py-3 rounded-xl font-bold transition-colors ${
+                        data.settings.theme === 'industrial' 
+                        ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' 
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
                     >
                       취소
                     </button>
                     <button 
                       onClick={addProcess} 
-                      className={`flex-1 text-white py-3 rounded-xl font-bold transition-colors ${data.settings.theme === 'industrial' ? 'bg-[#00ff9f]/80 text-black hover:bg-[#00ff9f]' : 'bg-blue-600 hover:bg-blue-700'}`}
+                      className={`flex-1 text-white py-3 rounded-xl font-bold transition-colors ${
+                        data.settings.theme === 'industrial' ? 'bg-[#00ff9f]/80 text-black hover:bg-[#00ff9f]' : 'bg-blue-600 hover:bg-blue-700'
+                      }`}
                     >
                       추가
                     </button>
@@ -3904,20 +4407,73 @@ export default function App() {
 
          {isAddingSite && (
             <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4 no-print">
-              <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="bg-white dark:bg-slate-900 p-8 rounded-3xl shadow-2xl max-w-md w-full space-y-6">
-                <h3 className="text-xl font-black uppercase tracking-tight italic">New Site Add</h3>
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.9 }} 
+                animate={{ opacity: 1, scale: 1 }} 
+                exit={{ opacity: 0, scale: 0.9 }} 
+                className={`p-8 rounded-3xl shadow-2xl max-w-md w-full space-y-6 ${
+                  data.settings.theme === 'industrial' ? 'bg-[#1a1d23] border border-[#2d333d]' : 'bg-white'
+                }`}
+              >
+                <h3 className={`text-xl font-black uppercase tracking-tight italic ${
+                  data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'
+                }`}>New Site Add</h3>
                 <div className="space-y-4">
                   <div className="space-y-2">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase ml-1">현장 명칭</span>
-                    <input autoFocus placeholder="현장 이름을 입력하세요..." value={newSiteName} onChange={e => setNewSiteName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addNewSite()} className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-bold text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-300" />
+                    <span className={`text-[10px] font-bold uppercase ml-1 ${
+                      data.settings.theme === 'industrial' ? 'text-slate-400' : 'text-slate-500'
+                    }`}>현장 명칭</span>
+                    <input 
+                      autoFocus 
+                      placeholder="현장 이름을 입력하세요..." 
+                      value={newSiteName} 
+                      onChange={e => setNewSiteName(e.target.value)} 
+                      onKeyDown={e => e.key === 'Enter' && addNewSite()} 
+                      className={`w-full p-4 rounded-xl border text-sm font-bold focus:outline-none ${
+                        data.settings.theme === 'industrial' 
+                        ? 'bg-slate-800 border-slate-700 text-white placeholder-slate-500' 
+                        : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
+                      }`} 
+                    />
                   </div>
                   <div className="space-y-2">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase ml-1">접속 비밀번호 (선택사항)</span>
-                    <input type="text" placeholder="비밀번호를 입력하세요 (생략 시 무인증)" value={newSitePassword} onChange={e => setNewSitePassword(e.target.value)} onKeyDown={e => e.key === 'Enter' && addNewSite()} className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-bold text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-300" />
+                    <span className={`text-[10px] font-bold uppercase ml-1 ${
+                      data.settings.theme === 'industrial' ? 'text-slate-400' : 'text-slate-500'
+                    }`}>접속 비밀번호 (선택사항)</span>
+                    <input 
+                      type="text" 
+                      placeholder="비밀번호를 입력하세요 (생략 시 무인증)" 
+                      value={newSitePassword} 
+                      onChange={e => setNewSitePassword(e.target.value)} 
+                      onKeyDown={e => e.key === 'Enter' && addNewSite()} 
+                      className={`w-full p-4 rounded-xl border text-sm font-bold focus:outline-none ${
+                        data.settings.theme === 'industrial' 
+                        ? 'bg-slate-800 border-slate-700 text-white placeholder-slate-500' 
+                        : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
+                      }`} 
+                    />
                   </div>
                   <div className="flex gap-3 pt-2">
-                    <button onClick={() => { setIsAddingSite(false); setNewSiteName(''); setNewSitePassword(''); }} className="flex-1 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-300 py-3 rounded-xl font-bold">취소</button>
-                    <button onClick={addNewSite} className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-bold">현장 생성</button>
+                    <button 
+                      onClick={() => { setIsAddingSite(false); setNewSiteName(''); setNewSitePassword(''); }} 
+                      className={`flex-1 py-3 rounded-xl font-bold transition-colors ${
+                        data.settings.theme === 'industrial' 
+                        ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' 
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      취소
+                    </button>
+                    <button 
+                      onClick={addNewSite} 
+                      className={`flex-1 text-white py-3 rounded-xl font-bold transition-all ${
+                        data.settings.theme === 'industrial' 
+                        ? 'bg-[#00ff9f]/80 text-black hover:bg-[#00ff9f]' 
+                        : 'bg-blue-600 hover:bg-blue-700'
+                      }`}
+                    >
+                      현장 생성
+                    </button>
                   </div>
                 </div>
               </motion.div>
@@ -3929,17 +4485,37 @@ export default function App() {
         <AnimatePresence>
           {deleteConfirmId && (
             <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4 no-print">
-              <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="bg-white dark:bg-slate-900 p-8 rounded-3xl shadow-2xl max-w-sm w-full space-y-6 text-center">
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.9 }} 
+                animate={{ opacity: 1, scale: 1 }} 
+                exit={{ opacity: 0, scale: 0.9 }} 
+                className={`p-8 rounded-3xl shadow-2xl max-w-sm w-full space-y-6 text-center ${
+                  data.settings.theme === 'industrial' ? 'bg-[#1a1d23] border border-[#2d333d]' : 'bg-white'
+                }`}
+              >
                 <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 text-red-600 rounded-full flex items-center justify-center mx-auto">
                   <AlertTriangle className="w-8 h-8" />
                 </div>
                 <div className="space-y-2">
-                  <h3 className="text-xl font-black italic uppercase">Delete Site?</h3>
-                  <p className="text-sm text-slate-500">정말 이 현장을 삭제하시겠습니까?<br/>모든 데이터가 영구적으로 소실됩니다.</p>
+                  <h3 className={`text-xl font-black italic uppercase ${
+                    data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'
+                  }`}>Delete Site?</h3>
+                  <p className={`text-sm ${
+                    data.settings.theme === 'industrial' ? 'text-slate-400' : 'text-slate-500 font-semibold'
+                  }`}>정말 이 현장을 삭제하시겠습니까?<br/>모든 데이터가 영구적으로 소실됩니다.</p>
                 </div>
                 <div className="flex gap-3">
-                  <button onClick={() => setDeleteConfirmId(null)} className="flex-1 bg-slate-100 dark:bg-slate-800 text-slate-500 py-3 rounded-xl font-bold">취소</button>
-                  <button onClick={() => deleteSite(deleteConfirmId)} className="flex-1 bg-red-600 text-white py-3 rounded-xl font-bold">삭제 실행</button>
+                  <button 
+                    onClick={() => setDeleteConfirmId(null)} 
+                    className={`flex-1 py-3 rounded-xl font-bold transition-colors ${
+                      data.settings.theme === 'industrial' 
+                      ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' 
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    취소
+                  </button>
+                  <button onClick={() => deleteSite(deleteConfirmId)} className="flex-1 bg-red-600 hover:bg-red-700 text-white py-3 rounded-xl font-bold">삭제 실행</button>
                 </div>
               </motion.div>
             </div>
@@ -3957,6 +4533,7 @@ export default function App() {
             onClose={() => setGalleryTarget(null)}
             onDelete={(index) => handleDeletePhoto(galleryTarget.buildingId, galleryTarget.processName, index)}
             onViewPhoto={(photo) => setSelectedPhoto(photo)}
+            theme={data.settings.theme}
           />
         )}
       </AnimatePresence>
