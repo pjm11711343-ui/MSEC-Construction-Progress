@@ -2029,6 +2029,7 @@ export default function App() {
       return (
         <SiteSelector 
           sites={multiData.sites} 
+          customBaseUrl={multiData.customBaseUrl}
           onSelect={(site, password) => {
             if (!site.settings.sitePassword || site.settings.sitePassword === password) {
               switchSite(site.id);

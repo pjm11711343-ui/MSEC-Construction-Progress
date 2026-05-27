@@ -1,17 +1,63 @@
 import React, { useState } from 'react';
-import { Building2, Lock, ArrowRight, ShieldCheck } from 'lucide-react';
+import { Building2, Lock, ArrowRight, ShieldCheck, Link2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AppState } from '../types';
 
 interface SiteSelectorProps {
   sites: AppState[];
   onSelect: (site: AppState, password?: string) => boolean; // returns true if success
+  customBaseUrl?: string;
 }
 
-export default function SiteSelector({ sites, onSelect }: SiteSelectorProps) {
+export default function SiteSelector({ sites, onSelect, customBaseUrl }: SiteSelectorProps) {
   const [selectedSite, setSelectedSite] = useState<AppState | null>(null);
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  const getPublicOrigin = () => {
+    if (customBaseUrl && customBaseUrl.trim() !== '') {
+      return customBaseUrl.trim().replace(/\/$/, '');
+    }
+    let origin = window.location.origin;
+    if (origin.includes('ais-dev-')) {
+      origin = origin.replace('ais-dev-', 'ais-pre-');
+    }
+    return origin;
+  };
+
+  const copyToClipboard = (text: string, key: string) => {
+    const handleSuccess = () => {
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(null), 2000);
+    };
+
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(handleSuccess).catch(() => {
+        copyFallback(text, handleSuccess);
+      });
+    } else {
+      copyFallback(text, handleSuccess);
+    }
+  };
+
+  const copyFallback = (text: string, callback: () => void) => {
+    const textArea = document.createElement("textarea");
+    textArea.value = text;
+    textArea.style.position = "fixed";
+    textArea.style.left = "-9999px";
+    textArea.style.top = "0";
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    try {
+      document.execCommand('copy');
+      callback();
+    } catch (err) {
+      console.error('Fallback copy failed', err);
+    }
+    document.body.removeChild(textArea);
+  };
 
   const handleEntry = () => {
     if (selectedSite) {
@@ -73,7 +119,62 @@ export default function SiteSelector({ sites, onSelect }: SiteSelectorProps) {
                 </h3>
                 <p className="text-xs text-slate-400 mt-1 font-medium">{site.settings.companyName}</p>
                 
-                <div className="mt-6 flex items-center justify-between">
+                {/* 🔗 현장별 링크 주소 복사 공간 */}
+                <div 
+                  className="mt-4 pt-3 border-t border-slate-100 space-y-1.5"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="text-[10px] font-black text-slate-400 mb-1 flex items-center gap-1">
+                    <Link2 className="w-3 h-3 text-slate-400" />
+                    <span>현장 직접 접속 공유링크</span>
+                  </div>
+                  
+                  {/* 조회용(GUEST) 링크 복사 버튼 */}
+                  <div className="flex items-center justify-between bg-slate-50 hover:bg-slate-150 p-1.5 rounded-xl border border-slate-100 transition-all">
+                    <span className="text-[10px] text-slate-600 font-extrabold flex items-center gap-1 select-none">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+                      조회용 (GUEST)
+                    </span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const link = `${getPublicOrigin()}${window.location.pathname}?role=GUEST&site=${site.id}`;
+                        copyToClipboard(link, `${site.id}-guest`);
+                      }}
+                      className={`text-[9.5px] font-black px-2 py-1 rounded-lg transition-all select-none ${
+                        copiedKey === `${site.id}-guest` 
+                          ? 'bg-emerald-600 text-white shadow-sm font-extrabold' 
+                          : 'bg-blue-50 hover:bg-blue-100 text-blue-600 border border-blue-100'
+                      }`}
+                    >
+                      {copiedKey === `${site.id}-guest` ? '복사완료! ✓' : '주소 복사'}
+                    </button>
+                  </div>
+
+                  {/* 입력용(FIELD) 링크 복사 버튼 */}
+                  <div className="flex items-center justify-between bg-slate-50 hover:bg-slate-150 p-1.5 rounded-xl border border-slate-100 transition-all">
+                    <span className="text-[10px] text-slate-600 font-extrabold flex items-center gap-1 select-none">
+                      <span className="h-1.5 w-1.5 rounded-full bg-indigo-500"></span>
+                      입력용 (FIELD)
+                    </span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const link = `${getPublicOrigin()}${window.location.pathname}?role=FIELD&site=${site.id}`;
+                        copyToClipboard(link, `${site.id}-field`);
+                      }}
+                      className={`text-[9.5px] font-black px-2 py-1 rounded-lg transition-all select-none ${
+                        copiedKey === `${site.id}-field` 
+                          ? 'bg-emerald-600 text-white shadow-sm font-extrabold' 
+                          : 'bg-indigo-50 hover:bg-indigo-150 text-indigo-600 border border-indigo-100'
+                      }`}
+                    >
+                      {copiedKey === `${site.id}-field` ? '복사완료! ✓' : '주소 복사'}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
                   <div className="flex -space-x-2">
                     {Array.from({ length: 3 }).map((_, i) => (
                       <div key={i} className="w-6 h-6 rounded-full border-2 border-white bg-slate-200" />
