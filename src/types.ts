@@ -113,6 +113,7 @@ export interface MultiProjectData {
   trash?: any[];
   adminPassword?: string;
   syncMode?: 'auto' | 'manual';
+  customBaseUrl?: string;
 }
 
 export const DEFAULT_PROCESSES = [

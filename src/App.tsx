@@ -229,6 +229,7 @@ export default function App() {
   const [newSiteName, setNewSiteName] = useState('');
   const [newSitePassword, setNewSitePassword] = useState('');
   const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [shareSiteId, setShareSiteId] = useState<string | null>(null);
   const [copiedLinkType, setCopiedLinkType] = useState<'admin' | 'field' | 'guest' | null>(null);
   const [isCopied, setIsCopied] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -264,6 +265,9 @@ export default function App() {
   const captureInputRef = useRef<HTMLInputElement>(null);
 
   const getPublicOrigin = () => {
+    if (multiData.customBaseUrl && multiData.customBaseUrl.trim() !== '') {
+      return multiData.customBaseUrl.trim().replace(/\/$/, '');
+    }
     let origin = window.location.origin;
     if (origin.includes('ais-dev-')) {
       origin = origin.replace('ais-dev-', 'ais-pre-');
@@ -1980,10 +1984,25 @@ export default function App() {
                   <h3 className="text-lg font-bold text-slate-800 line-clamp-1">{site.settings.projectName}</h3>
                   <p className="text-sm text-slate-500 mt-1">{site.settings.companyName}</p>
                 </div>
-                <div className="flex justify-between items-center pt-4 border-t border-slate-50">
-                  <span className="text-xs font-bold text-slate-400">최근 업데이트: {site.lastSaved?.split(',')[0]}</span>
-                  <div className="flex items-center gap-1 text-blue-600 font-bold text-sm">
-                    현장 관리 <ChevronRight className="w-4 h-4" />
+                <div className="flex justify-between items-center pt-3 border-t border-slate-100 mt-2">
+                  <span className="text-[10px] font-bold text-slate-400">마지막 저장: {site.lastSaved ? site.lastSaved.split(',')[0] : '기록 없음'}</span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShareSiteId(site.id);
+                        const url = `${getPublicOrigin()}${window.location.pathname}?site=${site.id}`;
+                        setShareUrl(url);
+                      }}
+                      className="p-1 px-2.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-600 hover:text-white hover:border-indigo-600 text-[10px] font-black tracking-tight transition-all flex items-center gap-1 shadow-sm"
+                      title="이 현장의 권한별 공유 링크 생성"
+                    >
+                      <LinkIcon className="w-2.5 h-2.5" />
+                      링크 생성
+                    </button>
+                    <div className="flex items-center text-blue-600 font-bold text-xs">
+                      현장 관리 <ChevronRight className="w-3.5 h-3.5" />
+                    </div>
                   </div>
                 </div>
               </motion.button>
@@ -2479,43 +2498,70 @@ export default function App() {
              </div>
 
              {role === 'ADMIN' && (
-               <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-xl mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-indigo-600 text-white rounded-lg shadow-lg shadow-indigo-200">
-                      <Lock className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <p className="font-bold text-slate-800 text-sm">시스템 관리자 비밀번호 및 링크</p>
-                      <p className="text-[10px] text-slate-500">모든 현장을 관리할 수 있는 마스터 비밀번호와 직접 진입할 수 있는 링크입니다.</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 flex-wrap md:flex-nowrap w-full md:w-auto">
-                    <input 
-                      type="password" 
-                      value={multiData.adminPassword || ''}
-                      onChange={(e) => {
-                        const newVal = e.target.value;
-                        setMultiData(prev => {
-                          const updated = { ...prev, adminPassword: newVal };
-                          localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-                          return updated;
-                        });
-                      }}
-                      className="px-4 py-2 border-2 border-indigo-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all w-full md:w-48 bg-white font-bold"
-                      placeholder="비밀번호 설정"
-                    />
-                    <button
-                      onClick={() => {
-                        const adminUrl = `${getPublicOrigin()}${window.location.pathname}?role=ADMIN&pw=${multiData.adminPassword || '1111'}${data.id ? `&site=${data.id}` : ''}`;
-                        setShareUrl(adminUrl);
-                        copyToClipboard(adminUrl);
-                      }}
-                      className="whitespace-nowrap bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs px-4 py-2.5 rounded-lg flex items-center gap-1.5 shadow-md shadow-indigo-100 transition-all w-full md:w-auto justify-center"
-                    >
-                      <LinkIcon className="w-3.5 h-3.5" />
-                      관리자 링크 복사
-                    </button>
-                  </div>
+               <div className="bg-indigo-50 border border-indigo-100 p-5 rounded-2xl mb-8 space-y-4">
+                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                   <div className="flex items-center gap-3">
+                     <div className="p-2 bg-indigo-600 text-white rounded-lg shadow-lg shadow-indigo-200">
+                       <Lock className="w-5 h-5" />
+                     </div>
+                     <div>
+                       <p className="font-bold text-slate-800 text-sm">시스템 관리자 비밀번호 및 링크</p>
+                       <p className="text-[10px] text-slate-500">모든 현장을 관리할 수 있는 마스터 비밀번호와 직접 진입할 수 있는 링크입니다.</p>
+                     </div>
+                   </div>
+                   <div className="flex items-center gap-2 flex-wrap md:flex-nowrap w-full md:w-auto">
+                     <input 
+                       type="password" 
+                       value={multiData.adminPassword || ''}
+                       onChange={(e) => {
+                         const newVal = e.target.value;
+                         setMultiData(prev => {
+                           const updated = { ...prev, adminPassword: newVal };
+                           localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+                           return updated;
+                         });
+                       }}
+                       className="px-4 py-2 border-2 border-indigo-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all w-full md:w-48 bg-white font-bold"
+                       placeholder="비밀번호 설정"
+                     />
+                     <button
+                       onClick={() => {
+                         const adminUrl = `${getPublicOrigin()}${window.location.pathname}?role=ADMIN&pw=${multiData.adminPassword || '1111'}${data.id ? `&site=${data.id}` : ''}`;
+                         setShareUrl(adminUrl);
+                         copyToClipboard(adminUrl);
+                       }}
+                       className="whitespace-nowrap bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs px-4 py-2.5 rounded-lg flex items-center gap-1.5 shadow-md shadow-indigo-100 transition-all w-full md:w-auto justify-center"
+                     >
+                       <LinkIcon className="w-3.5 h-3.5" />
+                       관리자 링크 복사
+                     </button>
+                   </div>
+                 </div>
+
+                 <div className="border-t border-indigo-100 pt-4 space-y-2">
+                   <div className="flex items-center gap-1.5">
+                     <span className="text-xs font-black text-indigo-900">공유 링크 기본 주소 (Base URL)</span>
+                     <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-indigo-200 text-indigo-950">도메인 커스텀</span>
+                   </div>
+                   <p className="text-[10px] text-slate-500 leading-relaxed">
+                     구글 AI Studio 테스트 주소(ais-dev-)는 구글 계정 보안(Access Control)으로 인해 외부 공유가 불가능하고 <strong>403 에러</strong>가 발생합니다.<br />
+                     정식으로 배포한 공용 도메인 주소(예: Vercel, Cloud Run 등)가 있다면 아래에 입력하세요. 그 주소를 기반으로 복사 링크가 자동 제작됩니다.
+                   </p>
+                   <input 
+                     type="text" 
+                     value={multiData.customBaseUrl || ''}
+                     onChange={(e) => {
+                       const newVal = e.target.value;
+                       setMultiData(prev => {
+                         const updated = { ...prev, customBaseUrl: newVal };
+                         localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+                         return updated;
+                       });
+                     }}
+                     className="w-full px-4 py-2 border border-indigo-100 rounded-lg text-xs font-mono focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all bg-white text-indigo-950"
+                     placeholder="예시: https://your-public-deployed-url.run.app"
+                   />
+                 </div>
                </div>
              )}
 
@@ -4129,9 +4175,13 @@ export default function App() {
         {/* Share Link Modal */}
         <AnimatePresence>
           {shareUrl && (() => {
-            const adminUrl = `${getPublicOrigin()}${window.location.pathname}?role=ADMIN&pw=${multiData.adminPassword || '1111'}${data.id ? `&site=${data.id}` : ''}`;
-            const fieldUrl = `${getPublicOrigin()}${window.location.pathname}?role=FIELD${data.id ? `&site=${data.id}` : ''}`;
-            const guestUrl = `${getPublicOrigin()}${window.location.pathname}?role=GUEST${data.id ? `&site=${data.id}` : ''}`;
+            const targetSiteId = shareSiteId || data.id;
+            const targetSite = multiData.sites.find(s => s.id === targetSiteId) || data;
+            const projectName = targetSite?.settings?.projectName || '스마트 아파트 현장';
+
+            const adminUrl = `${getPublicOrigin()}${window.location.pathname}?role=ADMIN&pw=${multiData.adminPassword || '1111'}${targetSiteId ? `&site=${targetSiteId}` : ''}`;
+            const fieldUrl = `${getPublicOrigin()}${window.location.pathname}?role=FIELD${targetSiteId ? `&site=${targetSiteId}` : ''}`;
+            const guestUrl = `${getPublicOrigin()}${window.location.pathname}?role=GUEST${targetSiteId ? `&site=${targetSiteId}` : ''}`;
             
             const handleModalCopy = (url: string, type: 'admin' | 'field' | 'guest') => {
               copyToClipboard(url);
@@ -4161,11 +4211,14 @@ export default function App() {
                         현장 통합 공유 링크 설정
                       </h3>
                       <p className={`text-xs mt-1 ${data.settings.theme === 'industrial' ? 'text-slate-400' : 'text-slate-500'} font-semibold`}>
-                        현재 현장: <span className="font-bold text-blue-500">{data.settings.projectName || '스마트 아파트 현장'}</span>
+                        대상 현장: <span className="font-bold text-blue-500">{projectName}</span>
                       </p>
                     </div>
                     <button 
-                      onClick={() => setShareUrl(null)} 
+                      onClick={() => {
+                        setShareUrl(null);
+                        setShareSiteId(null);
+                      }} 
                       className={`p-2 rounded-full transition-colors ${
                         data.settings.theme === 'industrial' ? 'hover:bg-slate-800 text-slate-400' : 'hover:bg-slate-100 text-slate-500'
                       }`}
@@ -4173,6 +4226,39 @@ export default function App() {
                       <Plus className="w-5 h-5 rotate-45" />
                     </button>
                   </div>
+
+                  {/* 403 Warning Alert */}
+                  {window.location.origin.includes('ais-dev-') && !multiData.customBaseUrl && (
+                    <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-semibold leading-relaxed space-y-1">
+                      <p className="font-extrabold flex items-center gap-1.5 text-amber-950">
+                        ⚠️ 403 접속 오류 방지 안내 (외부인 공유 전 필독!)
+                      </p>
+                      <p>
+                        현재 복사하는 주소는 개발 테스트용 구글 내부 서버 주소(ais-dev-)입니다. 구글 클라우드 보안 제어로 인해, 다른 사람에게 공유하면 <span className="font-bold text-red-600 underline">403 Forbidden 오류</span>가 나며 접속이 불가능합니다.
+                      </p>
+                      <p className="mt-1">
+                        <strong>해결 방법:</strong> 정식 배포 주소(예: Vercel, Cloud Run 등)가 있다면 <strong>[기본 화면 → 관리자 모드 → 프로젝트 설정]</strong> 하단의 <strong>공유 링크 기본 주소(Base URL)</strong>에 정식 주소를 입력해 주시면 오류가 말끔히 해결됩니다.
+                      </p>
+                    </div>
+                  )}
+
+                  {multiData.customBaseUrl && multiData.customBaseUrl.trim() !== '' && (
+                    <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-semibold leading-relaxed space-y-0.5">
+                      <p className="font-extrabold flex items-center gap-1.5 text-emerald-950">
+                        <span className="flex h-2 w-2 relative">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                        </span>
+                        커스텀 도메인(Base URL)이 활성화되어 있습니다
+                      </p>
+                      <p className="font-mono text-[10px] text-emerald-750 break-all select-all font-bold">
+                        {multiData.customBaseUrl}
+                      </p>
+                      <p className="text-[10px] text-slate-500 mt-1">
+                        이제 아래 모든 복사 단추를 누르면 해당 정식 주소를 기반으로 변환된 공유 주소가 안전하게 복사됩니다.
+                      </p>
+                    </div>
+                  )}
 
                   {/* Links Dashboard */}
                   <div className="space-y-4">
