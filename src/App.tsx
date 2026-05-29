@@ -1554,7 +1554,7 @@ export default function App() {
         await fetch('/api/health').then(r => r.json()).then(d => console.log("Health OK:", d)).catch(e => console.warn("Health fail:", e));
       } catch (e) {}
 
-      const response = await fetch('/api/diagnosis', {
+      const response = await fetch('/api/ai-diagnosis', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ projectData: data }),
@@ -1571,8 +1571,12 @@ export default function App() {
 
         if (response.status === 404) {
           throw new Error(`진단 API를 찾을 수 없습니다 (404). 
-호출 URL: /api/diagnosis
+호출 URL: /api/ai-diagnosis
 서버 응답: ${errorData.error || 'N/A'}`);
+        } else if (response.status === 405) {
+          throw new Error(`진단 API 요청 방식이 거부되었습니다 (405). 
+호출 URL: /api/ai-diagnosis
+서버 설정이나 네트워크 환경을 확인해 주세요.`);
         }
         throw new Error(errorData.error || `서버 오류 (${response.status})`);
       }

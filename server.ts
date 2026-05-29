@@ -570,11 +570,15 @@ app.get("/api/weather", async (req, res) => {
   }
 });
 
-app.post("/api/diagnosis", async (req, res) => {
-  console.log("POST /api/diagnosis received");
+app.post("/api/ai-diagnosis", async (req, res) => {
+  console.log("POST /api/ai-diagnosis received");
   try {
     const { projectData } = req.body;
-    console.log("Project name:", projectData?.settings?.projectName);
+    if (!projectData) {
+      console.warn("No project data provided in request body");
+      return res.status(400).json({ error: "프로젝트 데이터가 필요합니다." });
+    }
+    console.log("Project name for diagnosis:", projectData?.settings?.projectName);
     
     if (!process.env.GEMINI_API_KEY) {
       console.error("Missing GEMINI_API_KEY environment variable");
@@ -585,17 +589,17 @@ app.post("/api/diagnosis", async (req, res) => {
       건설 현장 데이터 분석 전문가로서 현장 정밀 진단을 수행해 주세요. 특히 최근 기상 악화 상황이 향후 공정에 미칠 영향을 심층 분석하는 것이 이번 진단의 핵심입니다.
       
       [현장 기초 정보]
-      - 프로젝트: ${projectData.settings.projectName}
-      - 기간: ${projectData.settings.startDate} ~ ${projectData.settings.endDate}
-      - 소장: ${projectData.settings.managerName}
-      - 현재 위치: ${projectData.settings.location || "위치 정보 없음"}
+      - 프로젝트: ${projectData.settings?.projectName || "알 수 없음"}
+      - 기간: ${projectData.settings?.startDate || "알 수 없음"} ~ ${projectData.settings?.endDate || "알 수 없음"}
+      - 소장: ${projectData.settings?.managerName || "알 수 없음"}
+      - 현재 위치: ${projectData.settings?.location || "위치 정보 없음"}
       
       [현장 특이사항 및 메모]
       ${projectData.dashboardNotes || "기록된 특이사항 없음"}
       
-      [상세 공정 데이터]
-      - 동별 진행 (JSON): ${JSON.stringify(projectData.buildings.map((b: any) => ({ name: b.name, progress: b.processes })))}
-      - 시설물 현황: ${JSON.stringify(projectData.facilities.map((f: any) => ({ name: f.name, status: f.status })))}
+      [상상 공정 데이터]
+      - 동별 진행 (JSON): ${JSON.stringify((projectData.buildings || []).map((b: any) => ({ name: b.name, progress: b.processes })))}
+      - 시설물 현황: ${JSON.stringify((projectData.facilities || []).map((f: any) => ({ name: f.name, status: f.status })))}
       
       [최근 7일간 작업 현황 및 기상 기록]
       ${(projectData.dailyReports || []).slice(0, 10).map((r: any) => `- ${r.date}: ${r.notes} (인원: ${r.manpower}, 날씨/환경: ${r.weather})`).join('\n')}
