@@ -621,31 +621,51 @@ app.post(["/api/diagnosis", "/api/ai-diagnosis"], async (req, res) => {
       참고: diagnosis 필드는 소개, 현황 분석, 기상 영향 평가, 향후 전망 순으로 격식 있는 말투로 작성하십시오.
     `;
 
-    const genModel = "gemini-3.5-flash"; // Skill recommended default for basic text
-    console.log(`Sending diagnosis request to Gemini with model ${genModel}...`);
+    const modelsToTry = ["gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-3.1-pro-preview", "gemini-flash-latest"];
+    console.log(`Starting diagnosis request sequence with ${modelsToTry.length} models...`);
     
     let diagnosisResponse;
-    const maxRetries = 3; // Increase to 3
-    for (let i = 0; i <= maxRetries; i++) {
-      try {
-        diagnosisResponse = await genAI.models.generateContent({
-          model: genModel,
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
-          config: {
-            responseMimeType: "application/json",
+    let lastError;
+    
+    for (const genModel of modelsToTry) {
+      const maxRetries = 2; // Increased to 2 retries per model
+      for (let i = 0; i <= maxRetries; i++) {
+        try {
+          console.log(`Attempting diagnosis with ${genModel} (try ${i+1})...`);
+          diagnosisResponse = await genAI.models.generateContent({
+            model: genModel,
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+            config: {
+              responseMimeType: "application/json",
+            }
+          });
+          lastError = null;
+          break; // Success
+        } catch (error: any) {
+          lastError = error;
+          const isRetryable = error.message?.includes("503") || error.message?.includes("UNAVAILABLE") || error.message?.includes("demand");
+          if (isRetryable) {
+            if (i < maxRetries) {
+              const delay = (i + 1) * 4000 + Math.random() * 1000; // Increased delay: 4s, 8s + jitter
+              console.warn(`Gemini 503 error for ${genModel} (attempt ${i + 1}). Retrying in ${Math.round(delay/1000)}s...`);
+              await new Promise(resolve => setTimeout(resolve, delay));
+              continue;
+            } else {
+              console.warn(`Exhausted retries for ${genModel}. Falling back to next model if available.`);
+              // Wait a bit before switching models too
+              await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+          } else {
+            // Non-retryable error, don't fall back to next model
+            throw error;
           }
-        });
-        break; // Success
-      } catch (error: any) {
-        const isRetryable = error.message?.includes("503") || error.message?.includes("UNAVAILABLE") || error.message?.includes("demand");
-        if (i < maxRetries && isRetryable) {
-          const delay = (i + 1) * 3000; // Exponential-ish: 3s, 6s, 9s
-          console.warn(`Gemini 503 error (attempt ${i + 1}). Retrying in ${delay/1000}s...`);
-          await new Promise(resolve => setTimeout(resolve, delay));
-          continue;
         }
-        throw error;
       }
+      if (diagnosisResponse) break;
+    }
+
+    if (!diagnosisResponse && lastError) {
+      throw lastError;
     }
 
     console.log("Gemini response received");
@@ -723,36 +743,54 @@ app.post("/api/extract-progress", async (req, res) => {
       참고: 이미지의 텍스트가 정확하지 않을 수 있으니 문맥상 가장 적절한 공종명과 동번호를 선택하십시오.
     `;
 
-    const genModel = "gemini-3.5-flash";
-    console.log(`Sending extraction request to Gemini with model ${genModel}...`);
+    const modelsToTry = ["gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-3.1-pro-preview", "gemini-flash-latest"];
+    console.log(`Starting extraction request sequence with ${modelsToTry.length} models...`);
     
     let extractionResponse;
-    const maxRetries = 3;
-    for (let i = 0; i <= maxRetries; i++) {
-      try {
-        extractionResponse = await genAI.models.generateContent({
-          model: genModel,
-          contents: {
-            parts: [
-              { inlineData: { mimeType: mimeType || "image/png", data: image } },
-              { text: prompt }
-            ]
-          },
-          config: {
-            responseMimeType: "application/json",
+    let lastError;
+    
+    for (const genModel of modelsToTry) {
+      const maxRetries = 2; // Increased
+      for (let i = 0; i <= maxRetries; i++) {
+        try {
+          console.log(`Attempting extraction with ${genModel} (try ${i+1})...`);
+          extractionResponse = await genAI.models.generateContent({
+            model: genModel,
+            contents: {
+              parts: [
+                { inlineData: { mimeType: mimeType || "image/png", data: image } },
+                { text: prompt }
+              ]
+            },
+            config: {
+              responseMimeType: "application/json",
+            }
+          });
+          lastError = null;
+          break;
+        } catch (error: any) {
+          lastError = error;
+          const isRetryable = error.message?.includes("503") || error.message?.includes("UNAVAILABLE") || error.message?.includes("demand");
+          if (isRetryable) {
+            if (i < maxRetries) {
+              const delay = (i + 1) * 4000 + Math.random() * 1000;
+              console.warn(`Extraction Gemini 503 error for ${genModel} (attempt ${i + 1}). Retrying in ${Math.round(delay/1000)}s...`);
+              await new Promise(resolve => setTimeout(resolve, delay));
+              continue;
+            } else {
+              console.warn(`Exhausted retries for ${genModel}. Falling back to next model if available.`);
+              await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+          } else {
+            throw error;
           }
-        });
-        break;
-      } catch (error: any) {
-        const isRetryable = error.message?.includes("503") || error.message?.includes("UNAVAILABLE") || error.message?.includes("demand");
-        if (i < maxRetries && isRetryable) {
-          const delay = (i + 1) * 3000;
-          console.warn(`Extraction Gemini 503 error (attempt ${i + 1}). Retrying in ${delay/1000}s...`);
-          await new Promise(resolve => setTimeout(resolve, delay));
-          continue;
         }
-        throw error;
       }
+      if (extractionResponse) break;
+    }
+
+    if (!extractionResponse && lastError) {
+      throw lastError;
     }
 
     const resultText = extractionResponse?.text;
