@@ -621,17 +621,35 @@ app.post(["/api/diagnosis", "/api/ai-diagnosis"], async (req, res) => {
       참고: diagnosis 필드는 소개, 현황 분석, 기상 영향 평가, 향후 전망 순으로 격식 있는 말투로 작성하십시오.
     `;
 
-    console.log("Sending diagnosis request to Gemini with model gemini-3.5-flash...");
-    const response = await genAI.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      config: {
-        responseMimeType: "application/json",
+    const genModel = "gemini-3.5-flash"; // Skill recommended default for basic text
+    console.log(`Sending diagnosis request to Gemini with model ${genModel}...`);
+    
+    let diagnosisResponse;
+    const maxRetries = 3; // Increase to 3
+    for (let i = 0; i <= maxRetries; i++) {
+      try {
+        diagnosisResponse = await genAI.models.generateContent({
+          model: genModel,
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          config: {
+            responseMimeType: "application/json",
+          }
+        });
+        break; // Success
+      } catch (error: any) {
+        const isRetryable = error.message?.includes("503") || error.message?.includes("UNAVAILABLE") || error.message?.includes("demand");
+        if (i < maxRetries && isRetryable) {
+          const delay = (i + 1) * 3000; // Exponential-ish: 3s, 6s, 9s
+          console.warn(`Gemini 503 error (attempt ${i + 1}). Retrying in ${delay/1000}s...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+        throw error;
       }
-    });
+    }
 
     console.log("Gemini response received");
-    const resultText = response.text;
+    const resultText = diagnosisResponse?.text;
     if (!resultText) {
       console.error("Empty or invalid response from Gemini");
       throw new Error("Gemini API에서 유효한 응답을 받지 못했습니다.");
@@ -705,21 +723,39 @@ app.post("/api/extract-progress", async (req, res) => {
       참고: 이미지의 텍스트가 정확하지 않을 수 있으니 문맥상 가장 적절한 공종명과 동번호를 선택하십시오.
     `;
 
-    console.log("Sending extraction request to Gemini with model gemini-3.5-flash...");
-    const response = await genAI.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: {
-        parts: [
-          { inlineData: { mimeType: mimeType || "image/png", data: image } },
-          { text: prompt }
-        ]
-      },
-      config: {
-        responseMimeType: "application/json",
+    const genModel = "gemini-3.5-flash";
+    console.log(`Sending extraction request to Gemini with model ${genModel}...`);
+    
+    let extractionResponse;
+    const maxRetries = 3;
+    for (let i = 0; i <= maxRetries; i++) {
+      try {
+        extractionResponse = await genAI.models.generateContent({
+          model: genModel,
+          contents: {
+            parts: [
+              { inlineData: { mimeType: mimeType || "image/png", data: image } },
+              { text: prompt }
+            ]
+          },
+          config: {
+            responseMimeType: "application/json",
+          }
+        });
+        break;
+      } catch (error: any) {
+        const isRetryable = error.message?.includes("503") || error.message?.includes("UNAVAILABLE") || error.message?.includes("demand");
+        if (i < maxRetries && isRetryable) {
+          const delay = (i + 1) * 3000;
+          console.warn(`Extraction Gemini 503 error (attempt ${i + 1}). Retrying in ${delay/1000}s...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+        throw error;
       }
-    });
+    }
 
-    const resultText = response.text;
+    const resultText = extractionResponse?.text;
     if (!resultText) {
       throw new Error("Gemini API에서 추출 결과를 받지 못했습니다.");
     }
