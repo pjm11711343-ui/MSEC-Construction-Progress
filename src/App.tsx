@@ -686,80 +686,94 @@ export default function App() {
     setSyncStatus('idle');
     try {
       console.log("[Manual Sync] Starting synchronization...");
+      
       // 1. First, save our current local data to the server
       const responsePost = await fetch('/api/project-data', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ data: multiData }),
       });
-      if (responsePost.ok) {
-        const postContentType = responsePost.headers.get('content-type');
-        if (postContentType && postContentType.includes('application/json')) {
-          const postJson = await responsePost.json();
-          if (postJson && postJson.firestoreSuspended) {
-            setIsCloudSuspended(true);
-          } else {
-            setIsCloudSuspended(false);
-          }
-        }
-        lastSyncedContentRef.current = JSON.stringify(multiData);
-        console.log("[Manual Sync] Project data pushed to server successfully.");
+      
+      if (!responsePost.ok) {
+        const errorText = await responsePost.text();
+        console.error("[Manual Sync] POST failed:", responsePost.status, errorText);
+        throw new Error(`서버 저장 실패 (${responsePost.status}): ${errorText.substring(0, 50)}`);
       }
 
-      // 2. Then, pull latest changes from the server
-      const responseGet = await fetch('/api/project-data');
-      if (responseGet.ok) {
-        const getContentType = responseGet.headers.get('content-type');
-        if (!getContentType || !getContentType.includes('application/json')) {
-          throw new Error('서버가 올바른 JSON 데이터를 반환하지 않았습니다 (현재 서버가 준비 중이거나 점검 중일 수 있습니다).');
-        }
-        const res = await responseGet.json();
-        if (res.firestoreSuspended) {
+      const postContentType = responsePost.headers.get('content-type');
+      if (postContentType && postContentType.includes('application/json')) {
+        const postJson = await responsePost.json();
+        if (postJson && postJson.firestoreSuspended) {
           setIsCloudSuspended(true);
         } else {
           setIsCloudSuspended(false);
         }
-        if (res.data) {
-          const serverMulti = res.data;
-          if (serverMulti.sites) {
-            serverMulti.sites = serverMulti.sites.map(migrateSite);
-          }
-          const serialized = JSON.stringify(serverMulti);
+      }
+      lastSyncedContentRef.current = JSON.stringify(multiData);
+      console.log("[Manual Sync] Project data pushed to server successfully.");
+
+      // 2. Then, pull latest changes from the server
+      const responseGet = await fetch('/api/project-data');
+      if (!responseGet.ok) {
+        const errorText = await responseGet.text();
+        console.error("[Manual Sync] GET failed:", responseGet.status, errorText);
+        throw new Error(`서버 데이터 로드 실패 (${responseGet.status}): ${errorText.substring(0, 50)}`);
+      }
+
+      const getContentType = responseGet.headers.get('content-type');
+      if (!getContentType || !getContentType.includes('application/json')) {
+        throw new Error('서버가 올바른 JSON 데이터를 반환하지 않았습니다 (현재 서버가 준비 중이거나 점검 중일 수 있습니다).');
+      }
+
+      const res = await responseGet.json();
+      if (res.firestoreSuspended) {
+        setIsCloudSuspended(true);
+      } else {
+        setIsCloudSuspended(false);
+      }
+      
+      if (res.data) {
+        const serverMulti = res.data;
+        if (serverMulti.sites) {
+          serverMulti.sites = serverMulti.sites.map(migrateSite);
+        }
+        const serialized = JSON.stringify(serverMulti);
+        
+        if (serialized !== lastSyncedContentRef.current) {
+          console.log("[Manual Sync] Remote update detected. Pulling changes into local view.");
+          lastSyncedContentRef.current = serialized;
           
-          if (serialized !== lastSyncedContentRef.current) {
-            console.log("[Manual Sync] Remote update detected. Pulling changes into local view.");
-            lastSyncedContentRef.current = serialized;
-            
-            setMultiData(serverMulti);
-            if (serverMulti.trash) setTrash(serverMulti.trash);
-            
-            const urlParams = new URLSearchParams(window.location.search);
-            const siteParam = urlParams.get('site');
-            const targetId = siteParam || serverMulti.activeSiteId;
-            const activeSite = serverMulti.sites.find((s: any) => s.id === targetId) || serverMulti.sites[0];
-            
-            if (activeSite) {
-              lastSavedContent.current = JSON.stringify({
-                id: activeSite.id,
-                settings: activeSite.settings,
-                buildings: activeSite.buildings,
-                facilities: activeSite.facilities,
-                approval: activeSite.approval
-              });
-              setData(activeSite);
-              if (activeSite.buildings?.[0]?.processes) {
-                setProcesses(Object.keys(activeSite.buildings[0].processes));
-              }
+          setMultiData(serverMulti);
+          if (serverMulti.trash) setTrash(serverMulti.trash);
+          
+          const urlParams = new URLSearchParams(window.location.search);
+          const siteParam = urlParams.get('site');
+          const targetId = siteParam || serverMulti.activeSiteId;
+          const activeSite = serverMulti.sites.find((s: any) => s.id === targetId) || serverMulti.sites[0];
+          
+          if (activeSite) {
+            lastSavedContent.current = JSON.stringify({
+              id: activeSite.id,
+              settings: activeSite.settings,
+              buildings: activeSite.buildings,
+              facilities: activeSite.facilities,
+              approval: activeSite.approval
+            });
+            setData(activeSite);
+            if (activeSite.buildings?.[0]?.processes) {
+              setProcesses(Object.keys(activeSite.buildings[0].processes));
             }
-            
-            localStorage.setItem(STORAGE_KEY, serialized);
           }
+          
+          localStorage.setItem(STORAGE_KEY, serialized);
         }
       }
+      
       setSyncStatus('success');
       setTimeout(() => setSyncStatus('idle'), 3000);
-    } catch (err) {
+    } catch (err: any) {
       console.error("[Manual Sync] Error during synchronization:", err);
+      // alert(`동기화 실패: ${err.message}`); // Optional: show detailed alert
       setSyncStatus('error');
       setTimeout(() => setSyncStatus('idle'), 3000);
     } finally {

@@ -14,7 +14,8 @@ const app = express();
 const PORT = 3000;
 
 app.use(cors());
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Server-side project data persistence
 const DATA_FILE = path.join(process.cwd(), "project_data.json");
@@ -205,6 +206,9 @@ let unsubscribeRealtime: any = null;
 
 // High-reliability synchronizing write helper
 async function syncSaveProjectData(data: any) {
+  const dataSize = JSON.stringify(data).length;
+  console.log(`[Sync] syncSaveProjectData called. Payload size: ${(dataSize / 1024).toFixed(2)} KB`);
+  
   serverProjectDataMemory = data;
   await saveProjectData(data); // Always keep a local disk/memory copy immediately updated
 
