@@ -1,0 +1,41 @@
+{
+  "entities": {
+    "ProjectData": {
+      "title": "Project Data Document",
+      "description": "Entire multi-site project data including sites and settings",
+      "type": "object",
+      "properties": {
+        "activeSiteId": {
+          "type": "string",
+          "description": "ID of the currently active site"
+        },
+        "adminPassword": {
+          "type": "string",
+          "description": "System administrator password"
+        },
+        "syncMode": {
+          "type": "string",
+          "description": "Data synchronization mode"
+        },
+        "customBaseUrl": {
+          "type": "string",
+          "description": "Custom base domain URL for sharing"
+        },
+        "sites": {
+          "type": "array",
+          "description": "Array of site app states"
+        },
+        "trash": {
+          "type": "array",
+          "description": "Trash list for deleted site configurations"
+        }
+      }
+    }
+  },
+  "firestore": {
+    "projects/{projectId}": {
+      "schema": "ProjectData",
+      "description": "Holds the integrated site data for real-time synchronization across containers"
+    }
+  }
+}

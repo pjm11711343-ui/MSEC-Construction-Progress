@@ -5,6 +5,8 @@ import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import cors from "cors";
 import fs from "fs";
+import { initializeApp } from "firebase/app";
+import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "firebase/firestore";
 
 dotenv.config();
 
@@ -67,6 +69,73 @@ function scheduleNextMidnightBackup() {
 // Start the scheduler immediately on server boot
 scheduleNextMidnightBackup();
 
+// Firebase configuration loading & initialization
+let firestoreDb: any = null;
+let isFirestoreSuspended = false;
+let firestoreSuspensionReason: string | null = null;
+const configPath = path.join(process.cwd(), "firebase-applet-config.json");
+
+if (fs.existsSync(configPath)) {
+  try {
+    const configContent = fs.readFileSync(configPath, "utf-8");
+    const firebaseConfig = JSON.parse(configContent);
+    const firebaseApp = initializeApp(firebaseConfig);
+    firestoreDb = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
+    console.log("[Firebase] Successfully initialized Firestore inside server.ts with Database ID:", firebaseConfig.firestoreDatabaseId);
+  } catch (error) {
+    console.error("[Firebase] Initialization error:", error);
+  }
+} else {
+  console.log("[Firebase] WARNING: No firebase-applet-config.json file found. Operating in local fallback disk-only mode.");
+}
+
+// Error handling structures as mandated by firebase-integration skill
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
+  };
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: null,
+      email: null,
+      emailVerified: null,
+      isAnonymous: null,
+      tenantId: null,
+      providerInfo: []
+    },
+    operationType,
+    path
+  };
+  console.error('[Firebase Error Details]: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
+const FIRESTORE_DOC_PATH = "projects/global_data";
+
 async function saveProjectData(data: any) {
   try {
     await fs.promises.writeFile(DATA_FILE, JSON.stringify(data, null, 2), "utf-8");
@@ -85,6 +154,144 @@ async function loadProjectData() {
     console.error("Failed to load project data from disk:", error);
   }
   return null;
+}
+
+// High-reliability synchronizing read helper (returns instant low-latency in-memory cache)
+async function syncLoadProjectData() {
+  if (serverProjectDataMemory) {
+    return serverProjectDataMemory;
+  }
+
+  // Fallback to local files if memory is not yet seeded
+  const localData = await loadProjectData();
+  if (localData) {
+    serverProjectDataMemory = localData;
+    return localData;
+  }
+  return null;
+}
+
+let firestoreWriteTimeout: any = null;
+let lastFirestoreWriteTime = 0;
+const MIN_WRITE_INTERVAL_MS = 15500; // Limit Firestore writes to at most once per 15.5 seconds
+
+let unsubscribeRealtime: any = null;
+
+// High-reliability synchronizing write helper
+async function syncSaveProjectData(data: any) {
+  serverProjectDataMemory = data;
+  await saveProjectData(data); // Always keep a local disk/memory copy immediately updated
+
+  if (!firestoreDb || isFirestoreSuspended) return;
+
+  // Clear any existing pending write timeout
+  if (firestoreWriteTimeout) {
+    clearTimeout(firestoreWriteTimeout);
+    firestoreWriteTimeout = null;
+  }
+
+  const now = Date.now();
+  const timeSinceLastWrite = now - lastFirestoreWriteTime;
+
+  const performWrite = async () => {
+    if (isFirestoreSuspended) return;
+    try {
+      const docRef = doc(firestoreDb, FIRESTORE_DOC_PATH);
+      await setDoc(docRef, data);
+      lastFirestoreWriteTime = Date.now();
+      console.log("[Firebase Sync] [Throttled] Successfully persisted to Cloud Firestore.");
+    } catch (error: any) {
+      console.error("[Firebase Sync] Failed to write data to Firestore:", error);
+      const errMsg = String(error.message || error).toLowerCase();
+      if (errMsg.includes("quota") || errMsg.includes("exhausted") || errMsg.includes("limit") || errMsg.includes("resource_exhausted")) {
+        console.warn("[Firebase Sync] Quota / permission limits reached during write. Gracefully suspending Cloud Firestore updates.");
+        isFirestoreSuspended = true;
+        firestoreSuspensionReason = "QUOTA_EXHAUSTED";
+        if (unsubscribeRealtime) {
+          try {
+            unsubscribeRealtime();
+            console.log("[Firebase Sync] Successfully unsubscribed from Firestore realtime listener on write quota failure.");
+          } catch (unsubErr) {}
+          unsubscribeRealtime = null;
+        }
+      }
+      try {
+        handleFirestoreError(error, OperationType.WRITE, FIRESTORE_DOC_PATH);
+      } catch (e) {
+        // error already printed
+      }
+    }
+  };
+
+  if (timeSinceLastWrite >= MIN_WRITE_INTERVAL_MS) {
+    // Write immediately if the interval since the last write is larger than the threshold
+    await performWrite();
+  } else {
+    // Save write operation request and schedule write with a delayed timer
+    const delay = MIN_WRITE_INTERVAL_MS - timeSinceLastWrite;
+    console.log(`[Firebase Sync] Write request throttled. Delaying Cloud Firestore write by ${delay}ms.`);
+    firestoreWriteTimeout = setTimeout(async () => {
+      await performWrite();
+    }, delay);
+  }
+}
+
+// Register a real-time Firestore synchronization listener to maintain local memory state automatically
+function startRealtimeSyncListener() {
+  if (!firestoreDb || isFirestoreSuspended) return;
+  
+  console.log("[Firebase Sync] Registering active document listener for projects/global_data...");
+  const docRef = doc(firestoreDb, FIRESTORE_DOC_PATH);
+
+  unsubscribeRealtime = onSnapshot(docRef, async (snapshot) => {
+    try {
+      if (snapshot.exists()) {
+        const firestoreData = snapshot.data();
+        if (firestoreData) {
+          const freshStr = JSON.stringify(firestoreData);
+          const currentStr = JSON.stringify(serverProjectDataMemory);
+          if (freshStr !== currentStr) {
+            console.log("[Firebase Sync] Change detected in Cloud Firestore. Synchronizing server memory cache and local disk copy.");
+            serverProjectDataMemory = firestoreData;
+            await saveProjectData(firestoreData);
+          }
+        }
+      } else {
+        console.log("[Firebase Sync] No remote backup exists in Firestore projects/global_data. Seeding with current local backup.");
+        const localData = await loadProjectData();
+        if (localData) {
+          await syncSaveProjectData(localData);
+        }
+      }
+    } catch (error) {
+      console.error("[Firebase Sync] Exception inside onSnapshot callback handler:", error);
+    }
+  }, (error: any) => {
+    console.error("[Firebase Sync] onSnapshot subscription stream reported an issue:", error);
+    const errMsg = String(error.message || error).toLowerCase();
+    if (errMsg.includes("quota") || errMsg.includes("exhausted") || errMsg.includes("limit") || errMsg.includes("resource_exhausted")) {
+      console.warn("[Firebase Sync] Cloud Firestore subscription stream quota exceeded. Suspending Firestore polling and syncing.");
+      isFirestoreSuspended = true;
+      firestoreSuspensionReason = "QUOTA_EXHAUSTED";
+      if (unsubscribeRealtime) {
+        try {
+          unsubscribeRealtime();
+          console.log("[Firebase Sync] Successfully unsubscribed from Firestore realtime listener on snapshot callback quota failure.");
+        } catch (unsubErr) {}
+        unsubscribeRealtime = null;
+      }
+    }
+    try {
+      handleFirestoreError(error, OperationType.GET, FIRESTORE_DOC_PATH);
+    } catch (e) {
+      // error is already printed and handled
+    }
+  });
+}
+
+// Initiate listener on server startup
+if (firestoreDb) {
+  startRealtimeSyncListener();
 }
 
 // Logging middleware
@@ -112,14 +319,12 @@ app.get("/api/health", (req, res) => {
 
 app.get("/api/project-data", async (req, res) => {
   try {
-    let data = serverProjectDataMemory;
-    if (!data) {
-      data = await loadProjectData();
-      if (data) {
-        serverProjectDataMemory = data;
-      }
-    }
-    res.json({ data: data || null });
+    const data = await syncLoadProjectData();
+    res.json({ 
+      data: data || null,
+      firestoreSuspended: isFirestoreSuspended,
+      firestoreSuspensionReason: firestoreSuspensionReason
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -128,9 +333,12 @@ app.get("/api/project-data", async (req, res) => {
 app.post("/api/project-data", async (req, res) => {
   try {
     const { data } = req.body;
-    serverProjectDataMemory = data;
-    await saveProjectData(data);
-    res.json({ success: true });
+    await syncSaveProjectData(data);
+    res.json({ 
+      success: true,
+      firestoreSuspended: isFirestoreSuspended,
+      firestoreSuspensionReason: firestoreSuspensionReason
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

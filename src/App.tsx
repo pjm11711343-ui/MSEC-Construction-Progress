@@ -234,6 +234,7 @@ export default function App() {
   const [isCopied, setIsCopied] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [isCloudSuspended, setIsCloudSuspended] = useState<boolean>(false);
   const [isLockedToSite, setIsLockedToSite] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [processToDelete, setProcessToDelete] = useState<string | null>(null);
@@ -435,6 +436,11 @@ export default function App() {
         const response = await fetch('/api/project-data');
         if (response.ok) {
           const res = await response.json();
+          if (res.firestoreSuspended) {
+            setIsCloudSuspended(true);
+          } else {
+            setIsCloudSuspended(false);
+          }
           if (res.data) {
             const serverMulti = res.data;
             if (serverMulti.sites) {
@@ -453,6 +459,13 @@ export default function App() {
             const activeSite = serverMulti.sites.find((s: any) => s.id === targetId) || serverMulti.sites[0];
             
             if (activeSite) {
+              lastSavedContent.current = JSON.stringify({
+                id: activeSite.id,
+                settings: activeSite.settings,
+                buildings: activeSite.buildings,
+                facilities: activeSite.facilities,
+                approval: activeSite.approval
+              });
               setData(activeSite);
               if (activeSite.buildings?.[0]?.processes) {
                 setProcesses(Object.keys(activeSite.buildings[0].processes));
@@ -491,6 +504,13 @@ export default function App() {
         if (res.ok) {
           lastSyncedContentRef.current = serialized;
           console.log("[Sync] Project data successfully saved to server.");
+          return res.json();
+        }
+      }).then(json => {
+        if (json && json.firestoreSuspended) {
+          setIsCloudSuspended(true);
+        } else {
+          setIsCloudSuspended(false);
         }
       }).catch(err => {
         console.error("[Sync] Failed to save project data to server:", err);
@@ -515,6 +535,11 @@ export default function App() {
         const response = await fetch('/api/project-data');
         if (response.ok) {
           const res = await response.json();
+          if (res.firestoreSuspended) {
+            setIsCloudSuspended(true);
+          } else {
+            setIsCloudSuspended(false);
+          }
           if (res.data) {
             const serverMulti = res.data;
             if (serverMulti.sites) {
@@ -535,6 +560,13 @@ export default function App() {
               const activeSite = serverMulti.sites.find((s: any) => s.id === targetId) || serverMulti.sites[0];
               
               if (activeSite) {
+                lastSavedContent.current = JSON.stringify({
+                  id: activeSite.id,
+                  settings: activeSite.settings,
+                  buildings: activeSite.buildings,
+                  facilities: activeSite.facilities,
+                  approval: activeSite.approval
+                });
                 setData(activeSite);
                 if (activeSite.buildings?.[0]?.processes) {
                   setProcesses(Object.keys(activeSite.buildings[0].processes));
@@ -649,6 +681,12 @@ export default function App() {
         body: JSON.stringify({ data: multiData }),
       });
       if (responsePost.ok) {
+        const postJson = await responsePost.json();
+        if (postJson && postJson.firestoreSuspended) {
+          setIsCloudSuspended(true);
+        } else {
+          setIsCloudSuspended(false);
+        }
         lastSyncedContentRef.current = JSON.stringify(multiData);
         console.log("[Manual Sync] Project data pushed to server successfully.");
       }
@@ -657,6 +695,11 @@ export default function App() {
       const responseGet = await fetch('/api/project-data');
       if (responseGet.ok) {
         const res = await responseGet.json();
+        if (res.firestoreSuspended) {
+          setIsCloudSuspended(true);
+        } else {
+          setIsCloudSuspended(false);
+        }
         if (res.data) {
           const serverMulti = res.data;
           if (serverMulti.sites) {
@@ -677,6 +720,13 @@ export default function App() {
             const activeSite = serverMulti.sites.find((s: any) => s.id === targetId) || serverMulti.sites[0];
             
             if (activeSite) {
+              lastSavedContent.current = JSON.stringify({
+                id: activeSite.id,
+                settings: activeSite.settings,
+                buildings: activeSite.buildings,
+                facilities: activeSite.facilities,
+                approval: activeSite.approval
+              });
               setData(activeSite);
               if (activeSite.buildings?.[0]?.processes) {
                 setProcesses(Object.keys(activeSite.buildings[0].processes));
@@ -701,6 +751,13 @@ export default function App() {
   const switchSite = (id: string) => {
     const site = multiData.sites.find(s => s.id === id);
     if (site) {
+      lastSavedContent.current = JSON.stringify({
+        id: site.id,
+        settings: site.settings,
+        buildings: site.buildings,
+        facilities: site.facilities,
+        approval: site.approval
+      });
       setData(site);
       setMultiData(prev => ({ ...prev, activeSiteId: id }));
       if (site.buildings?.[0]?.processes) {
@@ -2120,6 +2177,13 @@ export default function App() {
             <button onClick={() => setStorageWarning(null)} className="absolute right-2 top-1/2 -translate-y-1/2">
               <Plus className="w-3 h-3 rotate-45" />
             </button>
+          </div>
+        )}
+        
+        {isCloudSuspended && (
+          <div className="bg-[#4f46e5]/90 text-white text-[10px] py-1 px-4 text-center font-bold relative flex items-center justify-center gap-2 border-b border-indigo-500/30">
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+            <span>클라우드 서버 쿼터 제한 도달: 데이터는 본 기기의 로컬 가상 디스크 파일 &amp; 메모리에 실시간 보안 보존 중입니다. (편집/조회 정상 상태)</span>
           </div>
         )}
         
