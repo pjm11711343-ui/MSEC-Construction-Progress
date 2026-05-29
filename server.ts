@@ -6,7 +6,7 @@ import dotenv from "dotenv";
 import cors from "cors";
 import fs from "fs";
 import { initializeApp } from "firebase/app";
-import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "firebase/firestore";
+import { getFirestore, doc, getDoc, setDoc, onSnapshot, terminate } from "firebase/firestore";
 
 dotenv.config();
 
@@ -74,14 +74,40 @@ let firestoreDb: any = null;
 let isFirestoreSuspended = false;
 let firestoreSuspensionReason: string | null = null;
 const configPath = path.join(process.cwd(), "firebase-applet-config.json");
+const QUOTA_MARKER_FILE = path.join(process.cwd(), "firestore_quota_exhausted.flag");
+
+// Check if we have a persisted quota suspension to avoid continuous Grpc connection quota error logs
+if (fs.existsSync(QUOTA_MARKER_FILE)) {
+  try {
+    const fileContent = fs.readFileSync(QUOTA_MARKER_FILE, "utf-8").trim();
+    const timestamp = parseInt(fileContent, 10);
+    const now = Date.now();
+    // Suspend for 12 hours after hitting the quota limit to prevent continuous background error noise
+    if (!isNaN(timestamp) && (now - timestamp) < 12 * 60 * 60 * 1000) {
+      isFirestoreSuspended = true;
+      firestoreSuspensionReason = "QUOTA_EXHAUSTED";
+      console.warn(`[Firebase] Persisted write quota suspension is ACTIVE (expires in ${Math.round((12 * 60 * 60 * 1000 - (now - timestamp)) / 1000 / 60)} minutes). Skipping Firestore initialization to avoid background error loops.`);
+    } else {
+      // Flag is expired, clean it up
+      fs.unlinkSync(QUOTA_MARKER_FILE);
+      console.log("[Firebase] Persisted write quota suspension is expired. Cleaned up flag file.");
+    }
+  } catch (err) {
+    console.error("[Firebase] Error reading quota suspension flag:", err);
+  }
+}
 
 if (fs.existsSync(configPath)) {
   try {
-    const configContent = fs.readFileSync(configPath, "utf-8");
-    const firebaseConfig = JSON.parse(configContent);
-    const firebaseApp = initializeApp(firebaseConfig);
-    firestoreDb = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
-    console.log("[Firebase] Successfully initialized Firestore inside server.ts with Database ID:", firebaseConfig.firestoreDatabaseId);
+    if (!isFirestoreSuspended) {
+      const configContent = fs.readFileSync(configPath, "utf-8");
+      const firebaseConfig = JSON.parse(configContent);
+      const firebaseApp = initializeApp(firebaseConfig);
+      firestoreDb = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
+      console.log("[Firebase] Successfully initialized Firestore inside server.ts with Database ID:", firebaseConfig.firestoreDatabaseId);
+    } else {
+      console.warn("[Firebase] Skipping Firestore client initialization due to active write quota suspension.");
+    }
   } catch (error) {
     console.error("[Firebase] Initialization error:", error);
   }
@@ -203,16 +229,31 @@ async function syncSaveProjectData(data: any) {
     } catch (error: any) {
       console.error("[Firebase Sync] Failed to write data to Firestore:", error);
       const errMsg = String(error.message || error).toLowerCase();
-      if (errMsg.includes("quota") || errMsg.includes("exhausted") || errMsg.includes("limit") || errMsg.includes("resource_exhausted")) {
+      if (errMsg.includes("quota") || errMsg.includes("exhausted") || errMsg.includes("limit") || errMsg.includes("resource_exhausted") || errMsg.includes("resource-exhausted")) {
         console.warn("[Firebase Sync] Quota / permission limits reached during write. Gracefully suspending Cloud Firestore updates.");
         isFirestoreSuspended = true;
         firestoreSuspensionReason = "QUOTA_EXHAUSTED";
+        try {
+          fs.writeFileSync(QUOTA_MARKER_FILE, String(Date.now()), "utf-8");
+          console.log("[Firebase Sync] Persisted write quota suspension flag to disk.");
+        } catch (fileErr) {
+          console.error("[Firebase Sync] Failed to write quota marker file:", fileErr);
+        }
         if (unsubscribeRealtime) {
           try {
             unsubscribeRealtime();
             console.log("[Firebase Sync] Successfully unsubscribed from Firestore realtime listener on write quota failure.");
           } catch (unsubErr) {}
           unsubscribeRealtime = null;
+        }
+        if (firestoreDb) {
+          const dbToTerminate = firestoreDb;
+          firestoreDb = null;
+          terminate(dbToTerminate).then(() => {
+            console.log("[Firebase Sync] Firestore client terminated successfully inside server.ts due to write quota limitations.");
+          }).catch((err) => {
+            console.error("[Firebase Sync] Error terminating Firestore client:", err);
+          });
         }
       }
       try {
@@ -269,16 +310,31 @@ function startRealtimeSyncListener() {
   }, (error: any) => {
     console.error("[Firebase Sync] onSnapshot subscription stream reported an issue:", error);
     const errMsg = String(error.message || error).toLowerCase();
-    if (errMsg.includes("quota") || errMsg.includes("exhausted") || errMsg.includes("limit") || errMsg.includes("resource_exhausted")) {
+    if (errMsg.includes("quota") || errMsg.includes("exhausted") || errMsg.includes("limit") || errMsg.includes("resource_exhausted") || errMsg.includes("resource-exhausted")) {
       console.warn("[Firebase Sync] Cloud Firestore subscription stream quota exceeded. Suspending Firestore polling and syncing.");
       isFirestoreSuspended = true;
       firestoreSuspensionReason = "QUOTA_EXHAUSTED";
+      try {
+        fs.writeFileSync(QUOTA_MARKER_FILE, String(Date.now()), "utf-8");
+        console.log("[Firebase Sync] Persisted subscription quota suspension flag to disk.");
+      } catch (fileErr) {
+        console.error("[Firebase Sync] Failed to write quota marker file:", fileErr);
+      }
       if (unsubscribeRealtime) {
         try {
           unsubscribeRealtime();
           console.log("[Firebase Sync] Successfully unsubscribed from Firestore realtime listener on snapshot callback quota failure.");
         } catch (unsubErr) {}
         unsubscribeRealtime = null;
+      }
+      if (firestoreDb) {
+        const dbToTerminate = firestoreDb;
+        firestoreDb = null;
+        terminate(dbToTerminate).then(() => {
+          console.log("[Firebase Sync] Firestore client terminated successfully inside server.ts due to query subscription quota limitations.");
+        }).catch((err) => {
+          console.error("[Firebase Sync] Error terminating Firestore client:", err);
+        });
       }
     }
     try {
@@ -289,9 +345,46 @@ function startRealtimeSyncListener() {
   });
 }
 
-// Initiate listener on server startup
+// Check if Firestore is already failing due to quota on startup
+async function testFirestoreConnection() {
+  if (!firestoreDb) return;
+  try {
+    const docRef = doc(firestoreDb, FIRESTORE_DOC_PATH);
+    await getDoc(docRef);
+    console.log("[Firebase Sync] Startup test read succeeded. Firestore is operational.");
+  } catch (error: any) {
+    const errMsg = String(error.message || error).toLowerCase();
+    if (errMsg.includes("quota") || errMsg.includes("exhausted") || errMsg.includes("limit") || errMsg.includes("resource_exhausted") || errMsg.includes("resource-exhausted")) {
+      console.warn("[Firebase Sync] Quota / permission limits reached on startup test read. Instantly suspending Cloud Firestore integrations.");
+      isFirestoreSuspended = true;
+      firestoreSuspensionReason = "QUOTA_EXHAUSTED";
+      try {
+        fs.writeFileSync(QUOTA_MARKER_FILE, String(Date.now()), "utf-8");
+        console.log("[Firebase Sync] Persisted startup test quota suspension flag to disk.");
+      } catch (fileErr) {
+        console.error("[Firebase Sync] Failed to write quota marker file on startup:", fileErr);
+      }
+      if (firestoreDb) {
+        const dbToTerminate = firestoreDb;
+        firestoreDb = null;
+        await terminate(dbToTerminate).then(() => {
+          console.log("[Firebase Sync] Firestore client terminated successfully inside server.ts due to startup quota limitations.");
+        }).catch((err) => {
+          console.error("[Firebase Sync] Error terminating Firestore client on startup:", err);
+        });
+      }
+    }
+  }
+}
+
+// Initiate test and listener on server startup
 if (firestoreDb) {
-  startRealtimeSyncListener();
+  (async () => {
+    await testFirestoreConnection();
+    if (firestoreDb && !isFirestoreSuspended) {
+      startRealtimeSyncListener();
+    }
+  })();
 }
 
 // Logging middleware
