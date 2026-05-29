@@ -1554,10 +1554,17 @@ export default function App() {
         await fetch('/api/health').then(r => r.json()).then(d => console.log("Health OK:", d)).catch(e => console.warn("Health fail:", e));
       } catch (e) {}
 
+      // 서버 정밀 진단 수행 전 데이터 경량화 (사진 데이터는 진단 프롬프트에 포함되지 않으므로 스트립)
+      const strippedData = {
+        ...data,
+        buildings: (data.buildings || []).map(b => ({ ...b, photos: undefined })),
+        history: [] // 히스토리도 제외하여 전송량 최소화
+      };
+
       const response = await fetch('/api/ai-diagnosis', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectData: data }),
+        body: JSON.stringify({ projectData: strippedData }),
       });
       
       if (!response.ok) {

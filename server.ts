@@ -570,8 +570,8 @@ app.get("/api/weather", async (req, res) => {
   }
 });
 
-app.post("/api/ai-diagnosis", async (req, res) => {
-  console.log("POST /api/ai-diagnosis received");
+app.post(["/api/diagnosis", "/api/ai-diagnosis"], async (req, res) => {
+  console.log(`POST ${req.path} received`);
   try {
     const { projectData } = req.body;
     if (!projectData) {
@@ -597,7 +597,7 @@ app.post("/api/ai-diagnosis", async (req, res) => {
       [현장 특이사항 및 메모]
       ${projectData.dashboardNotes || "기록된 특이사항 없음"}
       
-      [상상 공정 데이터]
+      [상세 공정 데이터]
       - 동별 진행 (JSON): ${JSON.stringify((projectData.buildings || []).map((b: any) => ({ name: b.name, progress: b.processes })))}
       - 시설물 현황: ${JSON.stringify((projectData.facilities || []).map((f: any) => ({ name: f.name, status: f.status })))}
       
