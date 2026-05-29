@@ -14,10 +14,14 @@
 
 @media print {
   @page {
-    size: A4 landscape;
+    size: A4 portrait; /* Changed to portrait for the report mode */
     margin: 5mm;
   }
   
+  /* If the parent is the gantt or table view, we might want landscape, 
+     but let's default to portrait for the formal report. 
+     The user can toggle landscape in their printer settings as well. */
+
   body {
     background-color: white !important;
     padding: 0 !important;
@@ -27,15 +31,11 @@
     display: none !important;
   }
 
-  .print-only {
-    display: block !important;
-  }
-
-  .a4-container {
-    width: 287mm; /* A4 landscape minus margins */
-    height: 200mm;
-    overflow: hidden;
-    transform-origin: top left;
+  .report-print-container {
+    width: 210mm;
+    margin: 0 auto;
+    padding: 0;
+    box-shadow: none !important;
   }
 
   /* Force background colors in print */

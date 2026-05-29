@@ -58,6 +58,7 @@ import SiteSelector from './components/SiteSelector';
 import RestoreComparisonModal from './components/RestoreComparisonModal';
 import LocationPicker from './components/LocationPicker';
 import ReactMarkdown from 'react-markdown';
+import ReportPrintView from './components/ReportPrintView';
 import { 
   Sparkles, 
   MessageSquare,
@@ -219,7 +220,7 @@ export default function App() {
   const [storageState, setStorageState] = useState<AppState>(createNewSite('스마트 아파트 현장'));
   const setData = setStorageState;
   const [processes, setProcesses] = useState<string[]>(DEFAULT_PROCESSES);
-  const [viewMode, setViewMode] = useState<'grid' | 'table' | 'settings' | 'analytics' | 'calendar' | 'daily_report' | 'gantt'>('table');
+  const [viewMode, setViewMode] = useState<'grid' | 'table' | 'settings' | 'analytics' | 'calendar' | 'daily_report' | 'gantt' | 'report'>('table');
   const [viewDate, setViewDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [isAutoSaving, setIsAutoSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -2748,6 +2749,13 @@ export default function App() {
               >
                 리포트
               </button>
+              <button 
+                type="button"
+                onClick={() => setViewMode('report')}
+                className={`px-1.5 py-1 rounded-md text-[8px] font-black transition-all ${viewMode === 'report' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-750'}`}
+              >
+                인쇄모드
+              </button>
               {(role === 'ADMIN' || role === 'FIELD') && (
                 <button 
                   type="button"
@@ -3352,6 +3360,46 @@ export default function App() {
              </div>
            )}
          </div>
+          </motion.div>
+        )}
+
+        {viewMode === 'report' && (
+          <motion.div
+            key="report"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="pt-4"
+          >
+            <div className="flex flex-col items-center gap-6 mb-12 no-print">
+              <div className="flex items-center gap-3 bg-slate-100 dark:bg-slate-800 p-4 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-xl">
+                <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-2xl text-blue-600">
+                  <Printer className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-800 dark:text-white text-base">최종 보고서 인쇄 모드</h3>
+                  <p className="text-xs font-bold text-slate-500 dark:text-slate-400">A4 규격에 최적화된 고해상도 출력 레이아웃입니다.</p>
+                </div>
+                <button 
+                  onClick={() => window.print()}
+                  className="ml-4 flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-sm transition-all shadow-lg shadow-blue-900/20 active:scale-95"
+                >
+                  <Printer className="w-4 h-4" />
+                  지금 바로 인쇄
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2 p-2 bg-amber-50 dark:bg-amber-900/20 rounded-2xl border border-amber-200/50 dark:border-amber-700/30 text-amber-700 dark:text-amber-400 text-[11px] font-bold">
+                 <AlertTriangle className="w-4 h-4 shrink-0" />
+                 <span>브라우저 인쇄 설정에서 '배경 그래픽 포함' 옵션을 활성화하시면 더 깔끔한 결과물을 얻으실 수 있습니다.</span>
+              </div>
+            </div>
+
+            <ReportPrintView 
+              data={data} 
+              sortedProcesses={sortedDisplayProcesses} 
+            />
           </motion.div>
         )}
 
