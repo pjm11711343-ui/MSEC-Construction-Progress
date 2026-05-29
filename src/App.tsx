@@ -57,6 +57,7 @@ import GalleryModal from './components/GalleryModal';
 import SiteSelector from './components/SiteSelector';
 import RestoreComparisonModal from './components/RestoreComparisonModal';
 import LocationPicker from './components/LocationPicker';
+import StackedProgressBarChart from './components/StackedProgressBarChart';
 import ReactMarkdown from 'react-markdown';
 import ReportPrintView from './components/ReportPrintView';
 import { 
@@ -2077,14 +2078,6 @@ export default function App() {
   const activeTheme = THEMES[data.settings.theme] || THEMES.slate;
 
   // Helper Logic
-  const getFacilityAverage = (f: CommonFacility) => {
-    const activeFacilityProcesses = FACILITY_PROCESSES.filter(fp => !(f.inactiveProcesses || []).includes(fp));
-    if (activeFacilityProcesses.length === 0) return f.status === 'COMPLETED' ? 100 : 0;
-    
-    const subProcesses = f.processes || {};
-    const sum = activeFacilityProcesses.reduce((acc, fp) => acc + (subProcesses[fp] || 0), 0);
-    return Math.round(sum / activeFacilityProcesses.length);
-  };
   const getFloorList = (building?: BuildingData) => {
     const minFloor = building?.minFloor !== undefined ? building.minFloor : data.settings.minFloor;
     const maxFloor = building?.maxFloor !== undefined ? building.maxFloor : data.settings.maxFloor;
@@ -2158,6 +2151,15 @@ export default function App() {
     const mode = processName ? getProcessMode(processName) : (data.settings.progressMode || 'floor');
     if (mode === 'percent') return `${percent}%`;
     return formatFloor(percentToFloor(percent, building));
+  };
+
+  const getFacilityAverage = (f: CommonFacility) => {
+    const activeFacilityProcesses = FACILITY_PROCESSES.filter(fp => !(f.inactiveProcesses || []).includes(fp));
+    if (activeFacilityProcesses.length === 0) return f.status === 'COMPLETED' ? 100 : 0;
+    
+    const subProcesses = f.processes || {};
+    const sum = activeFacilityProcesses.reduce((acc, fp) => acc + (subProcesses[fp] || 0), 0);
+    return Math.round(sum / activeFacilityProcesses.length);
   };
 
   if (!role) {
@@ -2455,28 +2457,38 @@ export default function App() {
             </motion.div>
           )}
         </AnimatePresence>
-        <div className="max-w-[1600px] mx-auto px-4 py-2 md:py-0 md:h-16 flex flex-col md:flex-row md:items-center justify-between gap-2.5 md:gap-2">
+        <div className="max-w-full mx-auto px-6 h-24 md:h-32 flex flex-col md:flex-row md:items-center justify-between gap-6 py-4">
           {/* Top Brand (logo + project name + calendar) AND mobile quick actions */}
-          <div className="flex items-center justify-between w-full md:w-auto min-w-0 shrink-0">
-            <div className="flex items-center gap-2.5 shrink-0 min-w-0">
-              <div className={`${activeTheme.accent} p-1.5 rounded-lg text-white shrink-0 ${data.settings.theme === 'industrial' ? 'text-black' : ''}`}>
-                <Construction className="w-4 h-4" />
+          <div className="flex items-center justify-between w-full md:w-auto min-w-0 shrink-0 flex-1">
+            <div className="flex items-center gap-6 shrink-0 min-w-0 flex-1">
+              <div className={`${activeTheme.accent} p-4 rounded-3xl text-white shadow-xl shadow-blue-500/30 shrink-0 ${data.settings.theme === 'industrial' ? 'text-black' : ''}`}>
+                <Construction className="w-8 h-8 md:w-12 md:h-12" />
               </div>
-              <div className="min-w-0 flex flex-col justify-center">
-                <h1 className={`font-black text-xs md:text-sm leading-tight uppercase tracking-tight truncate ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'}`} style={{ maxWidth: '180px' }}>
+              <div className="min-w-0 flex flex-col justify-center flex-1">
+                <h1 className={`font-black text-sm md:text-2xl leading-none uppercase tracking-tighter truncate ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'}`}>
                   {data.settings.projectName}
                 </h1>
-                <div className="flex items-center gap-1.5 mt-0.5">
-                  <span className="text-slate-400 text-[8px] font-bold uppercase tracking-wider truncate max-w-[60px]">{data.settings.companyName}</span>
-                  <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded border border-slate-200 dark:border-slate-700 shrink-0">
-                    <Calendar className="w-2.5 h-2.5 text-blue-500" />
+                <div className="flex items-center gap-4 mt-2.5 overflow-hidden">
+                  <span className="text-slate-400 text-xs md:text-base font-black uppercase tracking-widest whitespace-nowrap border-r border-slate-200 dark:border-slate-700 pr-4">{data.settings.companyName}</span>
+                  <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-xl border border-slate-200 dark:border-slate-700 shrink-0 hover:border-blue-400 transition-colors">
+                    <Calendar className="w-4 h-4 text-blue-500" />
                     <input 
                       type="date" 
                       value={viewDate}
                       onChange={(e) => setViewDate(e.target.value)}
-                      className="bg-transparent border-none p-0 text-[8px] font-black focus:ring-0 cursor-pointer text-slate-600 dark:text-slate-300 w-16"
+                      className="bg-transparent border-none p-0 text-xs md:text-sm font-black focus:ring-0 cursor-pointer text-slate-600 dark:text-slate-300 w-24 md:w-32"
                     />
                   </div>
+                  {/* Site Selection Button (Header Version) */}
+                  {!isLockedToSite && (
+                    <button 
+                      onClick={() => setSiteAuthenticatedId(null)}
+                      className="hidden lg:flex items-center gap-2 px-4 py-1.5 bg-blue-600 text-white rounded-xl text-xs font-black hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20 uppercase tracking-tighter"
+                    >
+                      <LayoutGrid className="w-4 h-4" />
+                      현장 선택
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -3633,8 +3645,10 @@ export default function App() {
                 className={`divide-y-2 ${data.settings.theme === 'industrial' ? 'divide-slate-800' : 'divide-slate-200'}`}
                 style={data.settings.textColor ? { color: data.settings.textColor } : {}}
               >
-                {[...data.buildings].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })).map((b, bIdx) => {
-                  const processValues = (Object.values(b.processes) as number[]).filter(v => v !== -1);
+                {[...data.buildings]
+                  .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }))
+                  .map((b, bIdx) => {
+                    const processValues = (Object.values(b.processes) as number[]).filter(v => v !== -1);
                   const avg = processes.length > 0 && processValues.length > 0 
                     ? Math.round(processValues.reduce((a, v) => a + v, 0) / processValues.length) 
                     : 0;
@@ -3724,7 +3738,10 @@ export default function App() {
                         const cellPadding = `${data.settings.tableSpacing || 4}px`;
                         
                         return (
-                          <td key={p} className={`border-r-2 ${isIndustrial ? 'border-slate-800' : 'border-slate-200'} p-0 relative`}>
+                          <td 
+                            key={p} 
+                            className={`border-r-2 ${isIndustrial ? 'border-slate-800' : 'border-slate-200'} p-0 relative transition-all`}
+                          >
                             <div 
                               className={`space-y-1`}
                               style={{ padding: cellPadding }}
@@ -4204,6 +4221,11 @@ export default function App() {
             transition={{ duration: 0.2 }}
           >
             <div className="space-y-8">
+              {/* Stacked Progress Bar Chart (D3 Visualization) */}
+              <div className="no-print">
+                <StackedProgressBarChart buildings={data.buildings} processes={processes} />
+              </div>
+
             {/* AI Diagnosis Summary Cards */}
             {(data.aiRisks && data.aiRisks.length > 0 || data.aiActions && data.aiActions.length > 0) && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
