@@ -53,6 +53,8 @@ if (typeof window !== 'undefined') {
     ) {
       globalHasError = true;
       errorListeners.forEach(l => l());
+      // Return early to silence console.error telemetry since we already handle this with custom in-app fallbacks
+      return;
     }
     originalConsoleError.apply(console, args);
   };
@@ -73,6 +75,8 @@ if (typeof window !== 'undefined') {
     ) {
       globalHasError = true;
       errorListeners.forEach(l => l());
+      // Prevent browser default unhandled rejection display
+      event.preventDefault();
     }
   });
 
@@ -84,6 +88,8 @@ if (typeof window !== 'undefined') {
       // but if we are in the middle of loading maps it's a good hint
       if (hasValidKey) {
         console.warn("Generic script error detected, possibly related to Google Maps load failure.");
+        // Prevent default error handling
+        event.preventDefault();
         // We give it a small delay to see if more specific errors are caught
         setTimeout(() => {
           globalHasError = true;

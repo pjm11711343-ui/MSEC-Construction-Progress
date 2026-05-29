@@ -437,6 +437,11 @@ export default function App() {
       try {
         const response = await fetch('/api/project-data');
         if (response.ok) {
+          const contentType = response.headers.get('content-type');
+          if (!contentType || !contentType.includes('application/json')) {
+            console.warn("[Sync] Initial load response is not JSON:", contentType);
+            return;
+          }
           const res = await response.json();
           if (res.firestoreSuspended) {
             setIsCloudSuspended(true);
@@ -536,6 +541,11 @@ export default function App() {
 
         const response = await fetch('/api/project-data');
         if (response.ok) {
+          const contentType = response.headers.get('content-type');
+          if (!contentType || !contentType.includes('application/json')) {
+            // Ignore non-json responses gracefully (such as proxy/restart warning screens)
+            return;
+          }
           const res = await response.json();
           if (res.firestoreSuspended) {
             setIsCloudSuspended(true);
@@ -683,11 +693,14 @@ export default function App() {
         body: JSON.stringify({ data: multiData }),
       });
       if (responsePost.ok) {
-        const postJson = await responsePost.json();
-        if (postJson && postJson.firestoreSuspended) {
-          setIsCloudSuspended(true);
-        } else {
-          setIsCloudSuspended(false);
+        const postContentType = responsePost.headers.get('content-type');
+        if (postContentType && postContentType.includes('application/json')) {
+          const postJson = await responsePost.json();
+          if (postJson && postJson.firestoreSuspended) {
+            setIsCloudSuspended(true);
+          } else {
+            setIsCloudSuspended(false);
+          }
         }
         lastSyncedContentRef.current = JSON.stringify(multiData);
         console.log("[Manual Sync] Project data pushed to server successfully.");
@@ -696,6 +709,10 @@ export default function App() {
       // 2. Then, pull latest changes from the server
       const responseGet = await fetch('/api/project-data');
       if (responseGet.ok) {
+        const getContentType = responseGet.headers.get('content-type');
+        if (!getContentType || !getContentType.includes('application/json')) {
+          throw new Error('서버가 올바른 JSON 데이터를 반환하지 않았습니다 (현재 서버가 준비 중이거나 점검 중일 수 있습니다).');
+        }
         const res = await responseGet.json();
         if (res.firestoreSuspended) {
           setIsCloudSuspended(true);
