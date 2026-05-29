@@ -164,10 +164,16 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 const FIRESTORE_DOC_PATH = "projects/global_data";
 
 async function saveProjectData(data: any) {
+  const tmpPath = `${DATA_FILE}.tmp`;
   try {
-    await fs.promises.writeFile(DATA_FILE, JSON.stringify(data, null, 2), "utf-8");
+    await fs.promises.writeFile(tmpPath, JSON.stringify(data, null, 2), "utf-8");
+    await fs.promises.rename(tmpPath, DATA_FILE);
   } catch (error) {
     console.error("Failed to save project data to disk:", error);
+    // Cleanup tmp file if it exists and write failed
+    if (fs.existsSync(tmpPath)) {
+      try { await fs.promises.unlink(tmpPath); } catch (e) {}
+    }
   }
 }
 
@@ -430,6 +436,10 @@ app.get("/api/project-data", async (req, res) => {
 app.post("/api/project-data", async (req, res) => {
   try {
     const { data } = req.body;
+    if (!data) {
+      console.warn("[API] POST /api/project-data received empty or missing data payload.");
+      return res.status(400).json({ error: "Data payload is required." });
+    }
     await syncSaveProjectData(data);
     res.json({ 
       success: true,
@@ -437,6 +447,7 @@ app.post("/api/project-data", async (req, res) => {
       firestoreSuspensionReason: firestoreSuspensionReason
     });
   } catch (err: any) {
+    console.error(`[API] POST /api/project-data error:`, err);
     res.status(500).json({ error: err.message });
   }
 });

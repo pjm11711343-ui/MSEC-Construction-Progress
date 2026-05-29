@@ -687,6 +687,8 @@ export default function App() {
     setSyncStatus('idle');
     try {
       console.log("[Manual Sync] Starting synchronization...");
+      const payloadSize = JSON.stringify(multiData).length;
+      console.log(`[Manual Sync] Payload size: ${(payloadSize / 1024 / 1024).toFixed(2)} MB`);
       
       // 1. First, save our current local data to the server
       const responsePost = await fetch('/api/project-data', {
@@ -698,7 +700,9 @@ export default function App() {
       if (!responsePost.ok) {
         const errorText = await responsePost.text();
         console.error("[Manual Sync] POST failed:", responsePost.status, errorText);
-        throw new Error(`서버 저장 실패 (${responsePost.status}): ${errorText.substring(0, 50)}`);
+        let msg = `서버 저장 실패 (${responsePost.status})`;
+        if (responsePost.status === 413) msg += ": 데이터 용량이 너무 큽니다 (이미지를 줄여주세요)";
+        throw new Error(msg);
       }
 
       const postContentType = responsePost.headers.get('content-type');
@@ -766,7 +770,12 @@ export default function App() {
             }
           }
           
-          localStorage.setItem(STORAGE_KEY, serialized);
+          localStorage.removeItem(STORAGE_KEY); // Clean up if possible
+          try {
+            localStorage.setItem(STORAGE_KEY, serialized);
+          } catch (storageErr) {
+            console.warn("[Manual Sync] LocalStorage quota exceeded. Data saved to server but not persistent in browser local cache.", storageErr);
+          }
         }
       }
       
@@ -774,7 +783,9 @@ export default function App() {
       setTimeout(() => setSyncStatus('idle'), 3000);
     } catch (err: any) {
       console.error("[Manual Sync] Error during synchronization:", err);
-      // alert(`동기화 실패: ${err.message}`); // Optional: show detailed alert
+      if (typeof window !== 'undefined') {
+        alert(`동기화 실패: ${err.message}\n데이터 크기를 확인하거나 이미지를 삭제해 보세요.`);
+      }
       setSyncStatus('error');
       setTimeout(() => setSyncStatus('idle'), 3000);
     } finally {
