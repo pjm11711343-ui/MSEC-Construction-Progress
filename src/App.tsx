@@ -235,6 +235,7 @@ export default function App() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [isCloudSuspended, setIsCloudSuspended] = useState<boolean>(false);
+  const [mobileViewType, setMobileViewType] = useState<'card' | 'table'>('card');
   const [isLockedToSite, setIsLockedToSite] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [processToDelete, setProcessToDelete] = useState<string | null>(null);
@@ -3027,8 +3028,80 @@ export default function App() {
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.2 }}
           >
+            {/* Mobile layout selector toggle */}
+            <div className="md:hidden flex flex-col gap-2 mb-4 bg-slate-50 dark:bg-slate-900/60 p-3 rounded-2xl border border-slate-200/60 dark:border-slate-800/60 shadow-sm no-print">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black text-slate-500 dark:text-slate-400">화면 레이아웃 모드</span>
+                <div className="flex bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200/40 dark:border-slate-800/60">
+                  <button
+                    type="button"
+                    onClick={() => setMobileViewType('card')}
+                    className={`px-3 py-1 text-xs font-bold transition-all flex items-center gap-1.5 ${
+                      mobileViewType === 'card' 
+                        ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-[#00ff9f] shadow-sm' 
+                        : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
+                    }`}
+                  >
+                    <LayoutGrid className="w-3.5 h-3.5" />
+                    카드형 보기
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMobileViewType('table')}
+                    className={`px-3 py-1 text-xs font-bold transition-all flex items-center gap-1.5 ${
+                      mobileViewType === 'table' 
+                        ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-[#00ff9f] shadow-sm' 
+                        : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
+                    }`}
+                  >
+                    <ClipboardList className="w-3.5 h-3.5" />
+                    표(테이블) 보기
+                  </button>
+                </div>
+              </div>
+              {mobileViewType === 'table' && (
+                <div className="flex items-center justify-center gap-1.5 py-1 text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 rounded-lg border border-amber-500/20">
+                  <span className="animate-bounce">↔</span>
+                  <span>좌우 방향(↔)으로 쓸어넘겨서 전체 공정을 확인해 보세요.</span>
+                </div>
+              )}
+            </div>
+
+            {/* Mobile Actions Panel (Visible Only in Mobile Card View) */}
+            {mobileViewType === 'card' && role !== 'GUEST' && (
+              <div className="md:hidden grid grid-cols-2 gap-3 mb-4 no-print">
+                <button
+                  type="button"
+                  onClick={addBuilding}
+                  className={`flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-black border transition-all ${
+                    data.settings.theme === 'industrial'
+                      ? 'bg-[#1a1d23] border-[#2d333d] text-slate-200 hover:bg-slate-800'
+                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                  } shadow-sm`}
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>동 추가</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setNewProcessInput(true)}
+                  className={`flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-black border transition-all ${
+                    data.settings.theme === 'industrial'
+                      ? 'bg-[#1a1d23] border-[#2d333d] text-slate-200 hover:bg-slate-800'
+                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                  } shadow-sm`}
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>공종 추가</span>
+                </button>
+              </div>
+            )}
+
+            {/* Desktop / Large Screen Table (Also visible under mobile if mobileViewType is 'table') */}
             <div 
-              className={`${activeTheme.card} rounded-2xl shadow-sm border ${activeTheme.border} overflow-auto max-h-[calc(100vh-180px)] custom-scrollbar`}
+              className={`${activeTheme.card} rounded-2xl shadow-sm border ${activeTheme.border} overflow-auto max-h-[calc(100vh-180px)] custom-scrollbar ${
+                mobileViewType === 'card' ? 'hidden md:block' : 'block'
+              }`}
               style={{ fontSize: `${data.settings.fontSize || 12}px` }}
             >
             <table className="w-full border-collapse table-condensed min-w-[1200px] print:min-w-0">
@@ -3373,6 +3446,256 @@ export default function App() {
               </tbody>
             </table>
           </div>
+
+          {/* Mobile Card Layout */}
+          {mobileViewType === 'card' && (
+            <div className="md:hidden space-y-4">
+              {[...data.buildings]
+                .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }))
+                .map((b, bIdx) => {
+                  const processValues = (Object.values(b.processes) as number[]).filter(v => v !== -1);
+                  const avg = processes.length > 0 && processValues.length > 0 
+                    ? Math.round(processValues.reduce((a, v) => a + v, 0) / processValues.length) 
+                    : 0;
+                  const isIndustrial = data.settings.theme === 'industrial';
+                  const floors = getFloorList(b);
+
+                  return (
+                    <div 
+                      key={b.id} 
+                      className={`p-4 rounded-2xl border ${activeTheme.border} ${activeTheme.card} shadow-sm space-y-4`}
+                    >
+                      {/* Header: Building Info & Average */}
+                      <div className="flex items-center justify-between border-b pb-3 border-slate-200/50 dark:border-slate-800">
+                        <div className="flex items-center gap-2">
+                          <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-blue-500/10 dark:bg-[#00ff9f]/10 text-xs font-black text-blue-600 dark:text-[#00ff9f]">
+                            {bIdx + 1}
+                          </span>
+                          <div className="flex flex-col">
+                            <input 
+                              type="text" 
+                              value={b.name} 
+                              disabled={role === 'GUEST'} 
+                              onChange={(e) => renameBuilding(b.id, e.target.value)} 
+                              className={`font-black text-sm p-0 m-0 bg-transparent border-none focus:ring-0 w-24 ${isIndustrial ? 'text-white' : 'text-slate-900'}`} 
+                            />
+                            {/* Floor Information */}
+                            {role !== 'GUEST' && (
+                              <div className="flex items-center gap-1.5 mt-0.5 text-[9px] text-slate-400 font-bold">
+                                <span className="flex items-center gap-0.5">
+                                  지하: 
+                                  <input 
+                                    type="text" 
+                                    value={Math.abs(b.minFloor !== undefined ? b.minFloor : data.settings.minFloor)} 
+                                    onChange={e => {
+                                      const val = e.target.value;
+                                      if (val === '' || /^\d+$/.test(val)) {
+                                        setData(prev => ({
+                                          ...prev,
+                                          buildings: prev.buildings.map(item => item.id === b.id ? { ...item, minFloor: val === '' ? 0 : -Math.abs(Number(val)) } : item)
+                                        }));
+                                      }
+                                    }}
+                                    className="w-4 h-3 text-center p-0 bg-transparent border-none focus:ring-0 font-extrabold text-blue-500 dark:text-[#00ff9f]"
+                                  />
+                                  층
+                                </span>
+                                <span className="text-slate-300">|</span>
+                                <span className="flex items-center gap-0.5">
+                                  지상: 
+                                  <input 
+                                    type="text" 
+                                    value={b.maxFloor !== undefined ? b.maxFloor : data.settings.maxFloor} 
+                                    onChange={e => {
+                                      const val = e.target.value;
+                                      if (val === '' || /^\d+$/.test(val)) {
+                                        setData(prev => ({
+                                          ...prev,
+                                          buildings: prev.buildings.map(item => item.id === b.id ? { ...item, maxFloor: val === '' ? 1 : Number(val) } : item)
+                                        }));
+                                      }
+                                    }}
+                                    className="w-4 h-3 text-center p-0 bg-transparent border-none focus:ring-0 font-extrabold text-blue-500 dark:text-[#00ff9f]"
+                                  />
+                                  층
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center gap-3">
+                          <div className="flex flex-col items-end">
+                            <span className="text-[9px] uppercase tracking-wider font-bold text-slate-400">평균 공정률</span>
+                            <span className={`text-sm font-black ${isIndustrial ? 'text-[#00ff9f]' : 'text-blue-600'}`}>{avg}%</span>
+                          </div>
+                          {role !== 'GUEST' && (
+                            <button 
+                              onClick={() => deleteBuilding(b.id)} 
+                              className="text-slate-300 hover:text-red-500 transition-colors p-1.5 rounded-lg hover:bg-red-50/50 dark:hover:bg-red-950/20"
+                              title="동 삭제"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Processes list for this building */}
+                      <div className="space-y-3">
+                        {sortedDisplayProcesses.map((p) => {
+                          const bProcesses = b.processes || {};
+                          const mProcesses = b.materialProcesses || {};
+                          const mDates = b.materialDates || {};
+                          const isDone = bProcesses[p] === 100;
+                          const isNa = bProcesses[p] === -1;
+
+                          return (
+                            <div 
+                              key={p}
+                              className={`p-3 rounded-xl border ${isIndustrial ? 'border-slate-800 bg-slate-900/30' : 'border-slate-100 bg-slate-50/40'} space-y-2`}
+                            >
+                              {/* Process Title / Header Row */}
+                              <div className="flex items-center justify-between">
+                                <span className={`text-[11px] font-black truncate max-w-[180px] ${isIndustrial ? 'text-slate-200' : 'text-slate-700'}`}>
+                                  {p}
+                                </span>
+                                
+                                {/* Progress Value Status Tag */}
+                                <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-full ${
+                                  isDone 
+                                    ? 'bg-green-100 text-green-700 dark:bg-green-950/30 dark:text-green-400' 
+                                    : isNa 
+                                    ? 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-450' 
+                                    : 'bg-blue-50 text-blue-600 dark:bg-slate-800 dark:text-blue-450'
+                                }`}>
+                                  {isNa ? 'N/A' : `${bProcesses[p] ?? 0}%`}
+                                </span>
+                              </div>
+
+                              {/* Controls: Progress Selector & Photos */}
+                              <div className="grid grid-cols-2 gap-2">
+                                {/* Progress Selector */}
+                                <div className={`p-1 flex items-center justify-between rounded-lg border ${isIndustrial ? 'border-slate-800 bg-slate-950' : 'border-slate-150 bg-white'}`}>
+                                  <span className="text-[9px] font-bold text-slate-400 pl-1">공정:</span>
+                                  <select 
+                                    value={bProcesses[p] ?? 0} 
+                                    disabled={role === 'GUEST'} 
+                                    onChange={e => handleUpdateProgress(b.id, p, Number(e.target.value))}
+                                    className="text-[10px] font-black bg-transparent border-none focus:ring-0 focus:outline-none cursor-pointer p-0 text-right pr-0.5"
+                                  >
+                                    <option value={0}>대기</option>
+                                    <option value={1}>진행</option>
+                                    <option value={-1}>N/A</option>
+                                    <option value={100}>완료</option>
+                                    {getProcessMode(p) === 'percent' ? (
+                                      <optgroup label="진행율">
+                                        {[5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95].map(v => (
+                                          <option key={v} value={v}>{v}%</option>
+                                        ))}
+                                      </optgroup>
+                                    ) : (
+                                      <optgroup label="층수">
+                                        {floors.map(f => (
+                                          <option key={f} value={floorToPercent(f, b)}>
+                                            {formatFloor(f)}
+                                          </option>
+                                        ))}
+                                      </optgroup>
+                                    )}
+                                  </select>
+                                </div>
+
+                                {/* Photo Attach Column */}
+                                <div className={`p-1 flex items-center justify-between rounded-lg border ${isIndustrial ? 'border-slate-800 bg-slate-950' : 'border-slate-150 bg-white'}`}>
+                                  <span className="text-[9px] font-bold text-slate-400 pl-1">사진:</span>
+                                  <div className="flex items-center gap-1.5 pr-1">
+                                    <button 
+                                      onClick={() => {
+                                        setPhotoTarget({ buildingId: b.id, processName: p });
+                                        setTimeout(() => photoUploadRef.current?.click(), 100);
+                                      }}
+                                      disabled={role === 'GUEST'}
+                                      className={`p-0.5 rounded transition-colors ${b.photos?.[p]?.length ? 'text-blue-500' : 'text-slate-400 hover:text-slate-600'}`}
+                                      title="사진 첨부"
+                                    >
+                                      <ImageIcon className="w-3.5 h-3.5" />
+                                    </button>
+                                    {(b.photos?.[p] || []).length > 0 && (
+                                      <button 
+                                        onClick={() => setGalleryTarget({ buildingId: b.id, processName: p })}
+                                        className={`text-[9px] font-black text-blue-500 underline`}
+                                      >
+                                        [{b.photos[p].length}]
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Active Progress Bar */}
+                              {bProcesses[p] !== -1 && (
+                                <div className={`w-full h-1 my-1 rounded-full overflow-hidden ${isIndustrial ? 'bg-slate-800' : 'bg-slate-200'}`}>
+                                  <div 
+                                    className={`h-full ${bProcesses[p] === 100 ? 'bg-green-500' : activeTheme.accent}`}
+                                    style={{ width: `${bProcesses[p] ?? 0}%` }}
+                                  />
+                                </div>
+                              )}
+
+                              {/* Material Details Section */}
+                              <div className={`grid grid-cols-2 gap-2 border-t pt-2 ${isIndustrial ? 'border-slate-800' : 'border-slate-100'}`}>
+                                {/* Material Status Selector */}
+                                <div className="flex flex-col gap-0.5">
+                                  <span className="text-[8px] font-black text-slate-400">자재 현황</span>
+                                  <select 
+                                    value={mProcesses[p] ?? 0} 
+                                    disabled={role === 'GUEST'} 
+                                    onChange={e => handleUpdateMaterialProgress(b.id, p, Number(e.target.value))}
+                                    className={`text-[10px] font-black bg-transparent border-none focus:ring-0 focus:outline-none cursor-pointer p-0 m-0 ${
+                                      mProcesses[p] === 100 
+                                        ? 'text-amber-500 font-extrabold' 
+                                        : 'text-slate-600 dark:text-slate-400'
+                                    }`}
+                                  >
+                                    <option value={0}>자재미입고</option>
+                                    <option value={1}>진행중</option>
+                                    <option value={-1}>N/A</option>
+                                    <option value={100}>입고완료</option>
+                                  </select>
+                                  <div className={`w-full h-1 rounded-full overflow-hidden mt-1 ${isIndustrial ? 'bg-slate-800' : 'bg-slate-200'}`}>
+                                    <div 
+                                      className={`h-full ${mProcesses[p] === 100 ? 'bg-amber-500' : 'bg-amber-400/50'}`}
+                                      style={{ width: `${mProcesses[p] ?? 0}%` }}
+                                    />
+                                  </div>
+                                </div>
+
+                                {/* Material Delivery Date */}
+                                <div className="flex flex-col gap-0.5">
+                                  <span className="text-[8px] font-black text-slate-400">자재 반입일</span>
+                                  <div className="flex items-center gap-1">
+                                    <Calendar className="w-3 h-3 text-slate-400 shrink-0" />
+                                    <input 
+                                      type="date" 
+                                      value={mDates[p] || ''} 
+                                      disabled={role === 'GUEST'}
+                                      onChange={e => handleUpdateMaterialDate(b.id, p, e.target.value)}
+                                      className={`bg-transparent border-none p-0 text-[10px] font-black focus:ring-0 cursor-pointer text-slate-600 dark:text-slate-300 w-full`}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          )}
+
           <section className={`${activeTheme.card} rounded-2xl shadow-sm border ${activeTheme.border} p-8 space-y-6 mt-8`}>
             <div className="flex items-center justify-between">
                <div className="flex items-center gap-2">
