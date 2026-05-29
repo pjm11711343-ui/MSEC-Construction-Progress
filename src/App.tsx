@@ -76,7 +76,8 @@ import {
   FACILITY_PROCESSES,
   UserRole,
   MultiProjectData,
-  DailyReport
+  DailyReport,
+  ProgressSnapshot
 } from './types';
 
 import initialDataImport from './data/initial_data.json';
@@ -928,74 +929,179 @@ export default function App() {
     alert('복구되었습니다.');
   };
 
+  const updateStateForTarget = (
+    updater: (buildings: BuildingData[], facilities: CommonFacility[]) => { buildings: BuildingData[], facilities: CommonFacility[] }
+  ) => {
+    const today = new Date().toISOString().split('T')[0];
+    if (viewDate === today) {
+      setData(prev => {
+        const { buildings, facilities } = updater(prev.buildings, prev.facilities);
+        return { ...prev, buildings, facilities };
+      });
+    } else {
+      setData(prev => {
+        const newHistory = [...(prev.history || [])];
+        const idx = newHistory.findIndex(h => h.date === viewDate);
+        if (idx >= 0) {
+          const snapshot = newHistory[idx];
+          const { buildings, facilities } = updater(snapshot.buildings || [], snapshot.facilities || []);
+          
+          // Re-calculate snapshot averageProgress
+          const buildingAverages = buildings.map(b => {
+            const vals = Object.values(b.processes) as number[];
+            return vals.length > 0 ? vals.reduce((sum, val) => sum + val, 0) / vals.length : 0;
+          });
+          const overallAverage = Math.round(
+            buildingAverages.length > 0 
+              ? buildingAverages.reduce((sum, val) => sum + val, 0) / buildingAverages.length 
+              : 0
+          );
+
+          newHistory[idx] = {
+            ...snapshot,
+            buildings,
+            facilities,
+            averageProgress: overallAverage
+          };
+        }
+        return { ...prev, history: newHistory };
+      });
+    }
+  };
+
+  const handleCreateHistoryForDate = (targetDate: string) => {
+    if (role === 'GUEST') return;
+    
+    setData(prev => {
+      const newHistory = [...(prev.history || [])];
+      
+      // Sort history to find the closest prior date
+      const sortedHistory = [...newHistory].sort((a, b) => a.date.localeCompare(b.date));
+      
+      let sourceBuildings = prev.buildings;
+      let sourceFacilities = prev.facilities;
+      
+      const priorSnapshot = [...sortedHistory].reverse().find(h => h.date < targetDate);
+      if (priorSnapshot) {
+        sourceBuildings = priorSnapshot.buildings || prev.buildings;
+        sourceFacilities = priorSnapshot.facilities || prev.facilities;
+      }
+      
+      // Deep copy buildings & processes/material items without heavy photo blocks to keep storage clean
+      const copiedBuildings = sourceBuildings.map(b => {
+        const { photos, ...rest } = b;
+        return {
+          ...rest,
+          processes: { ...b.processes },
+          materialProcesses: b.materialProcesses ? { ...b.materialProcesses } : {},
+          materialDates: b.materialDates ? { ...b.materialDates } : {}
+        } as BuildingData;
+      });
+      
+      const copiedFacilities = sourceFacilities.map(f => ({
+        ...f,
+        processes: f.processes ? { ...f.processes } : {},
+        inactiveProcesses: f.inactiveProcesses ? [...f.inactiveProcesses] : []
+      } as CommonFacility));
+
+      // Calculate snapshot initial average
+      const buildingAverages = copiedBuildings.map(b => {
+        const vals = Object.values(b.processes) as number[];
+        return vals.length > 0 ? vals.reduce((sum, val) => sum + val, 0) / vals.length : 0;
+      });
+      const overallAverage = Math.round(
+        buildingAverages.length > 0 
+          ? buildingAverages.reduce((sum, val) => sum + val, 0) / buildingAverages.length 
+          : 0
+      );
+
+      const newSnapshot: ProgressSnapshot = {
+        date: targetDate,
+        averageProgress: overallAverage,
+        buildings: copiedBuildings,
+        facilities: copiedFacilities
+      };
+
+      // Push and maintain chronological order
+      const existingIdx = newHistory.findIndex(h => h.date === targetDate);
+      if (existingIdx >= 0) {
+        newHistory[existingIdx] = newSnapshot;
+      } else {
+        newHistory.push(newSnapshot);
+      }
+      newHistory.sort((a, b) => a.date.localeCompare(b.date));
+
+      const updatedState = { ...prev, history: newHistory };
+      
+      // Trigger local storage save after state resolves
+      setTimeout(() => {
+        saveData();
+      }, 50);
+
+      return updatedState;
+    });
+  };
+
   const handleUpdateProgress = (buildingId: number, processName: string, value: number) => {
-    if (role === 'GUEST' || (data as any).isHistorical) return;
-    setData(prev => ({
-      ...prev,
-      buildings: prev.buildings.map(b => 
+    if (role === 'GUEST') return;
+    updateStateForTarget((buildings, facilities) => {
+      const nextBuildings = buildings.map(b => 
         b.id === buildingId 
           ? { ...b, processes: { ...b.processes, [processName]: Math.min(100, Math.max(0, value)) } }
           : b
-      )
-    }));
+      );
+      return { buildings: nextBuildings, facilities };
+    });
   };
 
   const handleUpdateMaterialProgress = (buildingId: number, processName: string, value: number) => {
-    if (role === 'GUEST' || (data as any).isHistorical) return;
-    setData(prev => ({
-      ...prev,
-      buildings: prev.buildings.map(b => 
+    if (role === 'GUEST') return;
+    updateStateForTarget((buildings, facilities) => {
+      const nextBuildings = buildings.map(b => 
         b.id === buildingId 
-          ? { 
-              ...b, 
-              materialProcesses: { ...(b.materialProcesses || {}), [processName]: value } 
-            }
+          ? { ...b, materialProcesses: { ...(b.materialProcesses || {}), [processName]: value } }
           : b
-      )
-    }));
+      );
+      return { buildings: nextBuildings, facilities };
+    });
   };
 
   const handleUpdateMaterialDate = (buildingId: number, processName: string, date: string) => {
-    if (role === 'GUEST' || (data as any).isHistorical) return;
-    setData(prev => ({
-      ...prev,
-      buildings: prev.buildings.map(b => 
+    if (role === 'GUEST') return;
+    updateStateForTarget((buildings, facilities) => {
+      const nextBuildings = buildings.map(b => 
         b.id === buildingId 
-          ? { 
-              ...b, 
-              materialDates: { ...(b.materialDates || {}), [processName]: date } 
-            }
+          ? { ...b, materialDates: { ...(b.materialDates || {}), [processName]: date } }
           : b
-      )
-    }));
+      );
+      return { buildings: nextBuildings, facilities };
+    });
   };
 
   const handleUpdateFacilityStatus = (facilityId: string) => {
-    if (role === 'GUEST' || (data as any).isHistorical) return;
+    if (role === 'GUEST') return;
     const statusOrder: CommonFacility['status'][] = ['NOT_STARTED', 'IN_PROGRESS', 'COMPLETED'];
-    setData(prev => ({
-      ...prev,
-      facilities: prev.facilities.map(f => {
+    updateStateForTarget((buildings, facilities) => {
+      const nextFacilities = facilities.map(f => {
         if (f.id === facilityId) {
           const currentIndex = statusOrder.indexOf(f.status);
           const nextIndex = (currentIndex + 1) % statusOrder.length;
           return { ...f, status: statusOrder[nextIndex] };
         }
         return f;
-      })
-    }));
+      });
+      return { buildings, facilities: nextFacilities };
+    });
   };
 
   const handleUpdateFacilitySubProcess = (facilityId: string, processName: string, value: number) => {
-    if (role === 'GUEST' || (data as any).isHistorical) return;
-    setData(prev => ({
-      ...prev,
-      facilities: prev.facilities.map(f => {
+    if (role === 'GUEST') return;
+    updateStateForTarget((buildings, facilities) => {
+      const nextFacilities = facilities.map(f => {
         if (f.id === facilityId) {
           const currentProcesses = f.processes || {};
           const nextProcesses = { ...currentProcesses, [processName]: value };
           
-          // Auto-update main status based on sub-progress
           const activeFacilityProcesses = FACILITY_PROCESSES.filter(fp => !(f.inactiveProcesses || []).includes(fp));
           const avg = activeFacilityProcesses.length > 0 
             ? activeFacilityProcesses.reduce((s, fp) => s + (nextProcesses[fp] || 0), 0) / activeFacilityProcesses.length
@@ -1013,15 +1119,15 @@ export default function App() {
           };
         }
         return f;
-      })
-    }));
+      });
+      return { buildings, facilities: nextFacilities };
+    });
   };
 
   const toggleFacilityProcess = (facilityId: string, processName: string) => {
-    if (role === 'GUEST' || (data as any).isHistorical) return;
-    setData(prev => ({
-      ...prev,
-      facilities: prev.facilities.map(f => {
+    if (role === 'GUEST') return;
+    updateStateForTarget((buildings, facilities) => {
+      const nextFacilities = facilities.map(f => {
         if (f.id === facilityId) {
           const inactive = f.inactiveProcesses || [];
           const isInactive = inactive.includes(processName);
@@ -1029,7 +1135,6 @@ export default function App() {
             ? inactive.filter(p => p !== processName)
             : [...inactive, processName];
             
-          // Recalculate average and status with new active processes
           const currentProcesses = f.processes || {};
           const activeFacilityProcesses = FACILITY_PROCESSES.filter(fp => !nextInactive.includes(fp));
           const avg = activeFacilityProcesses.length > 0 
@@ -1048,8 +1153,9 @@ export default function App() {
           };
         }
         return f;
-      })
-    }));
+      });
+      return { buildings, facilities: nextFacilities };
+    });
   };
 
   const handleUpdateDashboardNotes = (notes: string) => {
@@ -2025,12 +2131,12 @@ export default function App() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {multiData.sites.map((site, index) => (
-              <motion.button
+              <motion.div
                 key={`${site.id || site.settings.projectName || 'site'}-${index}`}
                 whileHover={{ scale: 1.02, translateY: -4 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={() => switchSite(site.id)}
-                className="group p-6 bg-white rounded-2xl shadow-sm border border-slate-200 hover:border-blue-500 hover:shadow-xl hover:shadow-blue-500/10 transition-all text-left flex flex-col justify-between h-52"
+                className="group p-6 bg-white rounded-2xl shadow-sm border border-slate-200 hover:border-blue-500 hover:shadow-xl hover:shadow-blue-500/10 transition-all text-left flex flex-col justify-between h-52 cursor-pointer"
               >
                 <div>
                   <div className="flex justify-between items-start mb-4">
@@ -2063,7 +2169,7 @@ export default function App() {
                     </div>
                   </div>
                 </div>
-              </motion.button>
+              </motion.div>
             ))}
             
             <button
@@ -2684,25 +2790,39 @@ export default function App() {
             <motion.div 
               initial={{ opacity: 0, y: -20 }}
               animate={{ opacity: 1, y: 0 }}
-              className={`flex items-center justify-between p-4 rounded-2xl border font-bold text-sm shadow-xl ${ (data as any).isMissing ? 'bg-red-50 border-red-200 text-red-600 shadow-red-900/5' : 'bg-blue-50 border-blue-200 text-blue-600 shadow-blue-900/5' }`}
+              className={`flex flex-col md:flex-row items-center justify-between p-4 rounded-2xl border font-bold text-sm shadow-xl gap-4 ${ (data as any).isMissing ? 'bg-red-50 border-red-200 text-red-600 shadow-red-900/5' : 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-emerald-900/5' }`}
             >
-              <div className="flex items-center gap-3">
-                <div className={`p-2 rounded-xl ${(data as any).isMissing ? 'bg-red-100' : 'bg-blue-100'}`}>
-                  <AlertTriangle className="w-5 h-5" />
+              <div className="flex items-center gap-3 w-full md:w-auto">
+                <div className={`p-2 rounded-xl ${(data as any).isMissing ? 'bg-red-100' : 'bg-emerald-100 text-emerald-600'}`}>
+                  { (data as any).isMissing ? <AlertTriangle className="w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" /> }
                 </div>
                 <div>
-                  <p className="text-base">{(data as any).isMissing ? '저장된 데이터 없음' : `${viewDate} 공정 현황 조회 중`}</p>
-                  <p className={`text-[10px] font-medium opacity-70`}>
-                    {(data as any).isMissing ? '선택하신 날짜에는 기록된 공정 데이터가 존재하지 않습니다.' : '과거 데이터를 조회 중입니다. 수정은 오늘 공정에서만 가능합니다.'}
+                  <p className="text-base">{(data as any).isMissing ? '저장된 데이터 없음' : `${viewDate} 공정 현황 조회 & 수정 중`}</p>
+                  <p className={`text-[10px] font-medium opacity-80`}>
+                    {(data as any).isMissing 
+                      ? '선택하신 날짜에는 기록된 공정 데이터가 존재하지 않습니다. 새로운 공정 보고서를 작성하시려면 기록 작성을 클릭하세요.' 
+                      : '과거 공정 기록을 편집하고 있습니다. 여기서 수정한 내용은 이 날짜에 실시간으로 보존됩니다.'}
                   </p>
                 </div>
               </div>
-              <button 
-                onClick={() => setViewDate(new Date().toISOString().split('T')[0])}
-                className={`px-6 py-2.5 rounded-xl font-black transition-all hover:scale-105 active:scale-95 shadow-lg ${ (data as any).isMissing ? 'bg-red-600 text-white shadow-red-500/20' : 'bg-blue-600 text-white shadow-blue-500/20' }`}
-              >
-                오늘로 돌아가기
-              </button>
+              <div className="flex items-center gap-2 shrink-0 w-full md:w-auto justify-end">
+                { (data as any).isMissing && role !== 'GUEST' && (
+                  <button 
+                    type="button"
+                    onClick={() => handleCreateHistoryForDate(viewDate)}
+                    className="px-4 py-2 rounded-xl font-black transition-all hover:scale-105 active:scale-95 shadow-md bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/20 text-xs text-center"
+                  >
+                    이 날짜의 공정 기록 작성 시작하기
+                  </button>
+                )}
+                <button 
+                  type="button"
+                  onClick={() => setViewDate(new Date().toISOString().split('T')[0])}
+                  className={`px-4 py-2 rounded-xl font-black transition-all hover:scale-105 active:scale-95 shadow-md text-xs text-center ${ (data as any).isMissing ? 'bg-red-600 text-white hover:bg-red-500 shadow-red-500/20' : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-500/20' }`}
+                >
+                  오늘로 돌아가기
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

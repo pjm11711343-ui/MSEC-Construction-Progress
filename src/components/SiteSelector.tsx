@@ -93,7 +93,7 @@ export default function SiteSelector({ sites, onSelect, customBaseUrl }: SiteSel
           {sites.map((site, index) => {
             const hasPassword = !!site.settings.sitePassword;
             return (
-              <motion.button
+              <motion.div
                 key={`${site.id || site.settings.projectName || 'site'}-${index}`}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -105,7 +105,7 @@ export default function SiteSelector({ sites, onSelect, customBaseUrl }: SiteSel
                     setSelectedSite(site);
                   }
                 }}
-                className="group relative bg-white rounded-2xl shadow-sm hover:shadow-xl border border-slate-200 p-6 text-left transition-all hover:-translate-y-1"
+                className="group relative bg-white rounded-2xl shadow-sm hover:shadow-xl border border-slate-200 p-6 text-left transition-all hover:-translate-y-1 cursor-pointer"
               >
                 <div className="flex items-start justify-between mb-4">
                   <div className="p-3 bg-slate-100 rounded-xl group-hover:bg-blue-600 group-hover:text-white transition-colors">
@@ -187,7 +187,7 @@ export default function SiteSelector({ sites, onSelect, customBaseUrl }: SiteSel
                     접속하기 <ArrowRight className="w-3 h-3" />
                   </div>
                 </div>
-              </motion.button>
+              </motion.div>
             );
           })}
         </div>
