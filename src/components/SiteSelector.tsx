@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Building2, Lock, ArrowRight, ShieldCheck, Link2 } from 'lucide-react';
+import { Building2, Lock, ArrowRight, ShieldCheck, Link2, LogOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AppState } from '../types';
 
@@ -7,9 +7,10 @@ interface SiteSelectorProps {
   sites: AppState[];
   onSelect: (site: AppState, password?: string) => boolean; // returns true if success
   customBaseUrl?: string;
+  onBack?: () => void;
 }
 
-export default function SiteSelector({ sites, onSelect, customBaseUrl }: SiteSelectorProps) {
+export default function SiteSelector({ sites, onSelect, customBaseUrl, onBack }: SiteSelectorProps) {
   const [selectedSite, setSelectedSite] = useState<AppState | null>(null);
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -76,7 +77,16 @@ export default function SiteSelector({ sites, onSelect, customBaseUrl }: SiteSel
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
       <div className="max-w-4xl w-full">
-        <div className="text-center mb-12">
+        <div className="text-center mb-12 relative flex flex-col items-center">
+          {onBack && (
+            <button 
+              onClick={onBack}
+              className="md:absolute right-0 top-0 mb-4 md:mb-0 flex items-center gap-2 p-2.5 px-4 bg-white border border-slate-200 rounded-2xl text-slate-500 hover:text-red-600 hover:border-red-100 font-bold text-[11px] transition-all shadow-sm active:scale-95 group"
+            >
+              <LogOut className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
+              처음 화면으로 (권한 선택)
+            </button>
+          )}
           <motion.div 
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}

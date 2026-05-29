@@ -2165,10 +2165,10 @@ export default function App() {
             </div>
             <button 
               onClick={() => { setRole(null); setSiteAuthenticatedId(null); }}
-              className="flex items-center gap-2 px-4 py-2 text-slate-600 hover:text-red-600 font-bold transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-slate-600 hover:text-red-600 hover:border-red-100 font-bold text-sm transition-all shadow-sm active:scale-95"
             >
-              <LogOut className="w-5 h-5" />
-              로그아웃
+              <LogOut className="w-4 h-4" />
+              권한 선택화면으로
             </button>
           </div>
 
@@ -2237,6 +2237,7 @@ export default function App() {
         <SiteSelector 
           sites={multiData.sites} 
           customBaseUrl={multiData.customBaseUrl}
+          onBack={() => { setRole(null); setSiteAuthenticatedId(null); }}
           onSelect={(site, password) => {
             if (!site.settings.sitePassword || site.settings.sitePassword === password) {
               switchSite(site.id);
@@ -2269,12 +2270,20 @@ export default function App() {
                 <Lock className="w-6 h-6" />
               </div>
               {!isLockedToSite && (
-                <button 
-                  onClick={() => setSiteAuthenticatedId(null)}
-                  className="text-[10px] uppercase font-bold text-white/40 hover:text-white transition-colors"
-                >
-                  현장 목록으로
-                </button>
+                <div className="flex flex-col items-end gap-1">
+                  <button 
+                    onClick={() => setSiteAuthenticatedId(null)}
+                    className="text-[10px] uppercase font-bold text-white/40 hover:text-white transition-colors"
+                  >
+                    현장 목록으로
+                  </button>
+                  <button 
+                    onClick={() => { setRole(null); setSiteAuthenticatedId(null); }}
+                    className="text-[9px] uppercase font-bold text-red-400 hover:text-red-300 transition-colors"
+                  >
+                    권한 선택으로
+                  </button>
+                </div>
               )}
             </div>
             <h2 className="text-xl font-black">{data.settings.projectName}</h2>
