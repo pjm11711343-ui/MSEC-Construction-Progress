@@ -40,7 +40,7 @@ export const FACILITY_PROCESSES = [
   "위생기구"
 ];
 
-export type AppTheme = 'slate' | 'blueprint' | 'industrial' | 'earth';
+export type AppTheme = 'slate' | 'blueprint' | 'industrial' | 'earth' | 'midnight' | 'modern';
 
 export interface ProjectSettings {
   companyName: string;
@@ -64,6 +64,7 @@ export interface ProjectSettings {
   endDate?: string;
   stairwellCount?: number;
   unitCount?: number;
+  processLeadTimes?: Record<string, number>;
 }
 
 export interface ProgressSnapshot {

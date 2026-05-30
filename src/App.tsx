@@ -32,7 +32,8 @@ import {
   ClipboardList,
   CloudSun,
   Lock,
-  Eye
+  Eye,
+  Clock
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -58,6 +59,8 @@ import SiteSelector from './components/SiteSelector';
 import RestoreComparisonModal from './components/RestoreComparisonModal';
 import LocationPicker from './components/LocationPicker';
 import StackedProgressBarChart from './components/StackedProgressBarChart';
+import { QuickEditKeypad } from './components/QuickEditKeypad';
+import { DashboardWidgets } from './components/DashboardWidgets';
 import ReactMarkdown from 'react-markdown';
 import ReportPrintView from './components/ReportPrintView';
 import { 
@@ -79,7 +82,8 @@ import {
   UserRole,
   MultiProjectData,
   DailyReport,
-  ProgressSnapshot
+  ProgressSnapshot,
+  AppTheme
 } from './types';
 
 import initialDataImport from './data/initial_data.json';
@@ -248,6 +252,21 @@ export default function App() {
   const [analyticsSelectedProcess, setAnalyticsSelectedProcess] = useState<string>(processes[0] || '1. 건축골조');
   const [photoTarget, setPhotoTarget] = useState<{ buildingId: number, processName: string } | null>(null);
   const [galleryTarget, setGalleryTarget] = useState<{ buildingId: number, processName: string } | null>(null);
+  const [quickEditCell, setQuickEditCell] = useState<{
+    building: any;
+    processName: string;
+    currentValue: number;
+    isPercentMode: boolean;
+    floors: number[];
+  } | null>(null);
+  const [currentTime, setCurrentTime] = useState(new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
   const excelUploadRef = useRef<HTMLInputElement>(null);
   const [excelFileDropActive, setExcelFileDropActive] = useState(false);
   const [excelOptions, setExcelOptions] = useState({
@@ -1091,7 +1110,7 @@ export default function App() {
     updateStateForTarget((buildings, facilities) => {
       const nextBuildings = buildings.map(b => 
         b.id === buildingId 
-          ? { ...b, processes: { ...b.processes, [processName]: Math.min(100, Math.max(0, value)) } }
+          ? { ...b, processes: { ...b.processes, [processName]: value === -1 ? -1 : Math.min(100, Math.max(0, value)) } }
           : b
       );
       return { buildings: nextBuildings, facilities };
@@ -2010,7 +2029,7 @@ export default function App() {
   // Sort processes numerically for display
   const sortedDisplayProcesses = [...processes].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 
-  const THEMES = {
+  const THEMES: Record<string, any> = {
     slate: {
       bg: 'bg-slate-50',
       text: 'text-blue-600',
@@ -2020,7 +2039,8 @@ export default function App() {
       border: 'border-slate-200',
       header: 'bg-slate-900',
       button: 'bg-blue-600 hover:bg-blue-700',
-      shadow: 'shadow-blue-100'
+      shadow: 'shadow-blue-100',
+      isDark: false
     },
     blueprint: {
       bg: 'bg-[#f0f4f8]',
@@ -2031,7 +2051,8 @@ export default function App() {
       border: 'border-[#dae1e7]',
       header: 'bg-[#1b4b72]',
       button: 'bg-[#0077be] hover:bg-[#005fa3]',
-      shadow: 'shadow-cyan-100'
+      shadow: 'shadow-cyan-100',
+      isDark: false
     },
     industrial: {
       bg: 'bg-[#0f1115]',
@@ -2042,7 +2063,8 @@ export default function App() {
       border: 'border-[#2d333d]',
       header: 'bg-[#000000]',
       button: 'bg-[#00ff9f] hover:bg-[#00d685] text-black',
-      shadow: 'shadow-emerald-900/20'
+      shadow: 'shadow-emerald-900/20',
+      isDark: true
     },
     earth: {
       bg: 'bg-[#faf7f2]',
@@ -2053,7 +2075,32 @@ export default function App() {
       border: 'border-[#e5e1d8]',
       header: 'bg-[#2c3e2d]',
       button: 'bg-[#4a6741] hover:bg-[#3d5536]',
-      shadow: 'shadow-green-100'
+      shadow: 'shadow-green-100',
+      isDark: false
+    },
+    midnight: {
+      bg: 'bg-[#0a0a1a]',
+      text: 'text-indigo-400',
+      accent: 'bg-indigo-600',
+      accentHex: '#4f46e5',
+      card: 'bg-[#10102a]/80 backdrop-blur-md',
+      border: 'border-indigo-500/20',
+      header: 'bg-[#050510]',
+      button: 'bg-indigo-600 hover:bg-indigo-700',
+      shadow: 'shadow-indigo-500/10',
+      isDark: true
+    },
+    modern: {
+      bg: 'bg-[#ffffff]',
+      text: 'text-slate-900',
+      accent: 'bg-zinc-900',
+      accentHex: '#18181b',
+      card: 'bg-zinc-50/50 border-zinc-200',
+      border: 'border-zinc-200',
+      header: 'bg-white',
+      button: 'bg-zinc-900 hover:bg-zinc-800 text-white',
+      shadow: 'shadow-zinc-200',
+      isDark: false
     }
   };
 
@@ -2076,6 +2123,8 @@ export default function App() {
 
   const data = displayData;
   const activeTheme = THEMES[data.settings.theme] || THEMES.slate;
+  const isDarkTheme = activeTheme.isDark;
+  const isIndustrial = isDarkTheme; // Alias for dark mode logic
 
   // Helper Logic
   const getFloorList = (building?: BuildingData) => {
@@ -2457,75 +2506,87 @@ export default function App() {
             </motion.div>
           )}
         </AnimatePresence>
-        <div className="max-w-full mx-auto px-6 h-24 md:h-32 flex flex-col md:flex-row md:items-center justify-between gap-6 py-4">
+        <div className="max-w-full mx-auto px-2 md:px-6 h-auto md:h-24 flex flex-col md:flex-row md:items-center justify-between gap-1.5 md:gap-6 py-2 md:py-0">
           {/* Top Brand (logo + project name + calendar) AND mobile quick actions */}
-          <div className="flex items-center justify-between w-full md:w-auto min-w-0 shrink-0 flex-1">
-            <div className="flex items-center gap-6 shrink-0 min-w-0 flex-1">
-              <div className={`${activeTheme.accent} p-4 rounded-3xl text-white shadow-xl shadow-blue-500/30 shrink-0 ${data.settings.theme === 'industrial' ? 'text-black' : ''}`}>
-                <Construction className="w-8 h-8 md:w-12 md:h-12" />
+          <div className="flex flex-col md:flex-row md:items-center justify-between w-full md:w-auto min-w-0 shrink-0 flex-1 gap-1 md:gap-6">
+            <div className="flex items-center justify-between w-full md:w-auto shrink-0 gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className={`${activeTheme.accent} p-1.5 md:p-3 rounded-xl md:rounded-2xl text-white shadow-lg md:shadow-xl shadow-blue-500/25 shrink-0 ${isDarkTheme ? 'text-black' : ''}`}>
+                  <Construction className="w-4 h-4 md:w-8 md:h-8" />
+                </div>
+                <div className="min-w-0">
+                  <h1 className={`font-black text-xs md:text-2xl leading-tight uppercase tracking-tighter truncate ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
+                    {data.settings.projectName}
+                  </h1>
+                </div>
               </div>
-              <div className="min-w-0 flex flex-col justify-center flex-1">
-                <h1 className={`font-black text-sm md:text-2xl leading-none uppercase tracking-tighter truncate ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'}`}>
-                  {data.settings.projectName}
-                </h1>
-                <div className="flex items-center gap-4 mt-2.5 overflow-hidden">
-                  <span className="text-slate-400 text-xs md:text-base font-black uppercase tracking-widest whitespace-nowrap border-r border-slate-200 dark:border-slate-700 pr-4">{data.settings.companyName}</span>
-                  <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-xl border border-slate-200 dark:border-slate-700 shrink-0 hover:border-blue-400 transition-colors">
-                    <Calendar className="w-4 h-4 text-blue-500" />
-                    <input 
-                      type="date" 
-                      value={viewDate}
-                      onChange={(e) => setViewDate(e.target.value)}
-                      className="bg-transparent border-none p-0 text-xs md:text-sm font-black focus:ring-0 cursor-pointer text-slate-600 dark:text-slate-300 w-24 md:w-32"
-                    />
-                  </div>
-                  {/* Site Selection Button (Header Version) */}
-                  {!isLockedToSite && (
-                    <button 
-                      onClick={() => setSiteAuthenticatedId(null)}
-                      className="hidden lg:flex items-center gap-2 px-4 py-1.5 bg-blue-600 text-white rounded-xl text-xs font-black hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20 uppercase tracking-tighter"
-                    >
-                      <LayoutGrid className="w-4 h-4" />
-                      현장 선택
-                    </button>
+
+              {/* Mobile Actions: Save, Print, Logout */}
+              <div className="flex items-center gap-1 md:hidden shrink-0">
+                <div className="flex items-center text-[8px] font-bold text-slate-400">
+                  {isAutoSaving ? (
+                    <span className="flex items-center gap-0.5"><div className="w-1 h-1 bg-green-500 rounded-full animate-pulse" /> 저장중</span>
+                  ) : (
+                    <span>저장됨</span>
                   )}
                 </div>
+                <button 
+                  type="button"
+                  onClick={saveData} 
+                  className={`p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-600 dark:text-slate-300 transition-colors ${isDarkTheme ? 'hover:bg-slate-800' : ''}`} 
+                  title="저장"
+                >
+                  <Save className="w-4 h-4" />
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => window.print()} 
+                  className={`p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-600 dark:text-slate-300 transition-colors ${isDarkTheme ? 'hover:bg-slate-800' : ''}`} 
+                  title="인쇄"
+                >
+                  <Printer className="w-4 h-4" />
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => { setRole(null); setSiteAuthenticatedId(null); }} 
+                  className="p-1.5 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg text-red-500 transition-colors" 
+                  title="로그아웃"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
               </div>
             </div>
 
-            {/* Mobile Actions: Save, Print, Logout */}
-            <div className="flex items-center gap-1 md:hidden">
-              <div className="flex items-center mr-1 text-[8px] text-slate-400">
-                {isAutoSaving ? (
-                  <span className="flex items-center gap-1"><div className={`w-1.5 h-1.5 ${activeTheme.accent} rounded-full animate-pulse`} /> 저장중</span>
-                ) : (
-                  <span>저장됨: {data.lastSaved.split(',')[1]}</span>
-                )}
+            {/* Sub-info: Company Name, Calendar, Site Selection */}
+            <div className="flex items-center gap-1.5 overflow-hidden md:mt-0">
+              <span className="text-slate-400 text-[9px] md:text-base font-black uppercase tracking-widest whitespace-nowrap border-r border-slate-200 dark:border-slate-700 pr-1.5 md:pr-4">{data.settings.companyName}</span>
+              <div className="flex flex-col md:items-end">
+                <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 md:px-2 md:py-1 rounded-md md:rounded-lg border border-slate-200 dark:border-slate-700 shrink-0 hover:border-blue-400 hover:bg-white dark:hover:bg-slate-900 transition-colors">
+                  <Calendar className="w-3 h-3 md:w-3.5 md:h-3.5 text-blue-500" />
+                  <input 
+                    type="date" 
+                    value={viewDate}
+                    onChange={(e) => setViewDate(e.target.value)}
+                    className={`bg-transparent border-none p-0 text-[9px] md:text-sm font-black focus:ring-0 cursor-pointer w-18 md:w-32 ${isDarkTheme ? 'text-slate-300' : 'text-slate-600'}`}
+                  />
+                </div>
+                <div className="flex items-center justify-end gap-1 px-1 mt-0.5">
+                   <Clock className="w-2.5 h-2.5 text-slate-400" />
+                   <span className="text-[9px] md:text-[10px] font-black text-slate-500 font-mono tracking-tighter">
+                     {currentTime.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                   </span>
+                </div>
               </div>
-              <button 
-                type="button"
-                onClick={saveData} 
-                className={`p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-600 dark:text-slate-300 transition-colors ${data.settings.theme === 'industrial' ? 'hover:bg-slate-800' : ''}`} 
-                title="저장"
-              >
-                <Save className="w-4 h-4" />
-              </button>
-              <button 
-                type="button"
-                onClick={() => window.print()} 
-                className={`p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-600 dark:text-slate-300 transition-colors ${data.settings.theme === 'industrial' ? 'hover:bg-slate-800' : ''}`} 
-                title="인쇄"
-              >
-                <Printer className="w-4 h-4" />
-              </button>
-              <button 
-                type="button"
-                onClick={() => { setRole(null); setSiteAuthenticatedId(null); }} 
-                className="p-1.5 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg text-red-500 transition-colors" 
-                title="로그아웃"
-              >
-                <LogOut className="w-4 h-4" />
-              </button>
+              {/* Site Selection Button (Header Version) */}
+              {!isLockedToSite && (
+                <button 
+                  onClick={() => setSiteAuthenticatedId(null)}
+                  className="hidden lg:flex items-center gap-2 px-4 py-1.5 bg-blue-600 text-white rounded-xl text-xs font-black hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20 uppercase tracking-tighter"
+                >
+                  <LayoutGrid className="w-4 h-4" />
+                  현장 선택
+                </button>
+              )}
             </div>
           </div>
 
@@ -3155,17 +3216,76 @@ export default function App() {
                  </div>
 
                 {role === 'ADMIN' && (
+                  <div className="space-y-4 lg:col-span-1">
+                    <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
+                       <Clock className="w-4 h-4" />
+                       공정별 리드타임 (발주~입고)
+                    </h3>
+                    <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 space-y-4 max-h-[400px] overflow-y-auto custom-scrollbar">
+                      <p className="text-[10px] text-slate-500 font-medium leading-relaxed italic">
+                        * 각 공정별로 자재 발주 후 현장에 도착하기까지 소요되는 일수(Lead Time)를 입력하세요. 
+                        입고 예정일 기준으로 리드타임이 임박하면 경고 알림이 표시됩니다.
+                      </p>
+                      <div className="space-y-2">
+                        {processes.map(p => (
+                          <div key={p} className="flex items-center justify-between gap-4 p-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 shadow-sm">
+                            <span className="text-[11px] font-black truncate flex-1 dark:text-slate-200">{p}</span>
+                            <div className="flex items-center gap-2">
+                              <input 
+                                type="number" 
+                                min="0"
+                                value={data.settings.processLeadTimes?.[p] ?? 0} 
+                                onChange={(e) => {
+                                  const val = parseInt(e.target.value) || 0;
+                                  setData({
+                                    ...data,
+                                    settings: {
+                                      ...data.settings,
+                                      processLeadTimes: {
+                                        ...(data.settings.processLeadTimes || {}),
+                                        [p]: val
+                                      }
+                                    }
+                                  });
+                                }}
+                                className="w-16 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 text-xs text-center font-bold dark:bg-slate-900"
+                              />
+                              <span className="text-[10px] font-bold text-slate-400">일</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {role === 'ADMIN' && (
                   <>
                     <div className="space-y-4">
                        <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">디자인 & 공용시설</h3>
-                       <div className="grid grid-cols-2 gap-2 mb-4">
-                         {(['slate', 'blueprint', 'industrial', 'earth'] as const).map(t => (
-                           <button key={t} onClick={() => setData({...data, settings: {...data.settings, theme: t}})} className={`p-3 rounded-xl border-2 transition-all flex flex-col items-center gap-1.5 ${data.settings.theme === t ? `border-blue-600 bg-blue-50` : `${activeTheme.border} hover:bg-slate-50`}`}>
-                             <div className={`w-8 h-8 rounded-full border-2 border-white ${THEMES[t].accent}`} />
-                             <span className="text-[10px] font-bold uppercase tracking-widest">{t}</span>
-                           </button>
-                         ))}
-                       </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4">
+                          {(['slate', 'blueprint', 'industrial', 'earth', 'midnight', 'modern'] as AppTheme[]).map(t => (
+                            <button 
+                              key={t} 
+                              onClick={() => setData({...data, settings: {...data.settings, theme: t}})} 
+                              className={`p-3 rounded-xl border-2 transition-all flex flex-col items-center gap-1.5 ${
+                                data.settings.theme === t 
+                                  ? `border-indigo-600 bg-indigo-50/50 dark:bg-indigo-900/20` 
+                                  : `${activeTheme.border} ${data.settings.theme === 'industrial' || data.settings.theme === 'midnight' ? 'hover:bg-slate-800' : 'hover:bg-slate-50'}`
+                              }`}
+                            >
+                              <div className={`w-8 h-8 rounded-full border-2 border-white shadow-sm ${THEMES[t].accent}`} />
+                              <span className="text-[10px] font-black uppercase tracking-widest">{
+                                t === 'slate' ? 'Classic' :
+                                t === 'blueprint' ? 'Pro Blue' :
+                                t === 'industrial' ? 'Dark Tech' :
+                                t === 'earth' ? 'Nature' :
+                                t === 'midnight' ? 'Midnight' :
+                                t === 'modern' ? 'Minimal' : t
+                              }</span>
+                            </button>
+                          ))}
+                        </div>
                        <div className="space-y-2 max-h-[150px] overflow-y-auto pr-2 custom-scrollbar">
                             {data.facilities.map(f => (
                               <div key={f.id} className={`flex items-center justify-between ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-50'} p-2 rounded-lg group`}>
@@ -3570,10 +3690,10 @@ export default function App() {
                                   }
                                 }));
                               }}
-                              className={`p-0.5 rounded text-[7px] font-black uppercase transition-all ${
+                              className={`p-0.5 rounded text-[7px] font-black uppercase transition-all shadow-sm ${
                                 getProcessMode(p) === 'percent' 
-                                  ? 'bg-blue-600 text-white' 
-                                  : 'bg-white/20 text-white/50 hover:bg-white/30'
+                                  ? 'bg-blue-600 text-white shadow-blue-900/50' 
+                                  : 'bg-slate-500 text-white shadow-slate-900/50 hover:bg-slate-400'
                               }`}
                               title={getProcessMode(p) === 'floor' ? '층수 모드 (클릭하여 %로 변경)' : '% 모드 (클릭하여 층수로 변경)'}
                             >
@@ -3593,7 +3713,7 @@ export default function App() {
                             className="bg-transparent border-none focus:ring-0 p-0 text-[11px] font-black leading-tight text-center w-full min-w-0"
                           />
                           {role !== 'GUEST' && (
-                            <div className="no-print flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity absolute right-1 -bottom-4">
+                            <div className="no-print flex items-center gap-1.5 opacity-60 group-hover:opacity-100 transition-opacity absolute right-1 -bottom-4 bg-slate-800/80 px-1 py-0.5 rounded-md backdrop-blur-sm">
                               <button 
                                 onClick={() => {
                                   const mode = getProcessMode(p);
@@ -3612,13 +3732,13 @@ export default function App() {
                                     }));
                                   }
                                 }} 
-                                className="text-white/40 hover:text-white" 
+                                className="text-white/80 hover:text-blue-400 transition-colors" 
                                 title="전 동 일괄 업데이트"
                               >
-                                <Save className="w-3 h-3" />
+                                <Save className="w-3.5 h-3.5" />
                               </button>
-                              <button onClick={() => deleteProcess(p)} className="text-white/40 hover:text-red-400">
-                                <Trash2 className="w-3 h-3" />
+                              <button onClick={() => deleteProcess(p)} className="text-white/80 hover:text-rose-400 transition-colors">
+                                <Trash2 className="w-3.5 h-3.5" />
                               </button>
                             </div>
                           )}
@@ -3630,9 +3750,9 @@ export default function App() {
                     <th className="border-r border-white/10 w-24 px-2 py-1 no-print">
                       <button 
                         onClick={() => setNewProcessInput(true)}
-                        className="w-full flex items-center justify-center gap-1 py-1 rounded-md bg-white/10 hover:bg-white/20 text-[10px] font-black transition-all border border-white/10"
+                        className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 text-[10px] font-black transition-all border border-blue-500/30 shadow-lg shadow-blue-900/20"
                       >
-                        <Plus className="w-3 h-3" />
+                        <Plus className="w-4 h-4" />
                         <span>공종추가</span>
                       </button>
                     </th>
@@ -3653,29 +3773,29 @@ export default function App() {
                     ? Math.round(processValues.reduce((a, v) => a + v, 0) / processValues.length) 
                     : 0;
                   const cellPadding = `${data.settings.tableSpacing || 4}px`;
-                  const isIndustrial = data.settings.theme === 'industrial';
+                  const isDark = isDarkTheme;
                   const isEven = bIdx % 2 === 0;
 
                   // Alternating row background colors for clear visual separation
-                  const rowBgClass = isIndustrial
+                  const rowBgClass = isDark
                     ? (isEven ? 'bg-[#15181d]' : 'bg-[#1e2229]')
                     : (isEven ? 'bg-white' : 'bg-slate-50/70');
 
                   // Specific colored background for sticky columns to avoid opacity transparency bleed
-                  const stickyBgClass = isIndustrial
+                  const stickyBgClass = isDark
                     ? (isEven ? 'bg-[#15181d]' : 'bg-[#1e2229]')
                     : (isEven ? 'bg-white' : 'bg-slate-100');
 
                   return (
-                    <tr key={b.id} className={`${rowBgClass} ${isIndustrial ? 'hover:bg-slate-800/80 text-white border-b border-slate-800' : 'hover:bg-blue-100/30'} transition-colors`}>
+                    <tr key={b.id} className={`${rowBgClass} ${isDark ? 'hover:bg-slate-800/80 text-white border-b border-slate-800' : 'hover:bg-blue-100/30'} transition-colors`}>
                       <td 
-                        className={`border-r-2 ${isIndustrial ? 'border-slate-800 text-slate-400' : 'border-slate-200 text-slate-500'} ${stickyBgClass} text-center font-black text-[10px] sticky left-0 z-10`}
+                        className={`border-r-2 ${isDark ? 'border-slate-800 text-slate-400' : 'border-slate-200 text-slate-500'} ${stickyBgClass} text-center font-black text-[10px] sticky left-0 z-10`}
                         style={{ padding: cellPadding }}
                       >
                         {bIdx + 1}
                       </td>
                       <td 
-                        className={`border-r-2 ${isIndustrial ? 'border-[#2d333d] text-white' : 'border-slate-200 text-slate-900'} ${stickyBgClass} text-center font-black group relative sticky left-8 z-10`}
+                        className={`border-r-2 ${isDark ? 'border-[#2d333d] text-white' : 'border-slate-200 text-slate-900'} ${stickyBgClass} text-center font-black group relative sticky left-8 z-10`}
                         style={{ padding: cellPadding }}
                       >
                         <div 
@@ -3687,7 +3807,7 @@ export default function App() {
                             value={b.name} 
                             disabled={role === 'GUEST'} 
                             onChange={(e) => renameBuilding(b.id, e.target.value)} 
-                            className={`w-full text-center bg-transparent border-none focus:ring-0 p-0 font-black text-xs tracking-tighter ${isIndustrial ? 'text-white' : 'text-slate-900'}`} 
+                            className={`w-full text-center bg-transparent border-none focus:ring-0 p-0 font-black text-xs tracking-tighter ${isDark ? 'text-white' : 'text-slate-900'}`} 
                           />
                           
                           {role !== 'GUEST' && (
@@ -3740,7 +3860,21 @@ export default function App() {
                         return (
                           <td 
                             key={p} 
-                            className={`border-r-2 ${isIndustrial ? 'border-slate-800' : 'border-slate-200'} p-0 relative transition-all`}
+                            className={`border-r-2 ${isIndustrial ? 'border-slate-800' : 'border-slate-200'} p-0 relative transition-all cursor-pointer hover:bg-slate-500/5 dark:hover:bg-slate-300/5`}
+                            onClick={(e) => {
+                              if (role === 'GUEST') return;
+                              const target = e.target as HTMLElement;
+                              if (target.closest('select') || target.closest('button') || target.closest('input') || target.closest('svg') || target.tagName === 'OPTION') {
+                                return;
+                              }
+                              setQuickEditCell({
+                                building: b,
+                                processName: p,
+                                currentValue: bProcesses[p] ?? 0,
+                                isPercentMode: getProcessMode(p) === 'percent',
+                                floors
+                              });
+                            }}
                           >
                             <div 
                               className={`space-y-1`}
@@ -3897,18 +4031,19 @@ export default function App() {
                   const avg = processes.length > 0 && processValues.length > 0 
                     ? Math.round(processValues.reduce((a, v) => a + v, 0) / processValues.length) 
                     : 0;
-                  const isIndustrial = data.settings.theme === 'industrial';
+                  const isDark = isDarkTheme;
+                  const isMidnight = data.settings.theme === 'midnight';
                   const floors = getFloorList(b);
 
                   return (
                     <div 
                       key={b.id} 
-                      className={`p-4 rounded-2xl border ${activeTheme.border} ${activeTheme.card} shadow-sm space-y-4`}
+                      className={`p-3 rounded-2xl border ${activeTheme.border} ${activeTheme.card} shadow-sm space-y-3 ${isMidnight ? 'ring-1 ring-indigo-500/20' : ''}`}
                     >
                       {/* Header: Building Info & Average */}
-                      <div className="flex items-center justify-between border-b pb-3 border-slate-200/50 dark:border-slate-800">
-                        <div className="flex items-center gap-2">
-                          <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-blue-500/10 dark:bg-[#00ff9f]/10 text-xs font-black text-blue-600 dark:text-[#00ff9f]">
+                      <div className={`flex items-center justify-between border-b pb-2 ${isDark ? 'border-slate-800' : 'border-slate-200/50'}`}>
+                        <div className="flex items-center gap-1.5">
+                          <span className={`flex items-center justify-center w-5 h-5 rounded-lg text-[10px] font-black ${isDark ? 'bg-indigo-500/10 text-indigo-400' : 'bg-blue-500/10 text-blue-600'}`}>
                             {bIdx + 1}
                           </span>
                           <div className="flex flex-col">
@@ -3917,11 +4052,11 @@ export default function App() {
                               value={b.name} 
                               disabled={role === 'GUEST'} 
                               onChange={(e) => renameBuilding(b.id, e.target.value)} 
-                              className={`font-black text-sm p-0 m-0 bg-transparent border-none focus:ring-0 w-24 ${isIndustrial ? 'text-white' : 'text-slate-900'}`} 
+                              className={`font-black text-xs md:text-sm p-0 m-0 bg-transparent border-none focus:ring-0 w-20 md:w-24 ${isDark ? 'text-white' : 'text-slate-900'}`} 
                             />
                             {/* Floor Information */}
                             {role !== 'GUEST' && (
-                              <div className="flex items-center gap-1.5 mt-0.5 text-[9px] text-slate-400 font-bold">
+                              <div className="flex items-center gap-1 mt-0.5 text-[8px] text-slate-400 font-bold">
                                 <span className="flex items-center gap-0.5">
                                   지하: 
                                   <input 
@@ -3936,7 +4071,7 @@ export default function App() {
                                         }));
                                       }
                                     }}
-                                    className="w-4 h-3 text-center p-0 bg-transparent border-none focus:ring-0 font-extrabold text-blue-500 dark:text-[#00ff9f]"
+                                    className={`w-3 h-3 text-center p-0 bg-transparent border-none focus:ring-0 font-extrabold ${isDark ? 'text-indigo-400' : 'text-blue-500'}`}
                                   />
                                   층
                                 </span>
@@ -3955,7 +4090,7 @@ export default function App() {
                                         }));
                                       }
                                     }}
-                                    className="w-4 h-3 text-center p-0 bg-transparent border-none focus:ring-0 font-extrabold text-blue-500 dark:text-[#00ff9f]"
+                                    className={`w-3 h-3 text-center p-0 bg-transparent border-none focus:ring-0 font-extrabold ${isDark ? 'text-indigo-400' : 'text-blue-500'}`}
                                   />
                                   층
                                 </span>
@@ -3964,15 +4099,15 @@ export default function App() {
                           </div>
                         </div>
                         
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2 md:gap-3">
                           <div className="flex flex-col items-end">
-                            <span className="text-[9px] uppercase tracking-wider font-bold text-slate-400">평균 공정률</span>
-                            <span className={`text-sm font-black ${isIndustrial ? 'text-[#00ff9f]' : 'text-blue-600'}`}>{avg}%</span>
+                            <span className="text-[8px] uppercase tracking-wider font-bold text-slate-400">평균 공정률</span>
+                            <span className={`text-xs md:text-sm font-black ${isDark ? activeTheme.text.replace('text-', 'text-') : 'text-blue-600'}`}>{avg}%</span>
                           </div>
                           {role !== 'GUEST' && (
                             <button 
                               onClick={() => deleteBuilding(b.id)} 
-                              className="text-slate-300 hover:text-red-500 transition-colors p-1.5 rounded-lg hover:bg-red-50/50 dark:hover:bg-red-950/20"
+                              className="text-slate-300 hover:text-red-500 transition-colors p-1 rounded-lg hover:bg-red-50/50 dark:hover:bg-red-950/20"
                               title="동 삭제"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -3982,7 +4117,7 @@ export default function App() {
                       </div>
 
                       {/* Processes list for this building */}
-                      <div className="space-y-3">
+                      <div className="space-y-2">
                         {sortedDisplayProcesses.map((p) => {
                           const bProcesses = b.processes || {};
                           const mProcesses = b.materialProcesses || {};
@@ -3993,16 +4128,16 @@ export default function App() {
                           return (
                             <div 
                               key={p}
-                              className={`p-3 rounded-xl border ${isIndustrial ? 'border-slate-800 bg-slate-900/30' : 'border-slate-100 bg-slate-50/40'} space-y-2`}
+                              className={`p-2 md:p-3 rounded-lg md:rounded-xl border ${isIndustrial ? 'border-slate-800 bg-slate-900/30' : 'border-slate-100 bg-slate-50/40'} space-y-1.5`}
                             >
                               {/* Process Title / Header Row */}
                               <div className="flex items-center justify-between">
-                                <span className={`text-[11px] font-black truncate max-w-[180px] ${isIndustrial ? 'text-slate-200' : 'text-slate-700'}`}>
+                                <span className={`text-[10px] md:text-[11px] font-black truncate max-w-[150px] md:max-w-[180px] ${isIndustrial ? 'text-slate-200' : 'text-slate-700'}`}>
                                   {p}
                                 </span>
                                 
                                 {/* Progress Value Status Tag */}
-                                <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-full ${
+                                <span className={`text-[9px] md:text-[10px] font-black px-1 md:px-1.5 py-0.5 rounded-full ${
                                   isDone 
                                     ? 'bg-green-100 text-green-700 dark:bg-green-950/30 dark:text-green-400' 
                                     : isNa 
@@ -4116,13 +4251,44 @@ export default function App() {
                                   <span className="text-[8px] font-black text-slate-400">자재 반입일</span>
                                   <div className="flex items-center gap-1">
                                     <Calendar className="w-3 h-3 text-slate-400 shrink-0" />
-                                    <input 
-                                      type="date" 
-                                      value={mDates[p] || ''} 
-                                      disabled={role === 'GUEST'}
-                                      onChange={e => handleUpdateMaterialDate(b.id, p, e.target.value)}
-                                      className={`bg-transparent border-none p-0 text-[10px] font-black focus:ring-0 cursor-pointer text-slate-600 dark:text-slate-300 w-full`}
-                                    />
+                                    <div className="relative group w-full">
+                                      <input 
+                                        type="date" 
+                                        value={mDates[p] || ''} 
+                                        disabled={role === 'GUEST'}
+                                        onChange={e => handleUpdateMaterialDate(b.id, p, e.target.value)}
+                                        className={`bg-transparent border-none p-0 text-[10px] font-black focus:ring-0 cursor-pointer text-slate-600 dark:text-slate-300 w-full ${
+                                          mDates[p] && (() => {
+                                            const leadTime = data.settings.processLeadTimes?.[p] || 0;
+                                            const mDate = new Date(mDates[p]);
+                                            mDate.setHours(0,0,0,0);
+                                            const latestOrder = new Date(mDate);
+                                            latestOrder.setDate(latestOrder.getDate() - leadTime);
+                                            const today = new Date();
+                                            today.setHours(0,0,0,0);
+                                            return today >= latestOrder;
+                                          })() ? 'text-rose-500 font-black' : ''
+                                        }`}
+                                      />
+                                      {mDates[p] && (() => {
+                                        const leadTime = data.settings.processLeadTimes?.[p] || 0;
+                                        const mDate = new Date(mDates[p]);
+                                        mDate.setHours(0,0,0,0);
+                                        const latestOrderDate = new Date(mDate);
+                                        latestOrderDate.setDate(latestOrderDate.getDate() - leadTime);
+                                        const today = new Date();
+                                        today.setHours(0,0,0,0);
+                                        
+                                        if (today >= latestOrderDate) {
+                                          return (
+                                            <div className="absolute left-0 -top-6 hidden group-hover:block z-50 bg-rose-600 text-white text-[9px] px-2 py-1 rounded shadow-xl whitespace-nowrap">
+                                              발주 임박! (최종 발주일: {latestOrderDate.toISOString().split('T')[0]})
+                                            </div>
+                                          );
+                                        }
+                                        return null;
+                                      })()}
+                                    </div>
                                   </div>
                                 </div>
                               </div>
@@ -4136,27 +4302,27 @@ export default function App() {
             </div>
           )}
 
-          <section className={`${activeTheme.card} rounded-2xl shadow-sm border ${activeTheme.border} p-8 space-y-6 mt-8`}>
+          <section className={`${activeTheme.card} rounded-2xl shadow-sm border ${activeTheme.border} p-4 md:p-8 space-y-4 md:space-y-6 mt-4 md:mt-8`}>
             <div className="flex items-center justify-between">
-               <div className="flex items-center gap-2">
-                  <LayoutGrid className={`w-5 h-5 ${activeTheme.text}`} />
-                  <h2 className={`text-lg font-bold ${data.settings.theme === 'industrial' ? 'text-white underline decoration-emerald-500/30' : 'text-slate-900 underline decoration-blue-500/30'} decoration-4 underline-offset-4`}>부대시설 및 주민공동시설 현황</h2>
+               <div className="flex items-center gap-1.5 md:gap-2">
+                  <LayoutGrid className={`w-4 h-4 md:w-5 md:h-5 ${activeTheme.text}`} />
+                  <h2 className={`text-sm md:text-lg font-bold ${data.settings.theme === 'industrial' ? 'text-white underline decoration-emerald-500/30' : 'text-slate-900 underline decoration-blue-500/30'} decoration-2 md:decoration-4 underline-offset-4`}>부대시설 및 주민공동시설 현황</h2>
                </div>
-               <p className="text-xs text-slate-400 font-medium">* 클릭하여 상태 변경</p>
+               <p className="text-[9px] md:text-xs text-slate-400 font-medium">* 클릭하여 상태 변경</p>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-6">
                {data.facilities.map(f => {
                  const avgProgress = getFacilityAverage(f);
                  return (
-                   <div key={f.id} className={`${activeTheme.card} rounded-2xl shadow-sm border ${activeTheme.border} p-5 space-y-4`}>
+                   <div key={f.id} className={`${activeTheme.card} rounded-2xl shadow-sm border ${activeTheme.border} p-3 md:p-5 space-y-3 md:space-y-4`}>
                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-3 h-3 rounded-full ${f.status === 'COMPLETED' ? 'bg-green-500' : f.status === 'IN_PROGRESS' ? 'bg-blue-500' : 'bg-slate-300'}`} />
-                          <h3 className={`font-bold ${data.settings.theme === 'industrial' ? 'text-slate-200' : 'text-slate-800'}`}>{f.name}</h3>
+                        <div className="flex items-center gap-2 md:gap-3">
+                          <div className={`w-2 h-2 md:w-3 md:h-3 rounded-full ${f.status === 'COMPLETED' ? 'bg-green-500' : f.status === 'IN_PROGRESS' ? 'bg-blue-500' : 'bg-slate-300'}`} />
+                          <h3 className={`text-sm md:text-base font-bold ${data.settings.theme === 'industrial' ? 'text-slate-200' : 'text-slate-800'}`}>{f.name}</h3>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5 md:gap-2">
                           <span className={`text-xs font-black ${avgProgress === 100 ? 'text-green-500' : activeTheme.text}`}>{avgProgress}%</span>
-                          <button onClick={() => handleUpdateFacilityStatus(f.id)} className={`text-[10px] font-bold px-2 py-1 rounded-full ${f.status === 'COMPLETED' ? 'bg-green-100 text-green-700' : f.status === 'IN_PROGRESS' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>
+                          <button onClick={() => handleUpdateFacilityStatus(f.id)} className={`text-[8px] md:text-[10px] font-bold px-1.5 md:px-2 py-0.5 md:py-1 rounded-full ${f.status === 'COMPLETED' ? 'bg-green-100 text-green-700' : f.status === 'IN_PROGRESS' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>
                             {f.status === 'COMPLETED' ? '완료' : f.status === 'IN_PROGRESS' ? '진행중' : '대기'}
                           </button>
                         </div>
@@ -4220,7 +4386,13 @@ export default function App() {
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.2 }}
           >
-            <div className="space-y-8">
+            <div className="space-y-4 md:space-y-8">
+              {/* D-Day & Progress Gauge Widgets */}
+              <DashboardWidgets 
+                data={data} 
+                isIndustrial={isDarkTheme} 
+              />
+
               {/* Stacked Progress Bar Chart (D3 Visualization) */}
               <div className="no-print">
                 <StackedProgressBarChart buildings={data.buildings} processes={processes} />
@@ -4228,20 +4400,20 @@ export default function App() {
 
             {/* AI Diagnosis Summary Cards */}
             {(data.aiRisks && data.aiRisks.length > 0 || data.aiActions && data.aiActions.length > 0) && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-6">
                 <motion.div 
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
-                  className={`bg-rose-50 dark:bg-rose-900/10 border border-rose-100 dark:border-rose-900/30 rounded-2xl p-5 shadow-sm relative overflow-hidden`}
+                  className={`bg-rose-50 dark:bg-rose-900/10 border border-rose-100 dark:border-rose-900/30 rounded-2xl p-4 md:p-5 shadow-sm relative overflow-hidden`}
                 >
                   <div className="absolute top-0 right-0 w-24 h-24 bg-rose-500/5 rounded-full -mr-8 -mt-8" />
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="p-2 bg-rose-500 rounded-lg text-white">
-                      <AlertTriangle className="w-5 h-5" />
+                  <div className="flex items-center gap-2 md:gap-3 mb-3 md:mb-4">
+                    <div className="p-1.5 md:p-2 bg-rose-500 rounded-lg text-white">
+                      <AlertTriangle className="w-4 h-4 md:w-5 md:h-5" />
                     </div>
                     <div>
-                      <h3 className="font-black text-rose-900 dark:text-rose-400">핵심 위험 요소</h3>
-                      <p className="text-[10px] text-rose-600 font-bold uppercase tracking-wider">AI REAL-TIME RISK ANALYSIS</p>
+                      <h3 className="text-sm md:text-base font-black text-rose-900 dark:text-rose-400">핵심 위험 요소</h3>
+                      <p className="text-[8px] md:text-[10px] text-rose-600 font-bold uppercase tracking-wider">AI REAL-TIME RISK ANALYSIS</p>
                     </div>
                   </div>
                   <ul className="space-y-3">
@@ -4296,8 +4468,8 @@ export default function App() {
                     <AreaChart data={data.history}>
                       <defs>
                         <linearGradient id="colorProg" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor={data.settings.theme === 'industrial' ? '#00ff9f' : '#2563eb'} stopOpacity={0.3}/>
-                          <stop offset="95%" stopColor={data.settings.theme === 'industrial' ? '#00ff9f' : '#2563eb'} stopOpacity={0}/>
+                          <stop offset="5%" stopColor={activeTheme.accentHex} stopOpacity={0.3}/>
+                          <stop offset="95%" stopColor={activeTheme.accentHex} stopOpacity={0}/>
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={data.settings.theme === 'industrial' ? '#2d333d' : '#f1f5f9'} />
@@ -4340,20 +4512,20 @@ export default function App() {
               </div>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-3 md:gap-6">
               {data.buildings.map(b => {
                 const avg = processes.length > 0 ? Math.round((Object.values(b.processes) as number[]).reduce((a, b) => a + b, 0) / processes.length) : 0;
                 return (
-                  <div key={b.id} className={`${activeTheme.card} rounded-2xl shadow-sm border ${activeTheme.border} p-5 hover:shadow-md transition-all relative overflow-hidden`}>
+                  <div key={b.id} className={`${activeTheme.card} rounded-2xl shadow-sm border ${activeTheme.border} p-3 md:p-5 hover:shadow-md transition-all relative overflow-hidden`}>
                     <div className={`absolute top-0 left-0 w-1 h-full ${avg === 100 ? 'bg-green-500' : activeTheme.accent}`} />
-                    <div className="flex justify-between items-start mb-4">
-                      <div className="flex items-center gap-3">
-                        <div className={`p-2 rounded-lg ${avg === 100 ? 'bg-green-100 text-green-700' : 'bg-blue-50 text-blue-700'}`}><Building2 className="w-5 h-5" /></div>
-                        <h3 className={`font-black ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'}`}>{b.name}</h3>
+                    <div className="flex justify-between items-start mb-2 md:mb-4">
+                      <div className="flex items-center gap-2 md:gap-3">
+                        <div className={`p-1.5 md:p-2 rounded-lg ${avg === 100 ? 'bg-green-100 text-green-700' : 'bg-blue-50 text-blue-700'}`}><Building2 className="w-4 h-4 md:w-5 md:h-5" /></div>
+                        <h3 className={`text-sm md:text-base font-black ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'}`}>{b.name}</h3>
                       </div>
                       <div className="text-right">
-                        <div className={`text-2xl font-black ${avg === 100 ? 'text-green-600' : activeTheme.text}`}>{avg}%</div>
-                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">PROGRESS: {getFloorText(avg, b)}</div>
+                        <div className={`text-xl md:text-2xl font-black ${avg === 100 ? 'text-green-600' : activeTheme.text}`}>{avg}%</div>
+                        <div className="text-[8px] md:text-[10px] font-bold text-slate-400 uppercase tracking-tighter">PROGRESS: {getFloorText(avg, b)}</div>
                       </div>
                     </div>
                     <div className="space-y-1.5">
@@ -4441,15 +4613,15 @@ export default function App() {
             transition={{ duration: 0.2 }}
           >
             <div className="space-y-8">
-             <div className={`${activeTheme.card} rounded-2xl shadow-sm border ${activeTheme.border} p-8`}>
-                <div className="flex items-center justify-between mb-8">
-                  <div className="flex items-center gap-3">
-                    <div className={`${activeTheme.accent} p-3 rounded-xl text-white`}>
-                      <TrendingUp className="w-6 h-6" />
+             <div className={`${activeTheme.card} rounded-2xl shadow-sm border ${activeTheme.border} p-4 md:p-8`}>
+                <div className="flex items-center justify-between mb-4 md:mb-8">
+                  <div className="flex items-center gap-2 md:gap-3">
+                    <div className={`${activeTheme.accent} p-2 md:p-3 rounded-xl text-white`}>
+                      <TrendingUp className="w-5 h-5 md:w-6 md:h-6" />
                     </div>
                     <div>
-                      <h2 className={`text-2xl font-bold ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'}`}>건설 공정 분석</h2>
-                      <p className="text-slate-400 text-sm font-medium">프로젝트 전체 진행률 추이 및 공정별 상세 분석</p>
+                      <h2 className={`text-lg md:text-2xl font-bold ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'}`}>건설 공정 분석</h2>
+                      <p className="text-slate-400 text-[10px] md:text-sm font-medium">프로젝트 전체 진행률 추이 및 공정별 상세 분석</p>
                     </div>
                   </div>
                 </div>
@@ -5343,7 +5515,7 @@ export default function App() {
                 }`}
               >
                 <h3 className={`text-xl font-black uppercase tracking-tight italic ${
-                  data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'
+                  isDarkTheme ? 'text-white' : 'text-slate-900'
                 }`}>New Site Add</h3>
                 <div className="space-y-4">
                   <div className="space-y-2">
@@ -5461,6 +5633,28 @@ export default function App() {
             onDelete={(index) => handleDeletePhoto(galleryTarget.buildingId, galleryTarget.processName, index)}
             onViewPhoto={(photo) => setSelectedPhoto(photo)}
             theme={data.settings.theme}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Quick Numeric Keypad Edit Overlay */}
+      <AnimatePresence>
+        {quickEditCell && (
+          <QuickEditKeypad
+            building={quickEditCell.building}
+            processName={quickEditCell.processName}
+            currentValue={quickEditCell.currentValue}
+            isPercentMode={quickEditCell.isPercentMode}
+            floors={quickEditCell.floors}
+            onClose={() => setQuickEditCell(null)}
+            onSave={(value) => {
+              handleUpdateProgress(quickEditCell.building.id, quickEditCell.processName, value);
+              setQuickEditCell(null);
+            }}
+            isIndustrial={isDarkTheme}
+            formatFloor={formatFloor}
+            floorToPercent={floorToPercent}
+            percentToFloor={percentToFloor}
           />
         )}
       </AnimatePresence>
