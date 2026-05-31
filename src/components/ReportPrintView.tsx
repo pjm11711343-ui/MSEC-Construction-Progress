@@ -20,8 +20,9 @@ const ReportPrintView: React.FC<ReportPrintViewProps> = ({ data, sortedProcesses
     if (val === -1) return '-';
     if (val === 100) return '완료';
     if (val === 0) return '대기';
+    if (val === 1) return '진행';
     
-    const mode = data.settings.processModes?.[p] || 'floor';
+    const mode = data.settings.processModes?.[p] || data.settings.progressMode || 'floor';
     if (mode === 'floor') {
       const min = b.minFloor !== undefined ? b.minFloor : data.settings.minFloor;
       const max = b.maxFloor !== undefined ? b.maxFloor : data.settings.maxFloor;
@@ -30,9 +31,40 @@ const ReportPrintView: React.FC<ReportPrintViewProps> = ({ data, sortedProcesses
         if (f !== 0) floors.push(f);
       }
       
-      const idx = Math.round((val / 100) * (floors.length - 1));
+      if (floors.length === 0) return '1층';
+      const adjustedPercent = (Math.max(5, Math.min(95, val)) - 5) / 90;
+      const idx = Math.round(adjustedPercent * (floors.length - 1));
       const f = floors[idx];
-      return f < 0 ? `B${Math.abs(f)}` : `${f}F`;
+      if (f === 999) return "지붕층";
+      if (f < 0) return `지하${Math.abs(f)}층`;
+      return `${f}층`;
+    }
+    
+    return `${val}%`;
+  };
+
+  const getMaterialProgressText = (val: number, b: BuildingData, p: string) => {
+    if (val === -1) return '-';
+    if (val === 100) return '입고완료';
+    if (val === 0) return '자재미입고';
+    if (val === 1) return '진행중';
+    
+    const mode = data.settings.processModes?.[p] || data.settings.progressMode || 'floor';
+    if (mode === 'floor') {
+      const min = b.minFloor !== undefined ? b.minFloor : data.settings.minFloor;
+      const max = b.maxFloor !== undefined ? b.maxFloor : data.settings.maxFloor;
+      const floors = [];
+      for (let f = min; f <= max; f++) {
+        if (f !== 0) floors.push(f);
+      }
+      
+      if (floors.length === 0) return '1층';
+      const adjustedPercent = (Math.max(5, Math.min(95, val)) - 5) / 90;
+      const idx = Math.round(adjustedPercent * (floors.length - 1));
+      const f = floors[idx];
+      if (f === 999) return "지붕층";
+      if (f < 0) return `지하${Math.abs(f)}층`;
+      return `${f}층`;
     }
     
     return `${val}%`;
@@ -131,9 +163,85 @@ const ReportPrintView: React.FC<ReportPrintViewProps> = ({ data, sortedProcesses
         )}
       </div>
 
+      {/* Material Receipt Status Table */}
+      <div className="mb-8 break-before-page print:mt-8">
+        <h2 className="text-xs font-black text-slate-900 mb-3 bg-amber-500 text-white px-3 py-1 inline-block uppercase tracking-[0.2em]">03. Material Receipt Status</h2>
+        <div className="overflow-hidden border border-amber-200 rounded-lg shadow-sm">
+          <table className="w-full text-[8px] border-collapse">
+            <thead>
+              <tr className="bg-amber-50 text-amber-900">
+                <th className="border border-amber-200 p-1.5 w-10 text-center font-black">No.</th>
+                <th className="border border-amber-200 p-1.5 w-16 text-center font-black">동 명칭</th>
+                {displayProcesses.map(p => (
+                  <th key={p} className="border border-amber-200 p-1.5 text-center font-black">
+                    {p.replace(/^\d+\.\s*/, '')}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {data.buildings.map((b, idx) => {
+                return (
+                  <tr key={b.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-amber-50/20'}>
+                    <td className="border border-amber-100 p-1.5 text-center text-slate-400 font-bold">{idx + 1}</td>
+                    <td className="border border-amber-100 p-1.5 text-center font-black text-slate-900">{b.name}</td>
+                    {displayProcesses.map(p => {
+                      const mProgress = b.materialProcesses?.[p] ?? 0;
+                      const mDate = b.materialDates?.[p];
+                      return (
+                        <td key={p} className="border border-amber-100 p-1.5 text-center leading-tight">
+                          <div className={`font-black ${mProgress === 100 ? 'text-amber-600' : 'text-slate-700'}`}>
+                            {getMaterialProgressText(mProgress, b, p)}
+                          </div>
+                          {mDate && (
+                            <div className="text-[7px] text-slate-400 font-bold mt-0.5">{mDate}</div>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Construction Completion Status */}
+      <div className="mb-8">
+        <h2 className="text-xs font-black text-slate-900 mb-3 bg-blue-600 text-white px-3 py-1 inline-block uppercase tracking-[0.2em]">04. Construction Completion Status</h2>
+        <div className="grid grid-cols-2 gap-4">
+          {data.buildings.map(b => {
+            const completedProcesses = sortedProcesses.filter(p => b.processes[p] === 100);
+            if (completedProcesses.length === 0) return null;
+            
+            return (
+              <div key={b.id} className="border border-blue-100 rounded-lg p-3 bg-blue-50/30">
+                <div className="flex items-center justify-between mb-2 border-b border-blue-100 pb-1">
+                  <span className="text-[10px] font-black text-blue-900">{b.name} 동</span>
+                  <span className="text-[8px] font-bold text-blue-500">{completedProcesses.length}개 공정 완료</span>
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {completedProcesses.map(p => (
+                    <span key={p} className="bg-blue-600 text-white text-[7px] px-1.5 py-0.5 rounded-sm font-black whitespace-nowrap">
+                      {p.replace(/^\d+\.\s*/, '')}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {data.buildings.every(b => !sortedProcesses.some(p => b.processes[p] === 100)) && (
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg text-center text-[10px] text-slate-400 font-bold">
+            현재 완료된 공종이 없습니다.
+          </div>
+        )}
+      </div>
+
       {/* Specific Notes */}
       <div className="mb-12">
-        <h2 className="text-xs font-black text-slate-900 mb-3 bg-slate-900 text-white px-3 py-1 inline-block uppercase tracking-[0.2em]">03. Special Notes</h2>
+        <h2 className="text-xs font-black text-slate-900 mb-3 bg-slate-900 text-white px-3 py-1 inline-block uppercase tracking-[0.2em]">05. Special Notes</h2>
         <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg min-h-[120px] text-[10px] text-slate-600 leading-relaxed font-medium whitespace-pre-wrap">
           {data.dashboardNotes || '본 현장의 주요 이슈 및 특이사항이 기술되는 공간입니다. 현재 등록된 특이사항이 없습니다.'}
         </div>
