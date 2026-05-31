@@ -164,6 +164,10 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 const FIRESTORE_DOC_PATH = "projects/global_data";
 
 async function saveProjectData(data: any) {
+  if (process.env.VERCEL) {
+    console.log("[Vercel] Skipping local disk save since filesystem is read-only.");
+    return;
+  }
   const tmpPath = `${DATA_FILE}.tmp`;
   try {
     await fs.promises.writeFile(tmpPath, JSON.stringify(data, null, 2), "utf-8");
@@ -839,15 +843,20 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+    if (fs.existsSync(distPath)) {
+      app.use(express.static(distPath));
+      app.get('*', (req, res) => {
+        res.sendFile(path.join(distPath, 'index.html'));
+      });
+    }
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
+  // Only start listening if we're not on Vercel (Vercel handles routing to exported app)
+  if (!process.env.VERCEL && !process.env.LAMBDA_TASK_ROOT) {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
+  }
 }
 
 startServer();
