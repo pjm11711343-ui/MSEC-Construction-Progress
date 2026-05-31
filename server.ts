@@ -1,6 +1,7 @@
 import express from "express";
 import path from "path";
-import { createServer as createViteServer } from "vite";
+
+// import { createServer as createViteServer } from "vite"; // Removed from top level
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import cors from "cors";
@@ -23,7 +24,7 @@ const BACKUPS_DIR = path.join(process.cwd(), "backups");
 let serverProjectDataMemory: any = null;
 
 // Ensure backups directory exists
-if (!fs.existsSync(BACKUPS_DIR)) {
+if (!process.env.VERCEL && !fs.existsSync(BACKUPS_DIR)) {
   fs.mkdirSync(BACKUPS_DIR, { recursive: true });
 }
 
@@ -67,15 +68,17 @@ function scheduleNextMidnightBackup() {
   console.log(`[Backup] Next automated midnight backup scheduled in ${Math.round(msUntilMidnight / 1000 / 60)} minutes.`);
 }
 
-// Start the scheduler immediately on server boot
-scheduleNextMidnightBackup();
+// Start the scheduler immediately on server boot if not on Vercel
+if (!process.env.VERCEL) {
+  scheduleNextMidnightBackup();
+}
 
 // Firebase configuration loading & initialization
 let firestoreDb: any = null;
 let isFirestoreSuspended = false;
 let firestoreSuspensionReason: string | null = null;
 const configPath = path.join(process.cwd(), "firebase-applet-config.json");
-const QUOTA_MARKER_FILE = path.join(process.cwd(), "firestore_quota_exhausted.flag");
+const QUOTA_MARKER_FILE = path.join(process.env.VERCEL ? "/tmp" : process.cwd(), "firestore_quota_exhausted.flag");
 
 // Check if we have a persisted quota suspension to avoid continuous Grpc connection quota error logs
 if (fs.existsSync(QUOTA_MARKER_FILE)) {
@@ -247,12 +250,17 @@ async function syncSaveProjectData(data: any) {
         console.warn("[Firebase Sync] Quota / permission limits reached during write. Gracefully suspending Cloud Firestore updates.");
         isFirestoreSuspended = true;
         firestoreSuspensionReason = "QUOTA_EXHAUSTED";
-        try {
-          fs.writeFileSync(QUOTA_MARKER_FILE, String(Date.now()), "utf-8");
-          console.log("[Firebase Sync] Persisted write quota suspension flag to disk.");
-        } catch (fileErr) {
-          console.error("[Firebase Sync] Failed to write quota marker file:", fileErr);
-        }
+    if (process.env.VERCEL) {
+      // Don't try to write flag on Vercel read-only FS
+      console.warn("[Firebase Sync] Quota exceeded. Skipping flag write on Vercel.");
+    } else {
+      try {
+        fs.writeFileSync(QUOTA_MARKER_FILE, String(Date.now()), "utf-8");
+        console.log("[Firebase Sync] Persisted write quota suspension flag to disk.");
+      } catch (fileErr) {
+        console.error("[Firebase Sync] Failed to write quota marker file:", fileErr);
+      }
+    }
         if (unsubscribeRealtime) {
           try {
             unsubscribeRealtime();
@@ -328,12 +336,16 @@ function startRealtimeSyncListener() {
       console.warn("[Firebase Sync] Cloud Firestore subscription stream quota exceeded. Suspending Firestore polling and syncing.");
       isFirestoreSuspended = true;
       firestoreSuspensionReason = "QUOTA_EXHAUSTED";
+    if (process.env.VERCEL) {
+      console.warn("[Firebase Sync] Subscription quota exceeded. Skipping flag write on Vercel.");
+    } else {
       try {
         fs.writeFileSync(QUOTA_MARKER_FILE, String(Date.now()), "utf-8");
         console.log("[Firebase Sync] Persisted subscription quota suspension flag to disk.");
       } catch (fileErr) {
         console.error("[Firebase Sync] Failed to write quota marker file:", fileErr);
       }
+    }
       if (unsubscribeRealtime) {
         try {
           unsubscribeRealtime();
@@ -391,8 +403,8 @@ async function testFirestoreConnection() {
   }
 }
 
-// Initiate test and listener on server startup
-if (firestoreDb) {
+// Initiate test and listener on server startup (Skip on Vercel to optimize function startup)
+if (firestoreDb && !process.env.VERCEL) {
   (async () => {
     await testFirestoreConnection();
     if (firestoreDb && !isFirestoreSuspended) {
@@ -835,12 +847,17 @@ app.all("/api/*", (req, res) => {
 });
 
 async function startServer() {
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
+  if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {
+    try {
+      const { createServer } = await import("vite");
+      const vite = await createServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+    } catch (e) {
+      console.warn("Vite failed to initialize in dev mode:", e);
+    }
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     if (fs.existsSync(distPath)) {
