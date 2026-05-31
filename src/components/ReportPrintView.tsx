@@ -8,6 +8,15 @@ import { AppState, BuildingData } from '../types';
 import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import { ShieldCheck } from 'lucide-react';
+import {
+  Radar,
+  RadarChart,
+  PolarGrid,
+  PolarAngleAxis,
+  PolarRadiusAxis,
+  ResponsiveContainer,
+  Legend
+} from 'recharts';
 
 interface ReportPrintViewProps {
   data: AppState;
@@ -76,6 +85,21 @@ const ReportPrintView: React.FC<ReportPrintViewProps> = ({ data, sortedProcesses
   // If there are many processes, we take the first 10
   const displayProcesses = sortedProcesses.slice(0, 10);
 
+  // Prepare Radar Chart Data
+  const radarData = displayProcesses.map(p => {
+    const entry: any = {
+      subject: p.replace(/^\d+\.\s*/, ''),
+      fullMark: 100,
+    };
+    data.buildings.forEach(b => {
+      // Use process value, default to 0 if not set or -1
+      entry[b.name] = b.processes[p] === -1 ? 0 : (b.processes[p] ?? 0);
+    });
+    return entry;
+  });
+
+  const chartColors = ['#2563eb', '#dc2626', '#16a34a', '#ca8a04', '#9333ea', '#0891b2', '#ea580c', '#4f46e5', '#db2777', '#059669'];
+
   return (
     <div className="bg-white p-8 max-w-[210mm] mx-auto min-h-[297mm] shadow-lg print:shadow-none print:p-0 print:m-0 print:max-w-none report-print-container">
       {/* Report Header */}
@@ -113,21 +137,21 @@ const ReportPrintView: React.FC<ReportPrintViewProps> = ({ data, sortedProcesses
         </div>
       </div>
 
-      {/* Progress Data Table */}
+      {/* Progress & Material Status Data Table */}
       <div className="mb-8">
-        <h2 className="text-xs font-black text-slate-900 mb-3 bg-slate-900 text-white px-3 py-1 inline-block uppercase tracking-[0.2em]">02. Construction Progress</h2>
+        <h2 className="text-xs font-black text-slate-900 mb-3 bg-slate-900 text-white px-3 py-1 inline-block uppercase tracking-[0.2em]">02. Construction & Material Progress</h2>
         <div className="overflow-hidden border border-slate-300 rounded-lg">
-          <table className="w-full text-[9px] border-collapse">
+          <table className="w-full text-[8px] border-collapse">
             <thead>
               <tr className="bg-slate-100 text-slate-900">
-                <th className="border border-slate-300 p-2 w-10 text-center font-black">No.</th>
-                <th className="border border-slate-300 p-2 w-16 text-center font-black">동 명칭</th>
+                <th className="border border-slate-300 p-1.5 w-8 text-center font-black">No.</th>
+                <th className="border border-slate-300 p-1.5 w-14 text-center font-black">동 명칭</th>
                 {displayProcesses.map(p => (
-                  <th key={p} className="border border-slate-300 p-2 text-center font-black">
+                  <th key={p} className="border border-slate-300 p-1.5 text-center font-black">
                     {p.replace(/^\d+\.\s*/, '')}
                   </th>
                 ))}
-                <th className="border border-slate-300 p-2 w-14 text-center font-black bg-slate-200">평균</th>
+                <th className="border border-slate-300 p-1.5 w-12 text-center font-black bg-slate-200">평균</th>
               </tr>
             </thead>
             <tbody>
@@ -139,19 +163,33 @@ const ReportPrintView: React.FC<ReportPrintViewProps> = ({ data, sortedProcesses
 
                 return (
                   <tr key={b.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
-                    <td className="border border-slate-200 p-2 text-center text-slate-400 font-bold">{idx + 1}</td>
-                    <td className="border border-slate-200 p-2 text-center font-black text-slate-900">{b.name}</td>
+                    <td className="border border-slate-200 p-1.5 text-center text-slate-400 font-bold">{idx + 1}</td>
+                    <td className="border border-slate-200 p-1.5 text-center font-black text-slate-900">{b.name}</td>
                     {displayProcesses.map(p => {
                       const val = b.processes[p] ?? 0;
+                      const mProgress = b.materialProcesses?.[p] ?? 0;
+                      const mDate = b.materialDates?.[p];
+                      
                       return (
-                        <td key={p} className="border border-slate-200 p-2 text-center">
-                          <span className={`font-black ${val === 100 ? 'text-blue-600' : val === -1 ? 'text-slate-300' : 'text-slate-800'}`}>
+                        <td key={p} className="border border-slate-200 p-1.5 text-center leading-tight">
+                          {/* Construction Progress */}
+                          <div className={`mb-1 pb-1 border-b border-dashed border-slate-200 font-black ${val === 100 ? 'text-blue-600' : val === -1 ? 'text-slate-300' : 'text-slate-800'}`}>
+                            <span className="text-[7px] text-slate-400 block mb-0.5 opacity-50 font-bold">공정</span>
                             {getProgressText(val, b, p)}
-                          </span>
+                          </div>
+                          
+                          {/* Material Progress */}
+                          <div className={`font-bold pb-0.5 ${mProgress === 100 ? 'text-amber-600' : mProgress === -1 ? 'text-slate-300' : 'text-slate-500'}`}>
+                            <span className="text-[7px] text-amber-500/50 block mb-0.5 font-bold uppercase">자재</span>
+                            {getMaterialProgressText(mProgress, b, p)}
+                            {mDate && (
+                              <div className="text-[6px] text-slate-300 font-bold mt-0.5">{mDate}</div>
+                            )}
+                          </div>
                         </td>
                       );
                     })}
-                    <td className="border border-slate-200 p-2 text-center font-black bg-slate-50 text-blue-700">{avg}%</td>
+                    <td className="border border-slate-200 p-1.5 text-center font-black bg-slate-50 text-blue-700">{avg}%</td>
                   </tr>
                 );
               })}
@@ -163,47 +201,38 @@ const ReportPrintView: React.FC<ReportPrintViewProps> = ({ data, sortedProcesses
         )}
       </div>
 
-      {/* Material Receipt Status Table */}
-      <div className="mb-8 break-before-page print:mt-8">
-        <h2 className="text-xs font-black text-slate-900 mb-3 bg-amber-500 text-white px-3 py-1 inline-block uppercase tracking-[0.2em]">03. Material Receipt Status</h2>
-        <div className="overflow-hidden border border-amber-200 rounded-lg shadow-sm">
-          <table className="w-full text-[8px] border-collapse">
-            <thead>
-              <tr className="bg-amber-50 text-amber-900">
-                <th className="border border-amber-200 p-1.5 w-10 text-center font-black">No.</th>
-                <th className="border border-amber-200 p-1.5 w-16 text-center font-black">동 명칭</th>
-                {displayProcesses.map(p => (
-                  <th key={p} className="border border-amber-200 p-1.5 text-center font-black">
-                    {p.replace(/^\d+\.\s*/, '')}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {data.buildings.map((b, idx) => {
-                return (
-                  <tr key={b.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-amber-50/20'}>
-                    <td className="border border-amber-100 p-1.5 text-center text-slate-400 font-bold">{idx + 1}</td>
-                    <td className="border border-amber-100 p-1.5 text-center font-black text-slate-900">{b.name}</td>
-                    {displayProcesses.map(p => {
-                      const mProgress = b.materialProcesses?.[p] ?? 0;
-                      const mDate = b.materialDates?.[p];
-                      return (
-                        <td key={p} className="border border-amber-100 p-1.5 text-center leading-tight">
-                          <div className={`font-black ${mProgress === 100 ? 'text-amber-600' : 'text-slate-700'}`}>
-                            {getMaterialProgressText(mProgress, b, p)}
-                          </div>
-                          {mDate && (
-                            <div className="text-[7px] text-slate-400 font-bold mt-0.5">{mDate}</div>
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+      {/* Radar Chart Analysis */}
+      <div className="mb-8 break-inside-avoid">
+        <h2 className="text-xs font-black text-slate-900 mb-3 bg-slate-900 text-white px-3 py-1 inline-block uppercase tracking-[0.2em]">03. Comparative Progress Analysis (Radar)</h2>
+        <div className="border border-slate-200 rounded-lg bg-white p-4 h-[350px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarData}>
+              <PolarGrid stroke="#e2e8f0" />
+              <PolarAngleAxis 
+                dataKey="subject" 
+                tick={{ fill: '#64748b', fontSize: 8, fontWeight: 700 }}
+              />
+              <PolarRadiusAxis 
+                angle={30} 
+                domain={[0, 100]} 
+                tick={{ fill: '#cbd5e1', fontSize: 8 }}
+                axisLine={false}
+              />
+              {data.buildings.map((b, idx) => (
+                <Radar
+                  key={b.id}
+                  name={b.name}
+                  dataKey={b.name}
+                  stroke={chartColors[idx % chartColors.length]}
+                  fill={chartColors[idx % chartColors.length]}
+                  fillOpacity={0.15}
+                />
+              ))}
+              <Legend 
+                wrapperStyle={{ paddingTop: '20px', fontSize: '9px', fontWeight: 900 }}
+              />
+            </RadarChart>
+          </ResponsiveContainer>
         </div>
       </div>
 
