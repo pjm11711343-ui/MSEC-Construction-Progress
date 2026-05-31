@@ -33,7 +33,12 @@ import {
   CloudSun,
   Lock,
   Eye,
-  Clock
+  Clock,
+  Database,
+  History,
+  Layers,
+  Percent,
+  Image as ImageIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -102,6 +107,7 @@ const createNewSite = (name: string): AppState => ({
     maxFloor: 29,
     minFloor: -2,
     theme: 'blueprint',
+    sitePassword: '1234',
     progressMode: 'floor',
     processModes: DEFAULT_PROCESSES.reduce((acc, p) => ({ ...acc, [p]: 'floor' }), {}),
     fontSize: 11,
@@ -219,7 +225,7 @@ export default function App() {
   const [multiData, setMultiData] = useState<MultiProjectData>({
     activeSiteId: '',
     sites: [],
-    adminPassword: '1111'
+    adminPassword: '4714'
   });
   
   const [storageState, setStorageState] = useState<AppState>(createNewSite('스마트 아파트 현장'));
@@ -334,7 +340,7 @@ export default function App() {
             finalSites = [...updatedSites, ...additional];
           }
 
-          const mData = { ...parsed, sites: finalSites, adminPassword: parsed.adminPassword || '1111' };
+          const mData = { ...parsed, sites: finalSites, adminPassword: parsed.adminPassword || '4714' };
           setMultiData(mData);
           if (mData.trash) setTrash(mData.trash);
           
@@ -412,7 +418,7 @@ export default function App() {
       if (savedMData) {
         try {
           const parsed = JSON.parse(savedMData);
-          adminPw = parsed.adminPassword || '1111';
+          adminPw = parsed.adminPassword || '4714';
         } catch (e) {}
       }
       if (pwParam === adminPw) {
@@ -1959,13 +1965,46 @@ export default function App() {
     });
   };
 
+  const compressImage = (base64: string): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        const max = 800; // Max dimension
+
+        if (width > height) {
+          if (width > max) {
+            height *= max / width;
+            width = max;
+          }
+        } else {
+          if (height > max) {
+            width *= max / height;
+            height = max;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.7)); // Compress to JPEG with 0.7 quality
+      };
+      img.src = base64;
+    });
+  };
+
   const handleUploadPhoto = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || !photoTarget) return;
 
     const reader = new FileReader();
-    reader.onload = (e) => {
-      const base64 = e.target?.result as string;
+    reader.onload = async (e) => {
+      const rawBase64 = e.target?.result as string;
+      const compressedBase64 = await compressImage(rawBase64);
+      
       const { buildingId, processName } = photoTarget;
       setData(prev => ({
         ...prev,
@@ -1975,7 +2014,7 @@ export default function App() {
                 ...b, 
                 photos: { 
                   ...(b.photos || {}), 
-                  [processName]: [base64, ...(b.photos?.[processName] || [])].slice(0, 10)
+                  [processName]: [compressedBase64, ...(b.photos?.[processName] || [])].slice(0, 10)
                 } 
               } 
             : b
@@ -2777,7 +2816,7 @@ export default function App() {
                       <button 
                         type="button"
                         onClick={() => {
-                          const adminUrl = `${getPublicOrigin()}${window.location.pathname}?role=ADMIN&pw=${multiData.adminPassword || '1111'}${data.id ? `&site=${data.id}` : ''}`;
+                          const adminUrl = `${getPublicOrigin()}${window.location.pathname}?role=ADMIN&pw=${multiData.adminPassword || '4714'}${data.id ? `&site=${data.id}` : ''}`;
                           setShareUrl(adminUrl);
                           copyToClipboard(adminUrl);
                         }}
@@ -2926,7 +2965,7 @@ export default function App() {
       </header>
 
       {/* Main Content */}
-      <main className="max-w-[1600px] mx-auto p-1 md:p-2 space-y-2">
+      <main className="max-w-[1640px] mx-auto p-0 md:p-2 space-y-1.5 md:space-y-2">
         
         {(data as any).isHistorical && (
           <div className="no-print mb-8">
@@ -3048,7 +3087,7 @@ export default function App() {
                      />
                      <button
                        onClick={() => {
-                         const adminUrl = `${getPublicOrigin()}${window.location.pathname}?role=ADMIN&pw=${multiData.adminPassword || '1111'}${data.id ? `&site=${data.id}` : ''}`;
+                         const adminUrl = `${getPublicOrigin()}${window.location.pathname}?role=ADMIN&pw=${multiData.adminPassword || '4714'}${data.id ? `&site=${data.id}` : ''}`;
                          setShareUrl(adminUrl);
                          copyToClipboard(adminUrl);
                        }}
@@ -3263,29 +3302,29 @@ export default function App() {
                   <>
                     <div className="space-y-4">
                        <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">디자인 & 공용시설</h3>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4">
-                          {(['slate', 'blueprint', 'industrial', 'earth', 'midnight', 'modern'] as AppTheme[]).map(t => (
-                            <button 
-                              key={t} 
-                              onClick={() => setData({...data, settings: {...data.settings, theme: t}})} 
-                              className={`p-3 rounded-xl border-2 transition-all flex flex-col items-center gap-1.5 ${
-                                data.settings.theme === t 
-                                  ? `border-indigo-600 bg-indigo-50/50 dark:bg-indigo-900/20` 
-                                  : `${activeTheme.border} ${data.settings.theme === 'industrial' || data.settings.theme === 'midnight' ? 'hover:bg-slate-800' : 'hover:bg-slate-50'}`
-                              }`}
-                            >
-                              <div className={`w-8 h-8 rounded-full border-2 border-white shadow-sm ${THEMES[t].accent}`} />
-                              <span className="text-[10px] font-black uppercase tracking-widest">{
-                                t === 'slate' ? 'Classic' :
-                                t === 'blueprint' ? 'Pro Blue' :
-                                t === 'industrial' ? 'Dark Tech' :
-                                t === 'earth' ? 'Nature' :
-                                t === 'midnight' ? 'Midnight' :
-                                t === 'modern' ? 'Minimal' : t
-                              }</span>
-                            </button>
-                          ))}
-                        </div>
+                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4">
+                         {(['slate', 'blueprint', 'industrial', 'earth', 'midnight', 'modern'] as AppTheme[]).map(t => (
+                           <button 
+                             key={t} 
+                             onClick={() => setData({...data, settings: {...data.settings, theme: t}})} 
+                             className={`p-3 rounded-xl border-2 transition-all flex flex-col items-center gap-1.5 ${
+                               data.settings.theme === t 
+                                 ? `border-indigo-600 bg-indigo-50/50 dark:bg-indigo-900/20` 
+                                 : `${activeTheme.border} ${data.settings.theme === 'industrial' || data.settings.theme === 'midnight' ? 'hover:bg-slate-800' : 'hover:bg-slate-50'}`
+                             }`}
+                           >
+                             <div className={`w-8 h-8 rounded-full border-2 border-white shadow-sm ${THEMES[t].accent}`} />
+                             <span className="text-[10px] font-black uppercase tracking-widest">{
+                               t === 'slate' ? 'Classic' :
+                               t === 'blueprint' ? 'Pro Blue' :
+                               t === 'industrial' ? 'Dark Tech' :
+                               t === 'earth' ? 'Nature' :
+                               t === 'midnight' ? 'Midnight' :
+                               t === 'modern' ? 'Minimal' : t
+                             }</span>
+                           </button>
+                         ))}
+                       </div>
                        <div className="space-y-2 max-h-[150px] overflow-y-auto pr-2 custom-scrollbar">
                             {data.facilities.map(f => (
                               <div key={f.id} className={`flex items-center justify-between ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-50'} p-2 rounded-lg group`}>
@@ -3394,8 +3433,87 @@ export default function App() {
              </div>
 
              {role !== 'GUEST' && (
-               <div className="space-y-4 pt-8 border-t border-slate-200/40" id="upload-options-card">
-                 <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider text-center lg:text-left">현장 공정 데이터 일괄 업로드 및 파싱 옵션</h3>
+                <div className="space-y-8">
+                  {/* Storage & Data Health Section */}
+                  {role === 'ADMIN' && (
+                    <div className="mt-8 pt-8 border-t border-slate-200/40 space-y-4">
+                      <div className="flex items-center gap-2">
+                        <Database className={`w-5 h-5 ${activeTheme.text}`} />
+                        <h3 className="text-sm font-black text-slate-500 uppercase tracking-tight">데이터 용량 관리 및 동기화 진단</h3>
+                      </div>
+                      <div className={`p-6 rounded-3xl border ${activeTheme.border} ${data.settings.theme === 'industrial' ? 'bg-slate-900/50' : 'bg-slate-50/50'} backdrop-blur-sm grid grid-cols-1 lg:grid-cols-3 gap-8`}>
+                        <div className="space-y-3">
+                          <div className="flex justify-between items-end">
+                            <span className="text-[11px] font-bold text-slate-400">전체 프로젝트 데이터 크기</span>
+                            <span className={`text-lg font-black ${JSON.stringify(multiData).length > 5 * 1024 * 1024 ? 'text-rose-500' : 'text-blue-500'}`}>
+                              {(JSON.stringify(multiData).length / 1024 / 1024).toFixed(2)} MB
+                            </span>
+                          </div>
+                          <div className="w-full h-2 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
+                            <motion.div 
+                              initial={{ width: 0 }}
+                              animate={{ width: `${Math.min(100, (JSON.stringify(multiData).length / (10 * 1024 * 1024)) * 100)}%` }}
+                              className={`h-full ${JSON.stringify(multiData).length > 5 * 1024 * 1024 ? 'bg-rose-500' : 'bg-blue-500'}`}
+                            />
+                          </div>
+                          <p className="text-[10px] text-slate-500 leading-relaxed font-medium">
+                            * 서버 저장 권장 용량은 <strong>5MB 미만</strong>입니다. 고해상도 원본 사진이 많으면 동기화 실패(405/413)가 발생할 수 있습니다. 
+                            현재 업로드 시 자동 압축(800px) 기능이 적용되어 있으나, 기존 대용량 사진은 아래 버튼으로 정리할 수 있습니다.
+                          </p>
+                        </div>
+
+                        <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div className={`p-4 rounded-2xl bg-white dark:bg-slate-800 border ${activeTheme.border} space-y-3`}>
+                            <div className="flex items-center gap-2 text-orange-600 dark:text-orange-400">
+                              <ImageIcon className="w-4 h-4" />
+                              <span className="text-xs font-black">이미지 데이터 최적화</span>
+                            </div>
+                            <button 
+                              onClick={() => {
+                                if(window.confirm('모든 현장의 모든 사진 데이터를 삭제하시겠습니까? (텍스트 데이터는 유지됩니다) 데이터 용량이 획기적으로 줄어들어 동기화 오류가 해결됩니다.')) {
+                                  setMultiData(prev => ({
+                                    ...prev,
+                                    sites: prev.sites.map(s => ({
+                                      ...s,
+                                      buildings: s.buildings.map(b => ({ ...b, photos: {} }))
+                                    }))
+                                  }));
+                                  alert('모든 사진이 삭제되었습니다. 이제 다시 저장을 시도해 보세요.');
+                                }
+                              }}
+                              className="w-full py-2.5 rounded-xl bg-orange-50 dark:bg-orange-950/20 text-orange-600 dark:text-orange-400 border border-orange-100 dark:border-orange-900/50 hover:bg-orange-600 hover:text-white transition-all text-xs font-black shadow-sm"
+                            >
+                              현장 사진 일괄 삭제
+                            </button>
+                          </div>
+
+                          <div className={`p-4 rounded-2xl bg-white dark:bg-slate-800 border ${activeTheme.border} space-y-3`}>
+                            <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400">
+                              <History className="w-4 h-4" />
+                              <span className="text-xs font-black">추이 데이터 관리</span>
+                            </div>
+                            <button 
+                              onClick={() => {
+                                if(window.confirm('최근 5일간의 기록만 남기고 이전 히스토리를 모두 삭제하시겠습니까? 데이터 전송 속도가 빨라집니다.')) {
+                                  setData(prev => ({
+                                    ...prev,
+                                    history: (prev.history || []).slice(-5)
+                                  }));
+                                  alert('오래된 히스토리가 정리되었습니다.');
+                                }
+                              }}
+                              className="w-full py-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900/50 hover:bg-indigo-600 hover:text-white transition-all text-xs font-black shadow-sm"
+                            >
+                              오래된 히스토리 정리
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="space-y-4 pt-8 border-t border-slate-200/40" id="upload-options-card">
+                    <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider text-center lg:text-left">현장 공정 데이터 일괄 업로드 및 파싱 옵션</h3>
                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                    {/* Left: Drag and Drop Upload Zone */}
                    <div className="lg:col-span-2 flex flex-col">
@@ -3510,6 +3628,7 @@ export default function App() {
                  </div>
                </div>
              </div>
+                </div>
            )}
          </div>
           </motion.div>
@@ -3582,7 +3701,40 @@ export default function App() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.2 }}
+            className="space-y-4"
           >
+            {/* Real-time Clock & Date Display */}
+            <div className="flex flex-col md:flex-row items-center justify-between gap-3 px-2 md:px-0 no-print mb-1 overflow-hidden">
+              <div className="flex items-center gap-3 w-full md:w-auto">
+                <div className={`p-2 rounded-2xl ${isIndustrial ? 'bg-slate-800' : 'bg-blue-50'} border ${activeTheme.border} md:block hidden`}>
+                   <Calendar className="w-4 h-4 text-blue-500" />
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">Current Schedule Dashboard</span>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs md:text-base font-black ${isIndustrial ? 'text-white' : 'text-slate-900'}`}>{viewDate}</span>
+                    <div className="h-4 w-px bg-slate-300 mx-1" />
+                    <div className="flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-blue-500 animate-pulse" />
+                      <span className={`text-sm md:text-lg font-black font-mono tracking-tighter ${isIndustrial ? 'text-[#00ff9f]' : 'text-blue-600'}`}>
+                        {currentTime.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-2 w-full md:w-auto justify-end">
+                <div className="flex flex-col items-end">
+                   <span className="text-[8.5px] font-black text-slate-400 uppercase leading-none">Status Monitoring</span>
+                   <span className="text-[10px] font-black text-emerald-500 animate-pulse flex items-center gap-1">
+                     <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
+                     LIVE UPDATING
+                   </span>
+                </div>
+              </div>
+            </div>
+
             {/* Mobile layout selector toggle */}
             <div className="md:hidden flex flex-col gap-2 mb-4 bg-slate-50 dark:bg-slate-900/60 p-3 rounded-2xl border border-slate-200/60 dark:border-slate-800/60 shadow-sm no-print">
               <div className="flex items-center justify-between">
@@ -3697,7 +3849,7 @@ export default function App() {
                               }`}
                               title={getProcessMode(p) === 'floor' ? '층수 모드 (클릭하여 %로 변경)' : '% 모드 (클릭하여 층수로 변경)'}
                             >
-                              {getProcessMode(p) === 'floor' ? 'F' : '%'}
+                              {getProcessMode(p) === 'floor' ? <Layers className="w-2.5 h-2.5" /> : <Percent className="w-2.5 h-2.5" />}
                             </button>
                           </div>
                           <input 
@@ -3987,13 +4139,46 @@ export default function App() {
                                   </div>
                                   <div className={`flex items-center justify-center gap-1 mt-1 border-t pt-1.5 ${isIndustrial ? 'border-slate-800' : 'border-slate-100'}`}>
                                     <Calendar className="w-2.5 h-2.5 text-slate-400" />
-                                    <input 
-                                      type="date" 
-                                      value={mDates[p] || ''} 
-                                      disabled={role === 'GUEST'}
-                                      onChange={e => handleUpdateMaterialDate(b.id, p, e.target.value)}
-                                      className={`bg-transparent border-none p-0 text-[8px] font-black focus:ring-0 cursor-pointer text-center ${isIndustrial ? 'text-slate-200 hover:text-white' : 'text-slate-400'}`}
-                                    />
+                                    <div className="relative group">
+                                      <input 
+                                        type="date" 
+                                        value={mDates[p] || ''} 
+                                        disabled={role === 'GUEST'}
+                                        onChange={e => handleUpdateMaterialDate(b.id, p, e.target.value)}
+                                        className={`bg-transparent border-none p-0 text-[8px] font-black focus:ring-0 cursor-pointer text-center ${
+                                          isIndustrial ? 'text-slate-200 hover:text-white' : 'text-slate-400'
+                                        } ${
+                                          mDates[p] && (() => {
+                                            const leadTime = data.settings.processLeadTimes?.[p] || 0;
+                                            const mDate = new Date(mDates[p]);
+                                            mDate.setHours(0,0,0,0);
+                                            const latestOrder = new Date(mDate);
+                                            latestOrder.setDate(latestOrder.getDate() - leadTime);
+                                            const today = new Date();
+                                            today.setHours(0,0,0,0);
+                                            return today >= latestOrder;
+                                          })() ? 'text-rose-500 font-extrabold' : ''
+                                        }`}
+                                      />
+                                      {mDates[p] && (() => {
+                                         const leadTime = data.settings.processLeadTimes?.[p] || 0;
+                                         const mDate = new Date(mDates[p]);
+                                         mDate.setHours(0,0,0,0);
+                                         const latestOrderDate = new Date(mDate);
+                                         latestOrderDate.setDate(latestOrderDate.getDate() - leadTime);
+                                         const today = new Date();
+                                         today.setHours(0,0,0,0);
+                                         
+                                         if (today >= latestOrderDate) {
+                                           return (
+                                             <div className="absolute left-1/2 -translate-x-1/2 -top-7 hidden group-hover:block z-50 bg-rose-600 text-white text-[9px] px-2 py-1 rounded shadow-xl whitespace-nowrap">
+                                               발주 임박! (기한: {latestOrderDate.toISOString().split('T')[0]})
+                                             </div>
+                                           );
+                                         }
+                                         return null;
+                                      })()}
+                                    </div>
                                   </div>
                                 </div>
                               </div>
@@ -5184,7 +5369,7 @@ export default function App() {
             const targetSite = multiData.sites.find(s => s.id === targetSiteId) || data;
             const projectName = targetSite?.settings?.projectName || '스마트 아파트 현장';
 
-            const adminUrl = `${getPublicOrigin()}${window.location.pathname}?role=ADMIN&pw=${multiData.adminPassword || '1111'}${targetSiteId ? `&site=${targetSiteId}` : ''}`;
+            const adminUrl = `${getPublicOrigin()}${window.location.pathname}?role=ADMIN&pw=${multiData.adminPassword || '4714'}${targetSiteId ? `&site=${targetSiteId}` : ''}`;
             const fieldUrl = `${getPublicOrigin()}${window.location.pathname}?role=FIELD${targetSiteId ? `&site=${targetSiteId}` : ''}`;
             const guestUrl = `${getPublicOrigin()}${window.location.pathname}?role=GUEST${targetSiteId ? `&site=${targetSiteId}` : ''}`;
             

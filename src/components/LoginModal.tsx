@@ -13,7 +13,7 @@ interface LoginModalProps {
   adminPassword?: string;
 }
 
-export default function LoginModal({ onLogin, adminPassword = '1111' }: LoginModalProps) {
+export default function LoginModal({ onLogin, adminPassword = '4714' }: LoginModalProps) {
   const [password, setPassword] = React.useState('');
   const [selectedRole, setSelectedRole] = React.useState<UserRole | null>(null);
   const [error, setError] = React.useState('');
@@ -116,7 +116,7 @@ export default function LoginModal({ onLogin, adminPassword = '1111' }: LoginMod
                   <input
                     type="password"
                     autoFocus
-                    placeholder="비밀번호 입력 (초기: 1111)"
+                    placeholder="비밀번호 입력"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
