@@ -728,6 +728,72 @@ app.post(["/api/diagnosis", "/api/ai-diagnosis"], async (req, res) => {
   }
 });
 
+app.post("/api/predict-schedule", async (req, res) => {
+  console.log("POST /api/predict-schedule received");
+  try {
+    const { projectData } = req.body;
+    if (!projectData) {
+      return res.status(400).json({ error: "프로젝트 데이터가 필요합니다." });
+    }
+
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(500).json({ error: "Gemini API key is not configured." });
+    }
+
+    const prompt = `
+      건설 공기 및 공정 예측 전문가로서 현재 현장 데이터를 분석하여 향후 공기 예측 시뮬레이션을 수행해 주세요.
+      
+      [현장 정보]
+      - 프로젝트명: ${projectData.settings?.projectName || "알 수 없음"}
+      - 목표 기간: ${projectData.settings?.startDate || "알 수 없음"} ~ ${projectData.settings?.endDate || "알 수 없음"}
+      - 현재 날짜: ${new Date().toISOString().split('T')[0]}
+      
+      [공정 데이터]
+      - 동별 공정율 (JSON): ${JSON.stringify((projectData.buildings || []).map((b: any) => ({ 
+          name: b.name, 
+          progress: b.processes,
+          material: b.materialProcesses || {}
+        })))}
+      - 예정 스케줄: ${JSON.stringify(projectData.processSchedules || {})}
+      
+      [분석 지침]
+      1. 현재 공정율과 예정 공정율 간의 편차를 계산하여 현재 지연/선행 상태를 정밀 진단하십시오.
+      2. 주요 지연 공종(Critical Path 상의 공정 위주)을 식별하고 그 원인을 유추하십시오.
+      3. 현재 추세로 공사가 진행될 경우의 '예측 준공일'을 도출하십시오.
+      4. 공기 단축을 위한 전략적 제언(Fast-tracking, Crashing 등 전문 용어 활용 가능)을 포함하십시오.
+      
+      [응답 형식]
+      반드시 다음과 같은 JSON 구조로 응답하십시오:
+      {
+        "predictedCompletionDate": "YYYY-MM-DD",
+        "delayDays": 10 (예시, 지연 일수),
+        "status": "AHEAD" | "ON_TRACK" | "BEHIND",
+        "analysis": "심층 분석 내용 (마크다운 형식)",
+        "risks": [
+          { "process": "공종명", "riskLevel": "CRITICAL" | "HIGH" | "MEDIUM", "impact": "영향도 설명" }
+        ],
+        "recommendations": ["추천 조치 1", "추천 조치 2"]
+      }
+    `;
+
+    const response = await genAI.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      config: {
+        responseMimeType: "application/json",
+      }
+    });
+
+    const resultText = response.text;
+    if (!resultText) throw new Error("Gemini API response is empty");
+
+    res.json(JSON.parse(resultText));
+  } catch (error: any) {
+    console.error("AI Prediction Error:", error);
+    res.status(500).json({ error: error.message || "AI 공기 예측 중 오류가 발생했습니다." });
+  }
+});
+
 app.post("/api/extract-progress", async (req, res) => {
   console.log("POST /api/extract-progress received");
   try {

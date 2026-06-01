@@ -16,6 +16,8 @@ import {
   Building2, 
   Construction,
   TrendingUp,
+  TrendingDown,
+  Minus,
   ChevronDown,
   ChevronUp,
   ChevronLeft,
@@ -37,7 +39,8 @@ import {
   Database,
   History,
   Layers,
-  Percent
+  Percent,
+  CheckSquare
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -67,6 +70,7 @@ import { QuickEditKeypad } from './components/QuickEditKeypad';
 import { DashboardWidgets } from './components/DashboardWidgets';
 import ReactMarkdown from 'react-markdown';
 import ReportPrintView from './components/ReportPrintView';
+import AIPredictionView from './components/AIPredictionView';
 import { 
   Sparkles, 
   MessageSquare,
@@ -230,7 +234,7 @@ export default function App() {
   const [storageState, setStorageState] = useState<AppState>(createNewSite('스마트 아파트 현장'));
   const setData = setStorageState;
   const [processes, setProcesses] = useState<string[]>(DEFAULT_PROCESSES);
-  const [viewMode, setViewMode] = useState<'grid' | 'table' | 'settings' | 'analytics' | 'calendar' | 'daily_report' | 'gantt' | 'report'>('table');
+  const [viewMode, setViewMode] = useState<'grid' | 'table' | 'settings' | 'analytics' | 'calendar' | 'daily_report' | 'gantt' | 'report' | 'prediction'>('table');
   const [viewDate, setViewDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [isAutoSaving, setIsAutoSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -265,6 +269,7 @@ export default function App() {
     isPercentMode: boolean;
     floors: number[];
   } | null>(null);
+  const [selectedBuildingIds, setSelectedBuildingIds] = useState<number[]>([]);
   const [currentTime, setCurrentTime] = useState(new Date());
 
   useEffect(() => {
@@ -2167,6 +2172,29 @@ export default function App() {
   const data = displayData;
   const activeTheme = THEMES[data.settings.theme] || THEMES.slate;
   const isDarkTheme = activeTheme.isDark;
+
+  const previousEntry = React.useMemo(() => {
+    if (!storageState.history || storageState.history.length === 0) return null;
+    
+    const currentIndex = storageState.history.findIndex((h: any) => h.date === viewDate);
+    
+    if (currentIndex > 0) {
+      return storageState.history[currentIndex - 1];
+    } else if (currentIndex === 0) {
+      return null;
+    } else {
+      const today = new Date().toISOString().split('T')[0];
+      return storageState.history.filter((h: any) => h.date !== today).pop() || null;
+    }
+  }, [storageState.history, viewDate]);
+
+  const getBuildingAvg = (b: any, procList: string[]) => {
+    if (!b || !procList || procList.length === 0) return 0;
+    const vals = Object.values(b.processes) as number[];
+    const validVals = vals.filter(v => v !== -1);
+    const sum = validVals.reduce((a, b) => a + b, 0);
+    return Math.round(sum / procList.length);
+  };
   const isIndustrial = isDarkTheme; // Alias for dark mode logic
 
   // Helper Logic
@@ -2798,6 +2826,14 @@ export default function App() {
               >
                 리포트
               </button>
+              <button 
+                type="button"
+                onClick={() => setViewMode('prediction')}
+                className={`px-3 py-1.5 rounded-md text-[9px] font-black transition-all ${viewMode === 'prediction' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'} flex items-center gap-1.5`}
+              >
+                <Sparkles className="w-3 h-3" />
+                AI예측
+              </button>
               {(role === 'ADMIN' || role === 'FIELD') && (
                 <button 
                   type="button"
@@ -2921,6 +2957,14 @@ export default function App() {
                 className={`px-1.5 py-1 rounded-md text-[8px] font-black transition-all ${viewMode === 'analytics' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-750'}`}
               >
                 리포트
+              </button>
+              <button 
+                type="button"
+                onClick={() => setViewMode('prediction')}
+                className={`px-1.5 py-1 rounded-md text-[8px] font-black transition-all ${viewMode === 'prediction' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-750'} flex items-center gap-1`}
+              >
+                <Sparkles className="w-2.5 h-2.5" />
+                AI예측
               </button>
               <button 
                 type="button"
@@ -3845,6 +3889,78 @@ export default function App() {
               </div>
             )}
 
+            {/* Batch Update Bar */}
+            <AnimatePresence>
+              {selectedBuildingIds.length > 0 && (
+                <motion.div 
+                  initial={{ opacity: 0, y: -20, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -20, scale: 0.95 }}
+                  className={`mb-4 p-4 rounded-2xl flex flex-wrap items-center justify-between gap-4 border ${isDarkTheme ? 'bg-slate-800/80 border-slate-700 backdrop-blur-md' : 'bg-blue-50 border-blue-100 shadow-sm'} no-print`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`p-2 rounded-xl ${isDarkTheme ? 'bg-blue-500/20' : 'bg-blue-500/10'}`}>
+                      <CheckSquare className="w-5 h-5 text-blue-500" />
+                    </div>
+                    <div>
+                      <h3 className={`text-sm font-black ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>{selectedBuildingIds.length}개 동 선택됨</h3>
+                      <p className={`text-[10px] font-bold ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>일괄 업데이트를 진행할 공종을 선택하세요</p>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <select 
+                      className={`px-3 py-2 rounded-xl text-xs font-black border focus:ring-2 focus:ring-blue-500 outline-none transition-all ${
+                        isDarkTheme ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-900'
+                      }`}
+                      onChange={(e) => {
+                        const processName = e.target.value;
+                        if (!processName) return;
+                        
+                        const mode = getProcessMode(processName);
+                        const promptMsg = mode === 'percent' 
+                          ? `선택한 ${selectedBuildingIds.length}개 동의 [${processName}] 공정을 일괄 업데이트할 진행율(%)을 입력하세요:` 
+                          : `선택한 ${selectedBuildingIds.length}개 동의 [${processName}] 공정을 일괄 업데이트할 층수(숫자)를 입력하세요:`;
+                        
+                        const inputStr = prompt(promptMsg);
+                        if (inputStr !== null && !isNaN(Number(inputStr))) {
+                          const val = Number(inputStr);
+                          setData(prev => ({
+                            ...prev,
+                            buildings: prev.buildings.map(b => {
+                              if (selectedBuildingIds.includes(b.id)) {
+                                return {
+                                  ...b,
+                                  processes: { ...b.processes, [processName]: mode === 'percent' ? val : floorToPercent(val, b) }
+                                };
+                              }
+                              return b;
+                            })
+                          }));
+                          setSelectedBuildingIds([]);
+                        }
+                        e.target.value = "";
+                      }}
+                    >
+                      <option value="">업데이트할 공종 선택...</option>
+                      {sortedDisplayProcesses.map(p => (
+                        <option key={p} value={p}>{p}</option>
+                      ))}
+                    </select>
+                    
+                    <button 
+                      onClick={() => setSelectedBuildingIds([])}
+                      className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${
+                        isDarkTheme ? 'bg-slate-700 text-slate-300 hover:bg-slate-600' : 'bg-white text-slate-500 border border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      선택 해제
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             {/* Desktop / Large Screen Table (Also visible under mobile if mobileViewType is 'table') */}
             <div 
               className={`${activeTheme.card} rounded-2xl shadow-sm border ${activeTheme.border} overflow-auto max-h-[calc(100vh-180px)] custom-scrollbar ${
@@ -3858,8 +3974,22 @@ export default function App() {
                   className={`${activeTheme.header} text-white sticky top-0 z-20`}
                   style={data.settings.headerColor ? { backgroundColor: data.settings.headerColor } : {}}
                 >
-                  <th className={`border-r border-white/20 w-8 text-center font-black px-1 py-1 text-[9px] uppercase tracking-tighter sticky left-0 z-30 ${activeTheme.header}`} style={data.settings.headerColor ? { backgroundColor: data.settings.headerColor } : {}}>No.</th>
-                  <th className={`border-r border-white/20 w-24 text-center font-black px-1 py-1 text-[10px] uppercase tracking-tighter sticky left-8 z-30 ${activeTheme.header}`} style={data.settings.headerColor ? { backgroundColor: data.settings.headerColor } : {}}>동 명칭</th>
+                  <th className={`border-r border-white/20 w-8 text-center px-1 py-1 sticky left-0 z-40 ${activeTheme.header} no-print`} style={data.settings.headerColor ? { backgroundColor: data.settings.headerColor } : {}}>
+                    <input 
+                      type="checkbox" 
+                      checked={selectedBuildingIds.length === data.buildings.length && data.buildings.length > 0}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedBuildingIds(data.buildings.map(b => b.id));
+                        } else {
+                          setSelectedBuildingIds([]);
+                        }
+                      }}
+                      className="w-3 h-3 rounded border-white/30 bg-white/10 text-blue-500 focus:ring-blue-500/50"
+                    />
+                  </th>
+                  <th className={`border-r border-white/20 w-8 text-center font-black px-1 py-1 text-[9px] uppercase tracking-tighter sticky left-8 z-30 ${activeTheme.header}`} style={data.settings.headerColor ? { backgroundColor: data.settings.headerColor } : {}}>No.</th>
+                  <th className={`border-r border-white/20 w-24 text-center font-black px-1 py-1 text-[10px] uppercase tracking-tighter sticky left-16 z-30 ${activeTheme.header}`} style={data.settings.headerColor ? { backgroundColor: data.settings.headerColor } : {}}>동 명칭</th>
                   {sortedDisplayProcesses.map((p) => {
                     const diag = getProcessDiagnosis(p);
                     const isBehind = diag.isBehind;
@@ -3990,15 +4120,32 @@ export default function App() {
                     : (isEven ? 'bg-white' : 'bg-slate-100');
 
                   return (
-                    <tr key={b.id} className={`${rowBgClass} ${isDark ? 'hover:bg-slate-800/80 text-white border-b border-slate-800' : 'hover:bg-blue-100/30'} transition-colors`}>
+                    <tr key={b.id} className={`${rowBgClass} ${isDark ? 'hover:bg-slate-800/80 text-white border-b border-slate-800' : 'hover:bg-blue-100/30'} transition-colors ${selectedBuildingIds.includes(b.id) ? (isDark ? 'bg-blue-900/20' : 'bg-blue-50') : ''}`}>
                       <td 
-                        className={`border-r-2 ${isDark ? 'border-slate-800 text-slate-400' : 'border-slate-200 text-slate-500'} ${stickyBgClass} text-center font-black text-[10px] sticky left-0 z-10`}
+                        className={`border-r-2 ${isDark ? 'border-slate-800' : 'border-slate-200'} ${stickyBgClass} text-center sticky left-0 z-10 no-print`}
+                        style={{ padding: cellPadding }}
+                      >
+                        <input 
+                          type="checkbox" 
+                          checked={selectedBuildingIds.includes(b.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedBuildingIds(prev => [...prev, b.id]);
+                            } else {
+                              setSelectedBuildingIds(prev => prev.filter(id => id !== b.id));
+                            }
+                          }}
+                          className="w-3 h-3 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                      </td>
+                      <td 
+                        className={`border-r-2 ${isDark ? 'border-slate-800 text-slate-400' : 'border-slate-200 text-slate-500'} ${stickyBgClass} text-center font-black text-[10px] sticky left-8 z-10`}
                         style={{ padding: cellPadding }}
                       >
                         {bIdx + 1}
                       </td>
                       <td 
-                        className={`border-r-2 ${isDark ? 'border-[#2d333d] text-white' : 'border-slate-200 text-slate-900'} ${stickyBgClass} text-center font-black group relative sticky left-8 z-10`}
+                        className={`border-r-2 ${isDark ? 'border-[#2d333d] text-white' : 'border-slate-200 text-slate-900'} ${stickyBgClass} text-center font-black group relative sticky left-16 z-10`}
                         style={{ padding: cellPadding }}
                       >
                         <div 
@@ -4777,7 +4924,11 @@ export default function App() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-3 md:gap-6">
               {data.buildings.map(b => {
-                const avg = processes.length > 0 ? Math.round((Object.values(b.processes) as number[]).reduce((a, b) => a + b, 0) / processes.length) : 0;
+                const avg = getBuildingAvg(b, processes);
+                const prevBuilding = previousEntry?.buildings?.find((pb: any) => pb.id === b.id);
+                const prevAvg = prevBuilding ? getBuildingAvg(prevBuilding, processes) : null;
+                const diff = prevAvg !== null ? avg - prevAvg : 0;
+
                 return (
                   <div key={b.id} className={`${activeTheme.card} rounded-2xl shadow-sm border ${activeTheme.border} p-3 md:p-5 hover:shadow-md transition-all relative overflow-hidden`}>
                     <div className={`absolute top-0 left-0 w-1 h-full ${avg === 100 ? 'bg-green-500' : activeTheme.accent}`} />
@@ -4786,8 +4937,16 @@ export default function App() {
                         <div className={`p-1.5 md:p-2 rounded-lg ${avg === 100 ? 'bg-green-100 text-green-700' : 'bg-blue-50 text-blue-700'}`}><Building2 className="w-4 h-4 md:w-5 md:h-5" /></div>
                         <h3 className={`text-sm md:text-base font-black ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'}`}>{b.name}</h3>
                       </div>
-                      <div className="text-right">
-                        <div className={`text-xl md:text-2xl font-black ${avg === 100 ? 'text-green-600' : activeTheme.text}`}>{avg}%</div>
+                      <div className="text-right flex flex-col items-end">
+                        <div className="flex items-center gap-1.5">
+                          {diff !== 0 && (
+                            <div className={`flex items-center text-[10px] font-black ${diff > 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                              {diff > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                              {diff > 0 ? `+${diff}` : diff}%
+                            </div>
+                          )}
+                          <div className={`text-xl md:text-2xl font-black ${avg === 100 ? 'text-green-600' : activeTheme.text}`}>{avg}%</div>
+                        </div>
                         <div className="text-[8px] md:text-[10px] font-bold text-slate-400 uppercase tracking-tighter">PROGRESS: {getFloorText(avg, b)}</div>
                       </div>
                     </div>
@@ -5382,6 +5541,20 @@ export default function App() {
                 </div>
               </div>
            </div>
+          </motion.div>
+        )}
+
+        {viewMode === 'prediction' && (
+          <motion.div
+            key="prediction"
+            initial={{ opacity: 0, scale: 0.98 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.98 }}
+            transition={{ duration: 0.2 }}
+          >
+            <div className="p-4 sm:p-8 max-w-7xl mx-auto">
+              <AIPredictionView data={data} activeTheme={activeTheme} />
+            </div>
           </motion.div>
         )}
 

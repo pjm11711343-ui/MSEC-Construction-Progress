@@ -33,7 +33,9 @@ export default function DailyReportView({ reports, onAddReport, onDeleteReport, 
     date: new Date().toISOString().split('T')[0],
     weather: '맑음',
     manpower: '',
-    notes: ''
+    notes: '',
+    precip: 0,
+    windSpeed: 0
   });
 
   const sortedReports = [...reports].sort((a, b) => b.date.localeCompare(a.date));
@@ -110,10 +112,14 @@ export default function DailyReportView({ reports, onAddReport, onDeleteReport, 
       const data = await response.json();
       
       let weatherStr = '';
+      let precipVal = 0;
+      let windVal = 0;
       if (data.current_condition) {
         const current = data.current_condition[0];
         const weatherDesc = current.lang_ko ? current.lang_ko[0].value : current.weatherDesc[0].value;
         const temp = current.temp_C;
+        precipVal = parseFloat(current.precipMM) || 0;
+        windVal = parseFloat(current.windspeedKmph) || 0;
         
         let koreanWeather = weatherDesc;
         if (weatherDesc.toLowerCase().includes('sunny') || weatherDesc.toLowerCase().includes('clear')) koreanWeather = '맑음';
@@ -128,11 +134,15 @@ export default function DailyReportView({ reports, onAddReport, onDeleteReport, 
         const h = w.hourly[4];
         const weatherDesc = h.lang_ko ? h.lang_ko[0].value : h.weatherDesc[0].value;
         weatherStr = `${weatherDesc} (${w.avgtempC}°C)`;
+        precipVal = parseFloat(w.totalPrecip_mm) || 0;
+        windVal = parseFloat(h.windspeedKmph) || 0;
       }
 
       setNewReport(prev => ({
         ...prev,
-        weather: weatherStr
+        weather: weatherStr,
+        precip: precipVal,
+        windSpeed: windVal
       }));
     } catch (error) {
       console.error('Weather fetch error:', error);
@@ -155,7 +165,9 @@ export default function DailyReportView({ reports, onAddReport, onDeleteReport, 
       date: new Date().toISOString().split('T')[0],
       weather: '맑음',
       manpower: '',
-      notes: ''
+      notes: '',
+      precip: 0,
+      windSpeed: 0
     });
   };
 
@@ -343,6 +355,12 @@ export default function DailyReportView({ reports, onAddReport, onDeleteReport, 
                       <CloudSun className="w-3 h-3" /> 날씨
                     </div>
                     <div className="font-bold text-sm">{report.weather}</div>
+                    {(report.precip || report.windSpeed) && (
+                      <div className="flex gap-2 mt-1">
+                        {report.precip! > 0 && <span className="text-[8px] px-1 bg-blue-500/10 text-blue-500 rounded font-bold">강수: {report.precip}mm</span>}
+                        {report.windSpeed! > 0 && <span className="text-[8px] px-1 bg-slate-500/10 text-slate-500 rounded font-bold">풍속: {report.windSpeed}km/h</span>}
+                      </div>
+                    )}
                   </div>
                   <div className={`p-3 rounded-2xl ${theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-50'} space-y-1`}>
                     <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 uppercase">
@@ -451,6 +469,37 @@ export default function DailyReportView({ reports, onAddReport, onDeleteReport, 
                       : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
                   }`}
                 />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-slate-400 uppercase">강수량 (mm)</label>
+                  <input 
+                    type="number" 
+                    placeholder="0"
+                    value={newReport.precip} 
+                    onChange={e => setNewReport({...newReport, precip: parseFloat(e.target.value) || 0})}
+                    className={`w-full p-4 rounded-2xl border font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                      theme === 'industrial' 
+                        ? 'bg-slate-800 border-slate-700 text-white placeholder-slate-500' 
+                        : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
+                    }`}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-slate-400 uppercase">풍속 (km/h)</label>
+                  <input 
+                    type="number" 
+                    placeholder="0"
+                    value={newReport.windSpeed} 
+                    onChange={e => setNewReport({...newReport, windSpeed: parseFloat(e.target.value) || 0})}
+                    className={`w-full p-4 rounded-2xl border font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                      theme === 'industrial' 
+                        ? 'bg-slate-800 border-slate-700 text-white placeholder-slate-500' 
+                        : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
+                    }`}
+                  />
+                </div>
               </div>
 
               <div className="space-y-2">

@@ -79,6 +79,8 @@ export interface DailyReport {
   weather: string;
   manpower: string;
   notes: string;
+  precip?: number;
+  windSpeed?: number;
 }
 
 export interface Milestone {
