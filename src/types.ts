@@ -20,6 +20,7 @@ export interface BuildingData {
   minFloor?: number;
   maxFloor?: number;
   photos?: Record<string, string[]>; // process id/name -> array of base64 photos
+  thumbnail?: string; // representative photo
 }
 
 export interface CommonFacility {

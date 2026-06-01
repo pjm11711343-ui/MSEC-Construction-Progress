@@ -40,7 +40,10 @@ import {
   History,
   Layers,
   Percent,
-  CheckSquare
+  CheckSquare,
+  Activity,
+  Camera,
+  Filter
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -71,6 +74,7 @@ import { DashboardWidgets } from './components/DashboardWidgets';
 import ReactMarkdown from 'react-markdown';
 import ReportPrintView from './components/ReportPrintView';
 import AIPredictionView from './components/AIPredictionView';
+import BuildingDetailModal from './components/BuildingDetailModal';
 import { 
   Sparkles, 
   MessageSquare,
@@ -296,6 +300,8 @@ export default function App() {
   } | null>(null);
   const [trash, setTrash] = useState<any[]>([]);
   const [showTrash, setShowTrash] = useState(false);
+  const [selectedBuildingDetail, setSelectedBuildingDetail] = useState<BuildingData | null>(null);
+  const [processFilter, setProcessFilter] = useState<string | 'all'>('all');
   const [siteAuthenticatedId, setSiteAuthenticatedId] = useState<string | null>(null);
   const captureInputRef = useRef<HTMLInputElement>(null);
 
@@ -1150,6 +1156,21 @@ export default function App() {
       );
       return { buildings: nextBuildings, facilities };
     });
+  };
+
+  const handleThumbnailUpload = (buildingId: number, file: File) => {
+    if (role === 'GUEST') return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const base64 = e.target?.result as string;
+      updateStateForTarget((buildings, facilities) => {
+        const nextBuildings = buildings.map(b => 
+          b.id === buildingId ? { ...b, thumbnail: base64 } : b
+        );
+        return { buildings: nextBuildings, facilities };
+      });
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleUpdateFacilityStatus = (facilityId: string) => {
@@ -4922,16 +4943,144 @@ export default function App() {
               </div>
             )}
 
+            {/* Project Summary Statistics */}
+            <div className={`mb-6 p-6 rounded-3xl border ${activeTheme.card} ${activeTheme.border} relative overflow-hidden shadow-sm`}>
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
+                <div className="flex items-center gap-4">
+                  <div className={`p-3 rounded-2xl ${activeTheme.accent.replace('text-', 'bg-').replace('border-', 'bg-opacity-10')}`}>
+                    <Activity className={`w-6 h-6 ${activeTheme.text}`} />
+                  </div>
+                  <div>
+                    <h2 className={`text-lg font-black ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>전체 프로젝트 공정률</h2>
+                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Total Project Weighted Average</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-8">
+                  <div className="flex flex-col items-end">
+                    <div className="flex items-center gap-2">
+                      {(() => {
+                        const totalAvg = data.buildings.length > 0 
+                          ? Math.round(data.buildings.reduce((sum, b) => sum + getBuildingAvg(b, processes), 0) / data.buildings.length)
+                          : 0;
+                        const prevBuildings = previousEntry?.buildings || [];
+                        const prevTotalAvg = prevBuildings.length > 0
+                          ? Math.round(prevBuildings.reduce((sum, b) => sum + getBuildingAvg(b, processes), 0) / prevBuildings.length)
+                          : null;
+                        const diff = prevTotalAvg !== null ? totalAvg - prevTotalAvg : 0;
+
+                        return (
+                          <>
+                            {diff !== 0 && (
+                              <div className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-black ${diff > 0 ? 'bg-emerald-500/10 text-emerald-600' : 'bg-rose-500/10 text-rose-600'}`}>
+                                {diff > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                                {diff > 0 ? `+${diff}` : diff}%
+                              </div>
+                            )}
+                            <span className={`text-4xl font-black ${totalAvg === 100 ? 'text-green-600' : activeTheme.text}`}>{totalAvg}%</span>
+                          </>
+                        );
+                      })()}
+                    </div>
+                    <div className="w-48 h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full mt-2 overflow-hidden">
+                      <motion.div 
+                        initial={{ width: 0 }}
+                        animate={{ 
+                          width: `${data.buildings.length > 0 
+                            ? Math.round(data.buildings.reduce((sum, b) => sum + getBuildingAvg(b, processes), 0) / data.buildings.length)
+                            : 0}%` 
+                        }}
+                        className={`h-full ${activeTheme.accent.replace('text-', 'bg-')}`}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="hidden lg:flex flex-col border-l border-slate-200 dark:border-slate-700 pl-8">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">활성 건물</span>
+                    <span className={`text-xl font-black ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>{data.buildings.length}개 동</span>
+                  </div>
+                </div>
+              </div>
+              <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500 opacity-[0.02] rounded-full -translate-y-1/2 translate-x-1/2" />
+            </div>
+
+            <div className="mb-6 flex items-center gap-4">
+              <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+                <Filter className="w-4 h-4 text-slate-400" />
+                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest mr-2">공종 필터:</span>
+                <select 
+                  value={processFilter}
+                  onChange={(e) => setProcessFilter(e.target.value)}
+                  className="bg-transparent text-xs font-bold focus:outline-none text-slate-700 dark:text-slate-300 min-w-[120px]"
+                >
+                  <option value="all">전체 공종</option>
+                  {processes.map(p => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+              </div>
+              {processFilter !== 'all' && (
+                <div className="text-[10px] font-bold text-slate-400 italic">
+                  * 선택한 공종이 진행 중이거나 주의가 필요한 동만 표시됩니다.
+                </div>
+              )}
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-3 md:gap-6">
-              {data.buildings.map(b => {
+              {data.buildings.filter(b => {
+                if (processFilter === 'all') return true;
+                const prog = b.processes[processFilter];
+                // "Active or needs attention": progress > 0 and < 100
+                // Or if we have schedule data, we could check if it's lagging.
+                // Let's stick to simple "active" (0 < prog < 100) or prog === -1 (invalid/needs attention)
+                return prog !== undefined && prog > 0 && prog < 100;
+              }).map(b => {
                 const avg = getBuildingAvg(b, processes);
                 const prevBuilding = previousEntry?.buildings?.find((pb: any) => pb.id === b.id);
                 const prevAvg = prevBuilding ? getBuildingAvg(prevBuilding, processes) : null;
                 const diff = prevAvg !== null ? avg - prevAvg : 0;
 
                 return (
-                  <div key={b.id} className={`${activeTheme.card} rounded-2xl shadow-sm border ${activeTheme.border} p-3 md:p-5 hover:shadow-md transition-all relative overflow-hidden`}>
-                    <div className={`absolute top-0 left-0 w-1 h-full ${avg === 100 ? 'bg-green-500' : activeTheme.accent}`} />
+                  <div 
+                    key={b.id} 
+                    onClick={() => setSelectedBuildingDetail(b)}
+                    className={`${activeTheme.card} rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border ${activeTheme.border} p-3 md:p-6 hover:shadow-[0_20px_50px_rgba(0,0,0,0.1)] hover:-translate-y-1 transition-all duration-500 relative overflow-hidden group cursor-pointer`}
+                  >
+                    <div className={`absolute top-0 left-0 w-1 h-full ${avg === 100 ? 'bg-green-500' : activeTheme.accent} z-20`} />
+                    
+                    {/* Thumbnail Header */}
+                    <div className="relative h-32 md:h-40 bg-slate-100 dark:bg-slate-800 -mt-3 md:-mt-6 -mx-3 md:-mx-6 mb-4 overflow-hidden first:rounded-t-3xl border-b border-slate-100 dark:border-slate-800">
+                      {b.thumbnail ? (
+                        <img src={b.thumbnail} alt={b.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-slate-300 dark:text-slate-700">
+                          <Building2 className="w-12 h-12 opacity-20" />
+                        </div>
+                      )}
+                      
+                      {/* Upload Button Overlay */}
+                      {(role === 'ADMIN' || role === 'FIELD') && (
+                        <label 
+                          className="absolute bottom-3 right-3 p-2.5 rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 text-white opacity-0 group-hover:opacity-100 transition-all cursor-pointer shadow-lg hover:bg-white/30 z-30" 
+                          onClick={e => e.stopPropagation()}
+                        >
+                          <Camera className="w-4 h-4" />
+                          <input 
+                            type="file" 
+                            className="hidden" 
+                            accept="image/*" 
+                            onChange={e => {
+                              const file = e.target.files?.[0];
+                              if (file) handleThumbnailUpload(b.id, file);
+                            }} 
+                          />
+                        </label>
+                      )}
+                      
+                      {/* Gradient Overlay for better text readability if needed */}
+                      <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </div>
+
                     <div className="flex justify-between items-start mb-2 md:mb-4">
                       <div className="flex items-center gap-2 md:gap-3">
                         <div className={`p-1.5 md:p-2 rounded-lg ${avg === 100 ? 'bg-green-100 text-green-700' : 'bg-blue-50 text-blue-700'}`}><Building2 className="w-4 h-4 md:w-5 md:h-5" /></div>
@@ -4950,6 +5099,35 @@ export default function App() {
                         <div className="text-[8px] md:text-[10px] font-bold text-slate-400 uppercase tracking-tighter">PROGRESS: {getFloorText(avg, b)}</div>
                       </div>
                     </div>
+
+                    {/* Sparkline Trend */}
+                    <div className="h-8 md:h-10 mb-3 -mx-1">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart 
+                          data={(storageState.history || [])
+                            .slice(-7)
+                            .concat([{ 
+                              date: 'now', 
+                              buildings: data.buildings,
+                              averageProgress: avg // Use the current card's avg as project-wide avg placeholder for this snapshot
+                            } as ProgressSnapshot])
+                            .map((h: any) => {
+                              const hb = h.buildings?.find((pb: any) => pb.id === b.id);
+                              return { val: hb ? getBuildingAvg(hb, processes) : 0 };
+                            })}
+                        >
+                          <Line 
+                            type="monotone" 
+                            dataKey="val" 
+                            stroke={avg === 100 ? '#10b981' : (activeTheme.isDark ? '#3b82f6' : '#2563eb')} 
+                            strokeWidth={2} 
+                            dot={false}
+                            isAnimationActive={false}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+
                     <div className="space-y-1.5">
                       {processes.map(p => {
                         const progressVal = b.processes[p] ?? 0;
@@ -5937,6 +6115,18 @@ export default function App() {
                 </div>
               </motion.div>
             </div>
+          )}
+        </AnimatePresence>
+
+        {/* Building Detail Chart Modal */}
+        <AnimatePresence>
+          {selectedBuildingDetail && (
+            <BuildingDetailModal
+              building={selectedBuildingDetail}
+              data={data}
+              activeTheme={activeTheme}
+              onClose={() => setSelectedBuildingDetail(null)}
+            />
           )}
         </AnimatePresence>
 
