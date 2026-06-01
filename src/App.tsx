@@ -2241,6 +2241,43 @@ export default function App() {
     return formatFloor(percentToFloor(percent, building));
   };
 
+  const getExpectedProgress = (processName: string) => {
+    const schedule = data.processSchedules?.[processName];
+    if (!schedule) return 0;
+    
+    const projectStart = new Date(data.settings.startDate);
+    const startDay = new Date(projectStart);
+    startDay.setDate(startDay.getDate() + schedule.startOffset);
+    
+    const today = new Date();
+    const diffTime = today.getTime() - startDay.getTime();
+    const diffDays = diffTime / (1000 * 3600 * 24);
+    
+    if (diffDays < 0) return 0;
+    if (diffDays >= schedule.duration) return 100;
+    
+    return Math.round((diffDays / schedule.duration) * 100);
+  };
+
+  const getProcessDiagnosis = (processName: string) => {
+    const expected = getExpectedProgress(processName);
+    const buildingsWithProcess = data.buildings.filter(b => b.processes[processName] !== -1);
+    
+    if (buildingsWithProcess.length === 0) return { expected, actual: 0, isBehind: false };
+    
+    const siteProgress = buildingsWithProcess.reduce((acc, b) => {
+        const p = b.processes[processName];
+        return acc + (p ?? 0);
+    }, 0);
+    
+    const actual = Math.round(siteProgress / buildingsWithProcess.length);
+    return {
+        expected,
+        actual,
+        isBehind: (expected - actual) >= 10 && actual < 100
+    };
+  };
+
   const getFacilityAverage = (f: CommonFacility) => {
     const activeFacilityProcesses = FACILITY_PROCESSES.filter(fp => !(f.inactiveProcesses || []).includes(fp));
     if (activeFacilityProcesses.length === 0) return f.status === 'COMPLETED' ? 100 : 0;
@@ -3819,14 +3856,23 @@ export default function App() {
                 >
                   <th className={`border-r border-white/20 w-8 text-center font-black px-1 py-1 text-[9px] uppercase tracking-tighter sticky left-0 z-30 ${activeTheme.header}`} style={data.settings.headerColor ? { backgroundColor: data.settings.headerColor } : {}}>No.</th>
                   <th className={`border-r border-white/20 w-24 text-center font-black px-1 py-1 text-[10px] uppercase tracking-tighter sticky left-8 z-30 ${activeTheme.header}`} style={data.settings.headerColor ? { backgroundColor: data.settings.headerColor } : {}}>동 명칭</th>
-                  {sortedDisplayProcesses.map((p) => (
-                    <th 
-                      key={p} 
-                      className={`border-r border-white/20 text-center px-1 py-1 min-w-[80px] group transition-colors relative`}
-                    >
-                      <div className="flex flex-col gap-0.5 items-center">
-                        <div className="flex items-center justify-center gap-1 w-full relative">
-                          <div className="absolute right-1 -top-1 opacity-0 group-hover:opacity-100 transition-opacity z-10 flex gap-0.5 no-print">
+                  {sortedDisplayProcesses.map((p) => {
+                    const diag = getProcessDiagnosis(p);
+                    const isBehind = diag.isBehind;
+                    
+                    return (
+                      <th 
+                        key={p} 
+                        className={`border-r border-white/20 text-center px-1 py-1 min-w-[80px] group transition-colors relative ${isBehind ? 'bg-rose-900/40' : ''}`}
+                      >
+                        <div className="flex flex-col gap-0.5 items-center">
+                          <div className="flex items-center justify-center gap-1 w-full relative">
+                            {isBehind && (
+                              <div className="absolute -top-3 left-1/2 -translate-x-1/2 whitespace-nowrap z-40">
+                                <span className="bg-rose-600 text-white text-[7px] font-black px-1 rounded animate-pulse shadow-lg">집중관리</span>
+                              </div>
+                            )}
+                            <div className="absolute right-1 -top-1 opacity-0 group-hover:opacity-100 transition-opacity z-10 flex gap-0.5 no-print">
                             <button 
                               onClick={() => {
                                 const currentMode = getProcessMode(p);
@@ -3894,10 +3940,11 @@ export default function App() {
                               </button>
                             </div>
                           )}
+                          </div>
                         </div>
-                      </div>
-                    </th>
-                  ))}
+                      </th>
+                    );
+                  })}
                   {role !== 'GUEST' && (
                     <th className="border-r border-white/10 w-24 px-2 py-1 no-print">
                       <button 
@@ -4583,6 +4630,33 @@ export default function App() {
                 <StackedProgressBarChart buildings={data.buildings} processes={processes} />
               </div>
 
+              {/* Dynamic Behind Schedule Alert */}
+              {processes.some(p => getProcessDiagnosis(p).isBehind) && (
+                <motion.div 
+                  initial={{ opacity: 0, y: -20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-rose-600 rounded-2xl p-4 md:p-6 text-white shadow-xl shadow-rose-900/20 relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-6"
+                >
+                  <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -mr-32 -mt-32 blur-3xl pointer-events-none" />
+                  <div className="flex items-center gap-4 relative z-10">
+                    <div className="p-3 bg-white/20 rounded-2xl backdrop-blur-md">
+                      <AlertTriangle className="w-6 h-6 animate-pulse" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-black uppercase tracking-tight">집중 관리 필요 공종 탐지</h3>
+                      <p className="text-white/70 text-xs font-bold">전체 현장 평균 진행률이 예정 공정 대비 10% 이상 지연된 공종이 식별되었습니다.</p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2 relative z-10 justify-center">
+                    {processes.filter(p => getProcessDiagnosis(p).isBehind).map(p => (
+                      <div key={p} className="px-3 py-1 bg-white/10 hover:bg-white/20 border border-white/20 rounded-full text-[10px] font-black backdrop-blur-md transition-colors">
+                        {p}
+                      </div>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+
             {/* AI Diagnosis Summary Cards */}
             {(data.aiRisks && data.aiRisks.length > 0 || data.aiActions && data.aiActions.length > 0) && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-6">
@@ -4728,12 +4802,23 @@ export default function App() {
                         
                         const isSoon = materialDate === todayStr || materialDate === tomorrowStr;
 
+                        const diag = getProcessDiagnosis(p);
+                        const isBehind = diag.isBehind;
+
                         return (
-                          <div key={p} className={`space-y-0.5 p-1 rounded-lg transition-all ${isSoon ? (data.settings.theme === 'industrial' ? 'bg-amber-900/20 border border-amber-500/30' : 'bg-amber-50 border border-amber-200 ring-2 ring-amber-400 ring-opacity-20') : ''}`}>
+                          <div key={p} className={`space-y-0.5 p-1 rounded-lg transition-all ${isSoon ? (activeTheme.isDark ? 'bg-amber-900/20 border border-amber-500/30' : 'bg-amber-50 border border-amber-200 ring-2 ring-amber-400 ring-opacity-20') : ''} ${isBehind ? 'bg-rose-500/5 ring-1 ring-rose-500/20' : ''}`}>
                             <div className="flex items-center justify-between text-[10px]">
-                              <div className="flex items-center gap-1 w-[60px]">
-                                <span className="text-slate-500 font-medium truncate">{p}</span>
+                              <div className="flex items-center gap-1 w-[70px]">
+                                <span className={`font-medium truncate ${isBehind ? 'text-rose-600 font-black' : 'text-slate-500'}`}>{p}</span>
                                 {isSoon && <motion.div animate={{ scale: [1, 1.2, 1] }} transition={{ repeat: Infinity, duration: 2 }}><AlertTriangle className="w-2.5 h-2.5 text-amber-500" /></motion.div>}
+                                {isBehind && (
+                                  <motion.span 
+                                    initial={{ opacity: 0, x: -5 }} animate={{ opacity: 1, x: 0 }}
+                                    className="px-1 py-0.5 bg-rose-600 text-[6px] text-white font-black rounded flex-shrink-0 animate-pulse"
+                                  >
+                                    집중 관리
+                                  </motion.span>
+                                )}
                               </div>
                               <div className="flex items-center gap-2 flex-1 justify-end">
                                  <div className="flex flex-col items-end gap-0">

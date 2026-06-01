@@ -15,7 +15,13 @@ import {
   PolarAngleAxis,
   PolarRadiusAxis,
   ResponsiveContainer,
-  Legend
+  Legend,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip
 } from 'recharts';
 
 interface ReportPrintViewProps {
@@ -24,6 +30,8 @@ interface ReportPrintViewProps {
 }
 
 const ReportPrintView: React.FC<ReportPrintViewProps> = ({ data, sortedProcesses }) => {
+  const [selectedBuildingId, setSelectedBuildingId] = React.useState<string>(data.buildings[0]?.id || '');
+
   // Helper to format progress text consistently with App.tsx logic
   const getProgressText = (val: number, b: BuildingData, p: string) => {
     if (val === -1) return '-';
@@ -100,6 +108,15 @@ const ReportPrintView: React.FC<ReportPrintViewProps> = ({ data, sortedProcesses
 
   const chartColors = ['#2563eb', '#dc2626', '#16a34a', '#ca8a04', '#9333ea', '#0891b2', '#ea580c', '#4f46e5', '#db2777', '#059669'];
 
+  const selectedBuilding = data.buildings.find(b => b.id === selectedBuildingId) || data.buildings[0];
+
+  // Prepare Bar Chart Data for selected building
+  const barData = displayProcesses.map(p => ({
+    name: p.replace(/^\d+\.\s*/, ''),
+    progress: selectedBuilding?.processes[p] === -1 ? 0 : (selectedBuilding?.processes[p] ?? 0),
+    material: selectedBuilding?.materialProcesses?.[p] === -1 ? 0 : (selectedBuilding?.materialProcesses?.[p] ?? 0),
+  }));
+
   return (
     <div className="bg-white p-8 max-w-[210mm] mx-auto min-h-[297mm] shadow-lg print:shadow-none print:p-0 print:m-0 print:max-w-none report-print-container">
       {/* Report Header */}
@@ -140,6 +157,27 @@ const ReportPrintView: React.FC<ReportPrintViewProps> = ({ data, sortedProcesses
       {/* Progress & Material Status Data Table */}
       <div className="mb-8">
         <h2 className="text-xs font-black text-slate-900 mb-3 bg-slate-900 text-white px-3 py-1 inline-block uppercase tracking-[0.2em]">02. Construction & Material Progress</h2>
+        
+        {/* Building Selector (Hidden in print) */}
+        <div className="print:hidden mb-4 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+          <p className="text-[10px] font-black text-slate-500 mb-2 uppercase tracking-tight">상세 분석 대상 동 선택</p>
+          <div className="flex flex-wrap gap-1.5">
+            {data.buildings.map(b => (
+              <button
+                key={b.id}
+                onClick={() => setSelectedBuildingId(b.id)}
+                className={`px-3 py-1 text-[10px] font-black rounded-md transition-all ${
+                  selectedBuildingId === b.id 
+                    ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-100' 
+                    : 'bg-white text-slate-600 border border-slate-200 hover:border-slate-300'
+                }`}
+              >
+                {b.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div className="overflow-hidden border border-slate-300 rounded-lg">
           <table className="w-full text-[8px] border-collapse">
             <thead>
@@ -201,7 +239,7 @@ const ReportPrintView: React.FC<ReportPrintViewProps> = ({ data, sortedProcesses
         )}
       </div>
 
-      {/* Radar Chart Analysis */}
+      {/* Comparative Progress Analysis (Radar) */}
       <div className="mb-8 break-inside-avoid">
         <h2 className="text-xs font-black text-slate-900 mb-3 bg-slate-900 text-white px-3 py-1 inline-block uppercase tracking-[0.2em]">03. Comparative Progress Analysis (Radar)</h2>
         <div className="border border-slate-200 rounded-lg bg-white p-4 h-[350px]">
@@ -236,9 +274,41 @@ const ReportPrintView: React.FC<ReportPrintViewProps> = ({ data, sortedProcesses
         </div>
       </div>
 
+      {/* Building Specific Detailed Bar Chart */}
+      <div className="mb-8 break-inside-avoid">
+        <h2 className="text-xs font-black text-slate-900 mb-3 bg-blue-600 text-white px-3 py-1 inline-block uppercase tracking-[0.2em]">04. {selectedBuilding?.name} 동 공종별/자재별 상세 현황</h2>
+        <div className="border border-blue-100 rounded-lg bg-white p-4 h-[350px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={barData} margin={{ top: 20, right: 30, left: 0, bottom: 60 }} barGap={2}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+              <XAxis 
+                dataKey="name" 
+                angle={-45} 
+                textAnchor="end" 
+                interval={0} 
+                tick={{ fontSize: 7, fontWeight: 700, fill: '#64748b' }}
+              />
+              <YAxis 
+                domain={[0, 100]} 
+                tick={{ fontSize: 8, fontWeight: 700, fill: '#94a3b8' }} 
+                axisLine={false}
+                tickLine={false}
+              />
+              <Tooltip 
+                contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', fontSize: '10px' }}
+                cursor={{ fill: '#f8fafc' }}
+              />
+              <Legend wrapperStyle={{ fontSize: '9px', fontWeight: 800, paddingTop: '30px' }} />
+              <Bar name="공정 진행률 (%)" dataKey="progress" fill="#2563eb" radius={[2, 2, 0, 0]} />
+              <Bar name="자재 입고율 (%)" dataKey="material" fill="#f59e0b" radius={[2, 2, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
       {/* Construction Completion Status */}
       <div className="mb-8">
-        <h2 className="text-xs font-black text-slate-900 mb-3 bg-blue-600 text-white px-3 py-1 inline-block uppercase tracking-[0.2em]">04. Construction Completion Status</h2>
+        <h2 className="text-xs font-black text-slate-900 mb-3 bg-blue-600 text-white px-3 py-1 inline-block uppercase tracking-[0.2em]">05. Construction Completion Status</h2>
         <div className="grid grid-cols-2 gap-4">
           {data.buildings.map(b => {
             const completedProcesses = sortedProcesses.filter(p => b.processes[p] === 100);
@@ -270,7 +340,7 @@ const ReportPrintView: React.FC<ReportPrintViewProps> = ({ data, sortedProcesses
 
       {/* Specific Notes */}
       <div className="mb-12">
-        <h2 className="text-xs font-black text-slate-900 mb-3 bg-slate-900 text-white px-3 py-1 inline-block uppercase tracking-[0.2em]">05. Special Notes</h2>
+        <h2 className="text-xs font-black text-slate-900 mb-3 bg-slate-900 text-white px-3 py-1 inline-block uppercase tracking-[0.2em]">06. Special Notes</h2>
         <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg min-h-[120px] text-[10px] text-slate-600 leading-relaxed font-medium whitespace-pre-wrap">
           {data.dashboardNotes || '본 현장의 주요 이슈 및 특이사항이 기술되는 공간입니다. 현재 등록된 특이사항이 없습니다.'}
         </div>
