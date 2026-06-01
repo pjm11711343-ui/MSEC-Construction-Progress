@@ -30,7 +30,7 @@ interface ReportPrintViewProps {
 }
 
 const ReportPrintView: React.FC<ReportPrintViewProps> = ({ data, sortedProcesses }) => {
-  const [selectedBuildingId, setSelectedBuildingId] = React.useState<string>(data.buildings[0]?.id || '');
+  const [selectedBuildingId, setSelectedBuildingId] = React.useState<number | string>(data.buildings[0]?.id ?? '');
 
   // Helper to format progress text consistently with App.tsx logic
   const getProgressText = (val: number, b: BuildingData, p: string) => {

@@ -37,8 +37,7 @@ import {
   Database,
   History,
   Layers,
-  Percent,
-  Image as ImageIcon
+  Percent
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -241,6 +240,7 @@ export default function App() {
   const [isEditMode, setIsEditMode] = useState(false);
   const [newSiteName, setNewSiteName] = useState('');
   const [newSitePassword, setNewSitePassword] = useState('');
+  const [showBackupToast, setShowBackupToast] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [shareSiteId, setShareSiteId] = useState<string | null>(null);
   const [copiedLinkType, setCopiedLinkType] = useState<'admin' | 'field' | 'guest' | null>(null);
@@ -1252,6 +1252,10 @@ export default function App() {
     linkElement.setAttribute('href', dataUri);
     linkElement.setAttribute('download', fileName);
     linkElement.click();
+
+    // Show success toast
+    setShowBackupToast(true);
+    setTimeout(() => setShowBackupToast(false), 3000);
   };
 
   const handleConfirmRestore = () => {
@@ -5971,6 +5975,25 @@ export default function App() {
             onConfirm={handleConfirmRestore}
             onCancel={() => setPendingRestore(null)}
           />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showBackupToast && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 50, scale: 0.9 }}
+            className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[9999] px-6 py-3 bg-slate-900 border border-slate-700/50 text-white rounded-2xl shadow-2xl flex items-center gap-3 backdrop-blur-xl"
+          >
+            <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center">
+              <CheckCircle2 className="w-5 h-5 text-blue-400" />
+            </div>
+            <div className="flex flex-col">
+              <span className="text-xs font-black uppercase tracking-wider">백업 완료</span>
+              <span className="text-[10px] font-bold text-slate-400">성공적으로 로컬 데이터가 저장되었습니다</span>
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
 
