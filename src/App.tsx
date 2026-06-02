@@ -75,6 +75,7 @@ import ReactMarkdown from 'react-markdown';
 import ReportPrintView from './components/ReportPrintView';
 import AIPredictionView from './components/AIPredictionView';
 import BuildingDetailModal from './components/BuildingDetailModal';
+import GolgudoView from './components/GolgudoView';
 import { 
   Sparkles, 
   MessageSquare,
@@ -95,7 +96,8 @@ import {
   MultiProjectData,
   DailyReport,
   ProgressSnapshot,
-  AppTheme
+  AppTheme,
+  DEFAULT_UNIT_TYPES
 } from './types';
 
 import initialDataImport from './data/initial_data.json';
@@ -123,7 +125,8 @@ const createNewSite = (name: string): AppState => ({
     textColor: '',
     endDate: new Date(new Date().setFullYear(new Date().getFullYear() + 2)).toISOString().split('T')[0],
     stairwellCount: 1,
-    unitCount: 500
+    unitCount: 500,
+    unitTypeConfigs: DEFAULT_UNIT_TYPES
   },
   buildings: Array.from({ length: 10 }, (_, i) => ({
     id: i + 1,
@@ -185,7 +188,8 @@ const migrateSite = (site: any) => {
     history: site.history || [],
     settings: {
       ...site.settings,
-      processModes: normalizedModes
+      processModes: normalizedModes,
+      unitTypeConfigs: site.settings?.unitTypeConfigs || DEFAULT_UNIT_TYPES
     },
     buildings: site.buildings.map((b: any) => {
       const newProcesses: Record<string, number> = {};
@@ -238,7 +242,7 @@ export default function App() {
   const [storageState, setStorageState] = useState<AppState>(createNewSite('스마트 아파트 현장'));
   const setData = setStorageState;
   const [processes, setProcesses] = useState<string[]>(DEFAULT_PROCESSES);
-  const [viewMode, setViewMode] = useState<'grid' | 'table' | 'settings' | 'analytics' | 'calendar' | 'daily_report' | 'gantt' | 'report' | 'prediction'>('table');
+  const [viewMode, setViewMode] = useState<'grid' | 'table' | 'settings' | 'analytics' | 'calendar' | 'daily_report' | 'gantt' | 'report' | 'prediction' | 'golgudo'>('table');
   const [viewDate, setViewDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [isAutoSaving, setIsAutoSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1911,6 +1915,46 @@ export default function App() {
     setBuildingToDelete(null);
   };
 
+  const handleUpdateBuilding = (id: number, updates: Partial<BuildingData>) => {
+    if (role === 'GUEST') return;
+    updateStateForTarget((buildings, facilities) => {
+      const nextBuildings = buildings.map(b => b.id === id ? { ...b, ...updates } : b);
+      return { buildings: nextBuildings, facilities };
+    });
+  };
+
+  const handleResetAllBuildings = () => {
+    if (role === 'GUEST') return;
+    if (!window.confirm('모든 동의 설정을 초기화하시겠습니까? (층수, 호수, 세대타입 등이 기본값으로 복구됩니다)')) return;
+
+    setData(prev => ({
+      ...prev,
+      buildings: prev.buildings.map(b => ({
+        ...b,
+        maxFloor: prev.settings.maxFloor,
+        minFloor: prev.settings.minFloor,
+        lines: 4,
+        unitMap: {},
+        lastLog: {
+          type: 'floor_change',
+          description: '전체 단지 구성 초기화됨',
+          timestamp: new Date().toISOString()
+        }
+      }))
+    }));
+  };
+
+  const handleUpdateUnitTypeConfigs = (configs: any[]) => {
+    if (role === 'GUEST') return;
+    setData(prev => ({
+      ...prev,
+      settings: {
+        ...prev.settings,
+        unitTypeConfigs: configs
+      }
+    }));
+  };
+
   const renameBuilding = (id: number, newName: string) => {
     setData(prev => ({
       ...prev,
@@ -2821,6 +2865,13 @@ export default function App() {
               </button>
               <button 
                 type="button"
+                onClick={() => setViewMode('golgudo')}
+                className={`px-3 py-1.5 rounded-md text-[9px] font-black transition-all ${viewMode === 'golgudo' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                골구조도
+              </button>
+              <button 
+                type="button"
                 onClick={() => setViewMode('calendar')}
                 className={`px-3 py-1.5 rounded-md text-[9px] font-black transition-all ${viewMode === 'calendar' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
               >
@@ -2950,6 +3001,13 @@ export default function App() {
                 className={`px-1.5 py-1 rounded-md text-[8px] font-black transition-all ${viewMode === 'grid' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-750'}`}
               >
                 대시보드
+              </button>
+              <button 
+                type="button"
+                onClick={() => setViewMode('golgudo')}
+                className={`px-1.5 py-1 rounded-md text-[8px] font-black transition-all ${viewMode === 'golgudo' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-750'}`}
+              >
+                골구조도
               </button>
               <button 
                 type="button"
@@ -5039,12 +5097,28 @@ export default function App() {
                 const prevBuilding = previousEntry?.buildings?.find((pb: any) => pb.id === b.id);
                 const prevAvg = prevBuilding ? getBuildingAvg(prevBuilding, processes) : null;
                 const diff = prevAvg !== null ? avg - prevAvg : 0;
+                const isHighlighted = processFilter !== 'all';
 
                 return (
-                  <div 
+                  <motion.div 
                     key={b.id} 
+                    layout
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ 
+                      opacity: 1, 
+                      y: 0,
+                      borderColor: isHighlighted ? '#3b82f6' : (activeTheme.isDark ? '#334155' : '#e2e8f0'),
+                      boxShadow: isHighlighted 
+                        ? ['0 8px 30px rgba(59,130,246,0.1)', '0 8px 35px rgba(59,130,246,0.25)', '0 8px 30px rgba(59,130,246,0.1)']
+                        : '0 8px 30px rgba(0,0,0,0.04)'
+                    }}
+                    transition={{
+                      opacity: { duration: 0.5 },
+                      y: { duration: 0.5 },
+                      boxShadow: isHighlighted ? { duration: 2, repeat: Infinity, ease: "easeInOut" } : { duration: 0.3 }
+                    }}
                     onClick={() => setSelectedBuildingDetail(b)}
-                    className={`${activeTheme.card} rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border ${activeTheme.border} p-3 md:p-6 hover:shadow-[0_20px_50px_rgba(0,0,0,0.1)] hover:-translate-y-1 transition-all duration-500 relative overflow-hidden group cursor-pointer`}
+                    className={`${activeTheme.card} rounded-3xl border p-3 md:p-6 hover:shadow-[0_20px_50px_rgba(0,0,0,0.1)] hover:-translate-y-1 transition-all duration-500 relative overflow-hidden group cursor-pointer`}
                   >
                     <div className={`absolute top-0 left-0 w-1 h-full ${avg === 100 ? 'bg-green-500' : activeTheme.accent} z-20`} />
                     
@@ -5079,6 +5153,25 @@ export default function App() {
                       
                       {/* Gradient Overlay for better text readability if needed */}
                       <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </div>
+
+                    {/* Mini Progress Bar for 건축골조 */}
+                    <div className="mb-4 px-1">
+                      <div className="flex justify-between items-center mb-1">
+                        <div className="flex items-center gap-1">
+                          <span className="text-[9px] font-black text-slate-500 uppercase tracking-tight">건축골조 (Structural)</span>
+                          {b.processes['건축골조'] === 100 && <CheckSquare className="w-3 h-3 text-green-500" />}
+                        </div>
+                        <span className="text-[9px] font-black text-slate-400">{(b.processes['건축골조'] ?? 0)}%</span>
+                      </div>
+                      <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden shadow-inner">
+                        <motion.div 
+                          initial={{ width: 0 }}
+                          animate={{ width: `${Math.max(0, Math.min(100, b.processes['건축골조'] ?? 0))}%` }}
+                          className={`h-full ${b.processes['건축골조'] === 100 ? 'bg-green-500' : 'bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]'}`}
+                          transition={{ duration: 1, ease: "easeOut" }}
+                        />
+                      </div>
                     </div>
 
                     <div className="flex justify-between items-start mb-2 md:mb-4">
@@ -5208,7 +5301,7 @@ export default function App() {
                          );
                        })}
                      </div>
-                   </div>
+                   </motion.div>
                  );
                })}
             </div>
@@ -5733,6 +5826,27 @@ export default function App() {
             <div className="p-4 sm:p-8 max-w-7xl mx-auto">
               <AIPredictionView data={data} activeTheme={activeTheme} />
             </div>
+          </motion.div>
+        )}
+
+        {viewMode === 'golgudo' && (
+          <motion.div
+            key="golgudo"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            <GolgudoView 
+              data={data} 
+              activeTheme={activeTheme} 
+              isDarkTheme={isDarkTheme} 
+              onUpdateBuilding={handleUpdateBuilding}
+              onDeleteBuilding={deleteBuilding}
+              onAddBuilding={addBuilding}
+              onResetAll={handleResetAllBuildings}
+              onUpdateUnitTypeConfigs={handleUpdateUnitTypeConfigs}
+            />
           </motion.div>
         )}
 

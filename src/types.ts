@@ -19,6 +19,13 @@ export interface BuildingData {
   materialDates?: Record<string, string>; // process id -> arrival date (ISO string)
   minFloor?: number;
   maxFloor?: number;
+  lines?: number; // Number of units per floor for golgudo
+  unitMap?: Record<string, string>; // "floor:line" -> unit type (e.g. "84A")
+  lastLog?: {
+    type: 'type_change' | 'floor_change' | 'unit_change';
+    description: string;
+    timestamp: string;
+  };
   photos?: Record<string, string[]>; // process id/name -> array of base64 photos
   thumbnail?: string; // representative photo
 }
@@ -43,6 +50,12 @@ export const FACILITY_PROCESSES = [
 
 export type AppTheme = 'slate' | 'blueprint' | 'industrial' | 'earth' | 'midnight' | 'modern';
 
+export interface UnitTypeConfig {
+  type: string;
+  color: string;
+  textColor?: string;
+}
+
 export interface ProjectSettings {
   companyName: string;
   projectName: string;
@@ -66,6 +79,7 @@ export interface ProjectSettings {
   stairwellCount?: number;
   unitCount?: number;
   processLeadTimes?: Record<string, number>;
+  unitTypeConfigs?: UnitTypeConfig[];
 }
 
 export interface ProgressSnapshot {
@@ -90,6 +104,19 @@ export interface Milestone {
   date: string;
   color?: string;
 }
+
+export const DEFAULT_UNIT_TYPES: UnitTypeConfig[] = [
+  { type: '39A', color: 'bg-indigo-500', textColor: 'text-white' },
+  { type: '59A', color: 'bg-emerald-500', textColor: 'text-white' },
+  { type: '59B', color: 'bg-teal-500', textColor: 'text-white' },
+  { type: '74A', color: 'bg-blue-500', textColor: 'text-white' },
+  { type: '74B', color: 'bg-sky-500', textColor: 'text-white' },
+  { type: '84A', color: 'bg-amber-500', textColor: 'text-white' },
+  { type: '84B', color: 'bg-orange-500', textColor: 'text-white' },
+  { type: '84C', color: 'bg-rose-500', textColor: 'text-white' },
+  { type: 'PH1', color: 'bg-violet-600', textColor: 'text-white' },
+  { type: 'PH2', color: 'bg-fuchsia-600', textColor: 'text-white' },
+];
 
 export interface AppState {
   id: string; // Site ID
