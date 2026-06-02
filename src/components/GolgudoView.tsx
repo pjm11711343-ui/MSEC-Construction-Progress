@@ -23,6 +23,7 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
   const [layerOpacity, setLayerOpacity] = useState(1);
   const [copyBuffer, setCopyBuffer] = useState<Partial<BuildingData> | null>(null);
   const [hoveredFloor, setHoveredFloor] = useState<number | null>(null);
+  const [hoveredUnitType, setHoveredUnitType] = useState<string | null>(null);
   const [guideConfig, setGuideConfig] = useState<{ enabled: boolean, targets: number[] }>({
     enabled: true,
     targets: []
@@ -145,17 +146,17 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
   const getUnitType = (building: BuildingData, floor: number, line: number) => {
     const maxFloorNum = building.maxFloor || data.settings.maxFloor;
     const key = `${floor}:${line}`;
+
+    // Hard rules for specific floors
+    if (floor > maxFloorNum) return ''; // PH floors
+    if (floor < 1 && floor !== 0) return ''; // B1, B2, etc. as requested
+
     if (building.unitMap && building.unitMap[key] !== undefined) {
       return building.unitMap[key];
     }
 
-    // Default PH floors to empty
-    if (floor > maxFloorNum) return '';
-
-    if (floor <= 1 && floor >= -3) {
-      if (floor === 1) return '필로티';
-      return ''; // Basements usually empty in this view
-    }
+    if (floor === 1) return '필로티';
+    
     if (unitTypeConfigs.length === 0) return '';
     const index = (building.id + Math.abs(floor) + line) % unitTypeConfigs.length;
     return unitTypeConfigs[index].type;
@@ -173,7 +174,7 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
       unitMap: { ...currentMap, [`${floor}:${line}`]: nextType },
       lastLog: {
         type: 'unit_change',
-        description: `${floor}층 ${line}호 -> ${nextType || '삭제'}`,
+        description: `${floor < 0 ? `B${Math.abs(floor)}` : `${floor}F`} ${line}호 -> ${nextType || '삭제'}`,
         timestamp: new Date().toISOString()
       }
     });
@@ -192,11 +193,11 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
 
     const newUnitMap = { ...(b.unitMap || {}) };
     
-    // Apply to all valid residential floors (excluding PH which should stay empty by default)
+    // Apply types to main floors, keep PH and Basements empty
     for (let f = minFloor; f <= (maxFloor + 2); f++) {
       if (f === 0) continue;
-      if (f > maxFloor) {
-        newUnitMap[`${f}:${line}`] = ''; // Keep PH empty as requested
+      if (f > maxFloor || f < 1) {
+        newUnitMap[`${f}:${line}`] = '';
       } else {
         newUnitMap[`${f}:${line}`] = nextType;
       }
@@ -260,19 +261,28 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
             <div className="h-[3px] w-12 md:w-24 bg-blue-600 rounded-full" />
           </div>
 
-          <div className="flex gap-2">
-            {unitTypeConfigs.map(ut => (
-              <div key={ut.type} className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-900 px-3 py-1.5 rounded-full shadow-inner border border-slate-200 dark:border-slate-800">
-                <div className={`w-2.5 h-2.5 rounded-full ${ut.color}`} />
-                <span className="text-[9px] font-black text-slate-500 uppercase tracking-tighter">{ut.type}</span>
-              </div>
-            ))}
+          <div className="flex flex-wrap gap-2 justify-center mt-2">
+            {unitTypeConfigs.map(ut => {
+              const colorInfo = getTypeColorInfo(ut.type);
+              const isHovered = hoveredUnitType === ut.type;
+              return (
+                <div 
+                  key={ut.type} 
+                  onMouseEnter={() => setHoveredUnitType(ut.type)}
+                  onMouseLeave={() => setHoveredUnitType(null)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full shadow-md border cursor-help transition-all duration-300 ${isHovered ? 'scale-110 ring-2 ring-blue-500 z-10 border-blue-400' : 'border-white/10'} ${colorInfo.className}`}
+                  style={colorInfo.style}
+                >
+                  <span className="text-[9px] font-black uppercase tracking-tighter">{ut.type}</span>
+                </div>
+              );
+            })}
             <button 
               onClick={() => setIsEditingUnitTypes(true)}
-              className="p-1.5 rounded-full bg-slate-200 hover:bg-blue-500 hover:text-white dark:bg-slate-800 transition-all shadow-sm"
+              className="p-1.5 rounded-full bg-slate-200 hover:bg-blue-500 hover:text-white dark:bg-slate-800 transition-all shadow-sm flex items-center justify-center"
               title="세대 타입 및 색상 설정"
             >
-              <Settings className="w-3.5 h-3.5" />
+              <Settings className="w-4 h-4" />
             </button>
           </div>
 
@@ -416,12 +426,13 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
                       const colorInfo = getTypeColorInfo(ut.type);
                       return (
                         <th key={ut.type} className="p-4 text-[11px] font-black border-r border-white/10 min-w-[80px]">
-                          <div className="flex flex-col items-center gap-1">
+                          <div className="flex flex-col items-center gap-2">
                             <div 
-                              className={`w-3 h-3 rounded-full mb-1 shadow-sm border border-white/20 ${colorInfo.className}`} 
+                              className={`px-3 py-1 rounded-lg shadow-md border border-white/20 text-[10px] uppercase tracking-tighter ${colorInfo.className}`} 
                               style={colorInfo.style}
-                            />
-                            {ut.type}
+                            >
+                              {ut.type}
+                            </div>
                           </div>
                         </th>
                       );
@@ -764,17 +775,19 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
                       {Array.from({ length: lines }).map((_, i) => {
                         const type = getUnitType(b, fNum, i + 1);
                         const colorInfo = getTypeColorInfo(type);
+                        const isTypeHovered = hoveredUnitType !== null && type === hoveredUnitType;
+                        const isOtherTypeHovered = hoveredUnitType !== null && type !== hoveredUnitType;
                         
                         return (
                           <button 
                             key={i} 
                             onClick={() => cycleUnitType(b, fNum, i + 1)}
-                            className={`p-1.5 border-r border-slate-200 dark:border-slate-800 last:border-r-0 flex items-center justify-center hover:bg-blue-500/10 transition-colors cursor-pointer group/unit shadow-inner active:scale-95 px-1`}
+                            className={`p-1.5 border-r border-slate-200 dark:border-slate-800 last:border-r-0 flex items-center justify-center hover:bg-blue-500/10 transition-all cursor-pointer group/unit shadow-inner active:scale-95 px-1 ${isOtherTypeHovered ? 'opacity-20 grayscale' : 'opacity-100'}`}
                             style={{ padding: dynamicFloorHeight ? `${Math.floor(6 * floorScale)}px 4px` : '' }}
                             title="클릭하여 타입 변경"
                           >
                             <div 
-                              className={`w-full py-1.5 rounded-lg text-[9px] font-black text-center shadow-md uppercase tracking-tighter group-hover/unit:scale-105 transition-transform min-h-[24px] flex items-center justify-center ${isWireframe && type ? 'bg-transparent border-2 border-dashed border-blue-400/30 text-blue-400/60' : colorInfo.className}`}
+                              className={`w-full py-1.5 rounded-lg text-[9px] font-black text-center shadow-md uppercase tracking-tighter transition-all duration-300 min-h-[24px] flex items-center justify-center ${isTypeHovered ? 'ring-2 ring-blue-500 scale-110 z-10' : ''} ${isWireframe && type ? 'bg-transparent border-2 border-dashed border-blue-400/30 text-blue-400/60' : colorInfo.className}`}
                               style={{
                                 ...((!isWireframe || !type) ? colorInfo.style : {}),
                                 padding: dynamicFloorHeight ? `${Math.floor(6 * floorScale)}px 0` : '',
@@ -867,16 +880,19 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
                         {Array.from({ length: lines }).map((_, i) => {
                           const type = getUnitType(b, fNum, i + 1);
                           const colorInfo = getTypeColorInfo(type);
+                          const isTypeHovered = hoveredUnitType !== null && type === hoveredUnitType;
+                          const isOtherTypeHovered = hoveredUnitType !== null && type !== hoveredUnitType;
                           return (
                             <button 
                               key={i} 
                               onClick={() => cycleUnitType(b, fNum, i + 1)}
-                              className="p-1 border-r border-slate-200/50 dark:border-slate-800/50 last:border-r-0 hover:bg-white/5 transition-colors group/unit min-h-[20px] flex items-center justify-center cursor-pointer px-1"
+                              className={`p-1 border-r border-slate-200/50 dark:border-slate-800/50 last:border-r-0 hover:bg-white/5 transition-all group/unit min-h-[20px] flex items-center justify-center cursor-pointer px-1 ${isOtherTypeHovered ? 'opacity-20 grayscale' : 'opacity-100'}`}
                               style={{ padding: dynamicFloorHeight ? `${Math.floor(4 * floorScale)}px 4px` : '' }}
+                              title="클릭하여 타입 변경"
                             >
-                               {type && (
+                               {type ? (
                                 <div 
-                                  className={`w-full py-0.5 rounded text-[7px] font-black text-center uppercase tracking-tighter opacity-50 group-hover/unit:opacity-100 transition-opacity ${colorInfo.className}`}
+                                  className={`w-full py-0.5 rounded text-[7px] font-black text-center uppercase tracking-tighter opacity-50 group-hover/unit:opacity-100 transition-all duration-300 ${isTypeHovered ? 'scale-125 opacity-100 ring-1 ring-blue-500 z-10' : ''} ${colorInfo.className}`}
                                   style={{
                                     ...colorInfo.style,
                                     fontSize: dynamicFloorHeight ? `${Math.max(6, Math.floor(7 * floorScale))}px` : '7px'
@@ -884,6 +900,8 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
                                 >
                                    {type}
                                 </div>
+                               ) : (
+                                <div className="w-full h-4 border border-dashed border-slate-300 dark:border-slate-700 rounded opacity-40" />
                                )}
                             </button>
                           );
@@ -962,20 +980,30 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                      {unitTypeConfigs.map((ut, idx) => (
-                        <tr key={idx} className="group">
+                      {unitTypeConfigs.map((ut, idx) => {
+                        const colorInfo = getTypeColorInfo(ut.type);
+                        return (
+                          <tr key={idx} className="group">
                           <td className="py-3">
-                            <input 
-                              type="text"
-                              value={ut.type}
-                              onChange={(e) => {
-                                const newConfigs = [...unitTypeConfigs];
-                                newConfigs[idx] = { ...ut, type: e.target.value };
-                                onUpdateUnitTypeConfigs?.(newConfigs);
-                              }}
-                              placeholder="e.g. 84A"
-                              className="bg-transparent border-none outline-none font-black text-blue-500 focus:ring-0 w-full"
-                            />
+                            <div className="flex items-center gap-3">
+                              <div 
+                                className={`w-10 h-10 rounded-xl shadow-lg border-2 border-white/20 flex items-center justify-center transition-all ${colorInfo.className}`}
+                                style={colorInfo.style}
+                              >
+                                 <span className="text-[10px] font-black">{ut.type}</span>
+                              </div>
+                              <input 
+                                type="text"
+                                value={ut.type}
+                                onChange={(e) => {
+                                  const newConfigs = [...unitTypeConfigs];
+                                  newConfigs[idx] = { ...ut, type: e.target.value };
+                                  onUpdateUnitTypeConfigs?.(newConfigs);
+                                }}
+                                placeholder="e.g. 84A"
+                                className="bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-1.5 outline-none font-black text-blue-500 focus:ring-2 focus:ring-blue-500/20 w-32"
+                              />
+                            </div>
                           </td>
                           <td className="py-3">
                             <input 
@@ -986,22 +1014,9 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
                                 newConfigs[idx] = { ...ut, color: e.target.value };
                                 onUpdateUnitTypeConfigs?.(newConfigs);
                               }}
-                              placeholder="bg-blue-500"
-                              className="bg-transparent border-none outline-none font-bold text-slate-400 focus:ring-0 w-full text-xs"
+                              placeholder="bg-blue-500 or #HEX"
+                              className="bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-1.5 outline-none font-bold text-slate-400 focus:ring-2 focus:ring-blue-500/20 w-full text-xs"
                             />
-                          </td>
-                          <td className="py-3">
-                            {(() => {
-                              const info = getTypeColorInfo(ut.type);
-                              return (
-                                <div 
-                                  className={`w-8 h-8 rounded-lg shadow-sm border border-slate-200 dark:border-slate-800 flex items-center justify-center ${info.className}`}
-                                  style={info.style}
-                                >
-                                   <span className="text-[8px] font-black">{ut.type}</span>
-                                </div>
-                              );
-                            })()}
                           </td>
                           <td className="py-3 text-right">
                             <button 
@@ -1010,13 +1025,14 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
                                 const newConfigs = unitTypeConfigs.filter((_, i) => i !== idx);
                                 onUpdateUnitTypeConfigs?.(newConfigs);
                               }}
-                              className="p-1.5 text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                              className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
 
