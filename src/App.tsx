@@ -5846,6 +5846,7 @@ export default function App() {
               onAddBuilding={addBuilding}
               onResetAll={handleResetAllBuildings}
               onUpdateUnitTypeConfigs={handleUpdateUnitTypeConfigs}
+              onClose={() => setViewMode('table')}
             />
           </motion.div>
         )}

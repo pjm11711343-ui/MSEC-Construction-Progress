@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Building2, Info, Trash2, Settings, X, Check, ArrowRight, Layers, Plus, Minus, Clock, Zap, Copy, ClipboardPaste, RefreshCcw } from 'lucide-react';
+import { Building2, Info, Trash2, Settings, X, Check, ArrowRight, Layers, Plus, Minus, Clock, Zap, Copy, ClipboardPaste, RefreshCcw, Eraser, Printer } from 'lucide-react';
 import { AppState, BuildingData, UnitTypeConfig, DEFAULT_UNIT_TYPES } from '../types';
 
 interface GolgudoViewProps {
@@ -12,9 +12,10 @@ interface GolgudoViewProps {
   onAddBuilding: () => void;
   onResetAll?: () => void;
   onUpdateUnitTypeConfigs?: (configs: UnitTypeConfig[]) => void;
+  onClose?: () => void;
 }
 
-const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkTheme, onUpdateBuilding, onDeleteBuilding, onAddBuilding, onResetAll, onUpdateUnitTypeConfigs }) => {
+const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkTheme, onUpdateBuilding, onDeleteBuilding, onAddBuilding, onResetAll, onUpdateUnitTypeConfigs, onClose }) => {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [viewMode, setViewMode] = useState<'2d' | '3d'>('2d');
   const [dynamicFloorHeight, setDynamicFloorHeight] = useState(false);
@@ -27,6 +28,13 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
   const [selectedUnitType, setSelectedUnitType] = useState<string | null>(null);
   const [isProcessSynced, setIsProcessSynced] = useState(true);
   const [isWideView, setIsWideView] = useState(false);
+  const [isPainting, setIsPainting] = useState(false);
+  const [isLegendOpen, setIsLegendOpen] = useState(true);
+
+  const handlePrint = () => {
+    window.print();
+  };
+
   const [guideConfig, setGuideConfig] = useState<{ enabled: boolean, targets: number[] }>({
     enabled: true,
     targets: []
@@ -37,6 +45,33 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
     maxFloor: 0,
     lines: 4
   });
+
+  // Keyboard Shortcuts for Efficiency
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // 1-9 Keys to select unit types
+      if (e.key >= '1' && e.key <= '9') {
+        const index = parseInt(e.key) - 1;
+        if (unitTypeConfigs[index]) {
+          setSelectedUnitType(unitTypeConfigs[index].type);
+        }
+      }
+      // 'Esc' to clear selection
+      if (e.key === 'Escape') {
+        setSelectedUnitType(null);
+        setHoveredUnitType(null);
+      }
+    };
+
+    const handleMouseUp = () => setIsPainting(false);
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [unitTypeConfigs]);
 
   const handleCopyConfig = (b: BuildingData) => {
     const { mainFloors, basementFloors, lines } = getBuildingUnits(b);
@@ -186,6 +221,10 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
   const applyTypeToBuilding = (b: BuildingData) => {
     if (!onUpdateBuilding || !selectedUnitType) return;
     
+    if (!window.confirm(`${b.name}의 모든 세대를 ${selectedUnitType || '삭제'} 타입으로 일괄 변경하시겠습니까?`)) {
+      return;
+    }
+    
     const { mainFloors, basementFloors, lines } = getBuildingUnits(b);
     const allFloors = [...mainFloors, ...basementFloors];
     const newUnitMap = { ...(b.unitMap || {}) };
@@ -210,6 +249,22 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
         timestamp: new Date().toISOString()
       }
     });
+
+    // Check for Alt key sync
+    if (window.event && (window.event as any).altKey) {
+      data.buildings.forEach(otherB => {
+        if (otherB.id === b.id) return;
+        const otherMap = { ...(otherB.unitMap || {}) };
+        const { mainFloors: mF, basementFloors: bF, lines: oL } = getBuildingUnits(otherB);
+        [...mF, ...bF].forEach(f => {
+          if (f === 0) return;
+          for (let l = 1; l <= oL; l++) {
+            otherMap[`${f}:${l}`] = selectedUnitType;
+          }
+        });
+        onUpdateBuilding(otherB.id, { unitMap: otherMap });
+      });
+    }
   };
 
   const applyTypeToFloor = (b: BuildingData, floor: number) => {
@@ -222,6 +277,11 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
       const types = ['', '필로티', ...unitTypeConfigs.map(ut => ut.type)];
       const currentIndex = types.indexOf(current);
       nextType = types[(currentIndex + 1) % types.length];
+    } else {
+      // Safety confirmation for bulk apply
+      if (!window.confirm(`${floor < 0 ? `B${Math.abs(floor)}` : `${floor}F`} 층의 모든 세대를 ${nextType || '삭제'} 타입으로 변경하시겠습니까?`)) {
+        return;
+      }
     }
 
     const newUnitMap = { ...(b.unitMap || {}) };
@@ -237,6 +297,19 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
         timestamp: new Date().toISOString()
       }
     });
+
+    // Sync to all buildings on Alt+Click
+    if (window.event && (window.event as any).altKey) {
+      data.buildings.forEach(otherB => {
+        if (otherB.id === b.id) return;
+        const otherMap = { ...(otherB.unitMap || {}) };
+        const { lines: oL } = getBuildingUnits(otherB);
+        for (let l = 1; l <= oL; l++) {
+          otherMap[`${floor}:${l}`] = nextType;
+        }
+        onUpdateBuilding(otherB.id, { unitMap: otherMap });
+      });
+    }
   };
 
   const cycleLineUnitType = (b: BuildingData, line: number) => {
@@ -246,6 +319,10 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
     let nextType: string;
     if (selectedUnitType !== null) {
       nextType = selectedUnitType;
+      // Safety confirmation for bulk line apply
+      if (!window.confirm(`${b.name} ${line}호 라인 전체를 ${nextType || '삭제'} 타입으로 일괄 변경하시겠습니까?`)) {
+        return;
+      }
     } else {
       const currentType = getUnitType(b, Math.floor(maxFloor/2) || 2, line);
       const types = ['', '필로티', ...unitTypeConfigs.map(ut => ut.type)];
@@ -273,6 +350,27 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
         timestamp: new Date().toISOString()
       }
     });
+
+    // Sync to all buildings on Alt+Click
+    if (window.event && (window.event as any).altKey) {
+      data.buildings.forEach(otherB => {
+        if (otherB.id === b.id) return;
+        const { lines: oLines } = getBuildingUnits(otherB);
+        const oMax = otherB.maxFloor || data.settings.maxFloor;
+        const oMin = otherB.minFloor || data.settings.minFloor;
+        if (line > oLines) return;
+        const otherMap = { ...(otherB.unitMap || {}) };
+        for (let f = oMin; f <= (oMax + 2); f++) {
+          if (f === 0) continue;
+          if (f > oMax || f < 1) {
+            otherMap[`${f}:${line}`] = '';
+          } else {
+            otherMap[`${f}:${line}`] = nextType;
+          }
+        }
+        onUpdateBuilding(otherB.id, { unitMap: otherMap });
+      });
+    }
   };
 
   const getTypeColorInfo = (type: string) => {
@@ -330,14 +428,78 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
   }, [data.buildings, unitTypeConfigs, data.settings.maxFloor, data.settings.minFloor]);
 
   return (
-    <div className="p-4 md:p-8 space-y-12 max-w-[1700px] mx-auto font-sans">
+    <div className="p-4 md:p-8 space-y-12 max-w-[1700px] mx-auto font-sans print-container">
+      <style>
+        {`
+          @media print {
+            @page {
+              size: A3 landscape;
+              margin: 1cm;
+            }
+            body {
+              background: white !important;
+              color: black !important;
+            }
+            .no-print {
+              display: none !important;
+            }
+            .print-container {
+              max-width: 100% !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              space-y: 1.5rem !important;
+            }
+            .buildings-grid {
+              display: flex !important;
+              flex-wrap: wrap !important;
+              gap: 20px !important;
+              grid-template-columns: none !important;
+            }
+            .building-card {
+              break-inside: avoid;
+              border: 1px solid #e2e8f0 !important;
+              box-shadow: none !important;
+              min-width: 300px !important;
+              max-width: 350px !important;
+              background-color: white !important;
+            }
+            .building-card * {
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+            .sticky {
+              position: static !important;
+            }
+            input, button, .slider-container {
+              display: none !important;
+            }
+            .print-header {
+              display: flex !important;
+              justify-content: space-between;
+              align-items: center;
+              margin-bottom: 2rem;
+              border-bottom: 2px solid #3b82f6;
+              padding-bottom: 1rem;
+            }
+          }
+        `}
+      </style>
+
       {/* Title Header */}
       <div className="text-center relative space-y-8">
-        <div>
-          <h1 className={`text-2xl md:text-4xl font-black mb-4 tracking-tighter drop-shadow-sm ${isDarkTheme ? 'text-white' : 'text-slate-900'} antialiased underline-offset-8`}>
+        <div className="print-header relative">
+          <button 
+            onClick={onClose || (() => window.history.back())} 
+            className="no-print absolute left-0 top-1/2 -translate-y-1/2 flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 rounded-xl text-[11px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-all active:scale-95 border-2 border-slate-200 dark:border-white/10"
+          >
+            <ArrowRight className="w-4 h-4 rotate-180" />
+            <span>Go Back</span>
+          </button>
+
+           <h1 className={`text-2xl md:text-4xl font-black mb-4 tracking-tighter drop-shadow-sm ${isDarkTheme ? 'text-white' : 'text-slate-900'} antialiased underline-offset-8`}>
             {data.settings.projectName} 단지배치도(골구조도)
           </h1>
-          <div className="flex items-center justify-center gap-4">
+          <div className="no-print flex items-center justify-center gap-4">
             <div className="h-[3px] w-12 md:w-24 bg-blue-600 rounded-full" />
             <span className="text-[10px] md:text-xs font-black text-slate-500 uppercase tracking-[0.3em]">Vertical Unit Status Diagram</span>
             <div className="h-[3px] w-12 md:w-24 bg-blue-600 rounded-full" />
@@ -345,65 +507,133 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
         </div>
 
         {/* Generation Type Color Legend Section - Modified to Full Width Horizontal */}
-        <div className="w-full bg-slate-100/50 dark:bg-white/5 border-y border-slate-200 dark:border-white/10 backdrop-blur-md shadow-sm py-4">
-          <div className="max-w-[1700px] mx-auto px-4 md:px-8 flex items-center gap-6 overflow-x-auto no-scrollbar">
-            <div className="flex flex-col items-start pr-6 border-r border-slate-300 dark:border-white/10 whitespace-nowrap">
-              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-tight">Generation</span>
-              <span className="text-[10px] font-black text-blue-500 uppercase">Legend View</span>
-            </div>
-            
-            <div className="flex items-center gap-3">
-              {unitTypeConfigs.map(ut => {
-                const colorInfo = getTypeColorInfo(ut.type);
-                const isHovered = hoveredUnitType === ut.type;
-                const isSelected = selectedUnitType === ut.type;
-                
-                return (
-                  <button 
-                    key={ut.type} 
-                    onMouseEnter={() => setHoveredUnitType(ut.type)}
-                    onMouseLeave={() => setHoveredUnitType(null)}
-                    onClick={() => setSelectedUnitType(prev => prev === ut.type ? null : ut.type)}
-                    className={`flex items-center gap-3 px-5 py-2.5 rounded-xl shadow-md border-2 transition-all duration-300 group/btn active:scale-95 whitespace-nowrap ${isSelected ? 'ring-4 ring-blue-500/30 scale-105 z-10 border-blue-400' : isHovered ? 'scale-105 border-white/50' : 'border-white/10 opacity-80 hover:opacity-100'}`}
-                    style={{
-                      backgroundColor: colorInfo.style?.backgroundColor,
-                      color: colorInfo.style?.color
-                    }}
-                    title={`클릭하여 ${ut.type} 타입 세대 강조 표시 (토글)`}
-                  >
-                    <span className="text-[12px] font-black uppercase tracking-tighter">{ut.type}</span>
-                    {isSelected && <div className="w-2 h-2 rounded-full bg-white animate-pulse" />}
-                  </button>
-                );
-              })}
-              
-              <div className="w-px h-8 bg-slate-200 dark:bg-white/10 mx-2" />
-
-              <button 
-                onClick={() => setIsEditingUnitTypes(true)}
-                className="w-10 h-10 rounded-xl bg-slate-200 hover:bg-blue-500 hover:text-white dark:bg-white/10 transition-all flex items-center justify-center group shadow-inner"
-                title="세대 타입 및 색상 설정"
-              >
-                <Settings className="w-4 h-4 group-hover:rotate-90 transition-transform duration-500" />
-              </button>
-            </div>
-            
-            {selectedUnitType && (
-              <motion.button
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                onClick={() => setSelectedUnitType(null)}
-                className="flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-blue-500/20 whitespace-nowrap active:scale-95 transition-all"
-              >
-                <X className="w-3.5 h-3.5" />
-                Clear Highlight
-              </motion.button>
-            )}
-          </div>
+        <div className="no-print flex justify-end px-8 -mb-4">
+          <button 
+            onClick={() => setIsLegendOpen(prev => !prev)}
+            className="flex items-center gap-2 px-3 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 rounded-t-lg border-x-2 border-t-2 border-slate-200 dark:border-white/10 text-[9px] font-black uppercase tracking-widest text-slate-500 transition-all active:scale-95 z-10"
+          >
+            {isLegendOpen ? <><Minus className="w-3 h-3" /> Hide Legend</> : <><Plus className="w-3 h-3" /> Show Legend</>}
+          </button>
         </div>
 
+        <AnimatePresence>
+          {isLegendOpen && (
+            <motion.div 
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="w-full bg-slate-100/50 dark:bg-white/5 border-y border-slate-200 dark:border-white/10 backdrop-blur-md shadow-sm py-4 no-print overflow-hidden"
+            >
+              <div className="max-w-[1700px] mx-auto px-4 md:px-8 flex items-center gap-6 overflow-x-auto no-scrollbar">
+                <div className="flex flex-col items-start pr-6 border-r border-slate-300 dark:border-white/10 whitespace-nowrap">
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-tight">Generation</span>
+                  <span className="text-[10px] font-black text-blue-500 uppercase">Legend View</span>
+                </div>
+                
+                <div className="flex items-center gap-3">
+                  {/* Legend Content */}
+                  {unitTypeConfigs.map(ut => {
+                    const colorInfo = getTypeColorInfo(ut.type);
+                    const isHovered = hoveredUnitType === ut.type;
+                    const isSelected = selectedUnitType === ut.type;
+                    
+                    return (
+                      <div key={ut.type} className="relative group/legend">
+                        <button 
+                          onMouseEnter={() => setHoveredUnitType(ut.type)}
+                          onMouseLeave={() => setHoveredUnitType(null)}
+                          onClick={() => setSelectedUnitType(prev => prev === ut.type ? null : ut.type)}
+                          className={`flex items-center gap-3 px-5 py-2.5 rounded-xl shadow-md border-2 transition-all duration-300 group/btn active:scale-95 whitespace-nowrap ${isSelected ? 'ring-4 ring-blue-500/30 scale-105 z-10 border-blue-400' : isHovered ? 'scale-105 border-white/50' : 'border-white/10 opacity-80 hover:opacity-100'}`}
+                          style={{
+                            backgroundColor: colorInfo.style?.backgroundColor,
+                            color: colorInfo.style?.color
+                          }}
+                          title={`클릭하여 ${ut.type} 타입 세대 강조 표시 (토글)`}
+                        >
+                          <span className="text-[12px] font-black uppercase tracking-tighter">{ut.type}</span>
+                          {isSelected && <div className="w-2 h-2 rounded-full bg-white animate-pulse" />}
+                        </button>
+                        
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (window.confirm(`'${ut.type}' 타입을 삭제하시겠습니까?`)) {
+                              const newConfigs = unitTypeConfigs.filter(c => c.type !== ut.type);
+                              onUpdateUnitTypeConfigs?.(newConfigs);
+                            }
+                          }}
+                          className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-red-500 text-white flex items-center justify-center shadow-lg opacity-0 group-hover/legend:opacity-100 transition-opacity z-20 hover:bg-red-600 active:scale-90"
+                          title={`${ut.type} 타입 삭제`}
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                  
+                  <div className="w-px h-8 bg-slate-200 dark:bg-white/10 mx-2" />
+    
+                  <button 
+                    onClick={() => setSelectedUnitType(prev => prev === "" ? null : "")}
+                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 transition-all duration-300 active:scale-95 whitespace-nowrap ${selectedUnitType === "" ? 'bg-slate-800 text-white border-slate-700 ring-4 ring-slate-500/20' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500 hover:border-slate-300'}`}
+                    title="지우개 도구 (타입 삭제 페인팅)"
+                  >
+                    <Eraser className="w-4 h-4" />
+                    <span className="text-[10px] font-black uppercase tracking-tighter">Eraser</span>
+                  </button>
+    
+                  <div className="w-px h-8 bg-slate-200 dark:bg-white/10 mx-2" />
+    
+                  <button 
+                    onClick={() => setIsEditingUnitTypes(true)}
+                    className="w-10 h-10 rounded-xl bg-slate-200 hover:bg-blue-500 hover:text-white dark:bg-white/10 transition-all flex items-center justify-center group shadow-inner"
+                    title="세대 타입 및 색상 설정"
+                  >
+                    <Settings className="w-4 h-4 group-hover:rotate-90 transition-transform duration-500" />
+                  </button>
+                </div>
+                
+                {selectedUnitType && (
+                  <div className="flex items-center gap-2">
+                    <motion.button
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      onClick={() => setSelectedUnitType(null)}
+                      className="flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-blue-500/20 whitespace-nowrap active:scale-95 transition-all"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      Clear Selection
+                    </motion.button>
+                    
+                    <motion.button
+                      initial={{ opacity: 0, x: 10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      onClick={() => {
+                        if (window.confirm(`모든 동의 모든 세대를 ${selectedUnitType} 타입으로 일괄 변경하시겠습니까?`)) {
+                          data.buildings.forEach(b => applyTypeToBuilding(b));
+                        }
+                      }}
+                      className="flex items-center gap-2 bg-amber-500 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-amber-500/20 whitespace-nowrap active:scale-95 transition-all"
+                    >
+                      <Zap className="w-3.5 h-3.5 fill-white" />
+                      Apply to All Buildings
+                    </motion.button>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Dashboard Controls Container */}
-        <div className="flex flex-wrap items-center justify-center gap-4 md:gap-6 px-4">
+        <div className="flex flex-wrap items-center justify-center gap-4 md:gap-6 px-4 no-print">
+          <button 
+            onClick={handlePrint}
+            className="flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full text-[11px] font-black uppercase tracking-widest transition-all shadow-xl shadow-indigo-500/20 active:scale-95 group"
+          >
+            <Printer className="w-4 h-4 group-hover:animate-bounce" />
+            Print Optimization
+          </button>
 
           {/* Opacity Control Slider */}
           <div className="flex items-center gap-3 bg-slate-100 dark:bg-slate-900 px-4 py-2 rounded-full shadow-inner">
@@ -540,7 +770,7 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
               </div>
               <div className="flex gap-6">
                 {recentMods.map((mod, idx) => (
-                  <div key={mod.id + idx} className="flex items-center gap-2 whitespace-nowrap">
+                  <div key={`${mod.id}-${idx}-${mod.log.timestamp}`} className="flex items-center gap-2 whitespace-nowrap">
                     <span className="text-[10px] font-black text-blue-500">{mod.name}</span>
                     <span className="text-[10px] font-bold text-slate-400">{mod.log.description}</span>
                     <span className="text-[8px] font-medium text-slate-300">{new Date(mod.log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
@@ -631,7 +861,7 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
       </div>
 
       {/* Buildings Container */}
-      <div className={`transition-all duration-700 ${isWideView ? 'flex flex-nowrap overflow-x-auto pb-12 gap-8 items-end min-h-[600px] custom-scrollbar' : `grid gap-10 ${viewMode === '3d' ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 perspective-[2000px] py-20' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4'}`}`}>
+      <div className={`buildings-grid transition-all duration-700 ${isWideView ? 'flex flex-nowrap overflow-x-auto pb-12 gap-8 items-end min-h-[600px] custom-scrollbar' : `grid gap-10 ${viewMode === '3d' ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 perspective-[2000px] py-20' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4'}`}`}>
         {data.buildings.map((b) => {
           const { mainFloors, basementFloors, lines } = getBuildingUnits(b);
           const maxFloorNum = b.maxFloor || data.settings.maxFloor;
@@ -649,7 +879,7 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
                 scale: viewMode === '3d' ? 0.9 : 1,
               }}
               viewport={{ once: true }}
-              className={`flex flex-col border-2 ${activeTheme.border} ${activeTheme.card} rounded-[2rem] overflow-hidden shadow-2xl relative group transition-all duration-700 ${isWideView ? 'min-w-[320px] max-w-[400px]' : ''} ${viewMode === '3d' ? 'shadow-[20px_40px_60px_-15px_rgba(0,0,0,0.3)] hover:shadow-[30px_60px_80px_-20px_rgba(59,130,246,0.3)] hover:-translate-y-4' : 'hover:-translate-y-1'}`}
+              className={`building-card flex flex-col border-2 ${activeTheme.border} ${activeTheme.card} rounded-[2rem] overflow-hidden shadow-2xl relative group transition-all duration-700 ${isWideView ? 'min-w-[320px] max-w-[400px]' : ''} ${viewMode === '3d' ? 'shadow-[20px_40px_60px_-15px_rgba(0,0,0,0.3)] hover:shadow-[30px_60px_80px_-20px_rgba(59,130,246,0.3)] hover:-translate-y-4' : 'hover:-translate-y-1'}`}
             >
               <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
                 <Building2 className="w-40 h-40" />
@@ -790,7 +1020,7 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
                   onClick={() => applyTypeToBuilding(b)}
                   disabled={!selectedUnitType}
                   className={`p-3 text-[10px] font-black text-center border-r-2 border-slate-200 dark:border-slate-800 uppercase transition-all ${selectedUnitType ? 'text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/40 cursor-pointer active:scale-95' : 'text-slate-400'}`}
-                  title={selectedUnitType ? `전체 호실을 ${selectedUnitType} 타입으로 일괄 변경` : '타입 선택 후 클릭 시 전체 변경'}
+                  title={selectedUnitType ? `전체 호실을 ${selectedUnitType} 타입으로 일괄 변경 (Alt+클릭: 전 단지 동일 적용)` : '타입 선택 후 클릭 시 전체 변경'}
                 >
                   <div className="flex flex-col items-center gap-0.5">
                     <span>구분</span>
@@ -802,7 +1032,7 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
                     key={i} 
                     onClick={() => cycleLineUnitType(b, i + 1)}
                     className="p-2 text-[10px] font-black text-blue-500 hover:bg-blue-500/10 text-center border-r border-slate-200 dark:border-slate-800 last:border-r-0 flex flex-col items-center justify-center gap-1 transition-colors group cursor-pointer active:scale-95 shadow-inner"
-                    title={selectedUnitType ? `${i + 1}호 라인 전체를 ${selectedUnitType} 타입으로 변경` : '클릭하여 라인 전체 타입 변경'}
+                    title={selectedUnitType ? `${i + 1}호 라인 전체를 ${selectedUnitType} 타입으로 변경 (Alt+클릭: 전 단지 적용)` : '클릭하여 라인 전체 타입 변경 (Alt+클릭: 전 단지 적용)'}
                   >
                     <span className="group-hover:scale-110 transition-transform">{i + 1}호</span>
                     <Zap className={`w-2.5 h-2.5 transition-opacity ${selectedUnitType ? 'opacity-100 fill-blue-500' : 'opacity-0 group-hover:opacity-100'}`} />
@@ -947,7 +1177,7 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
                         onClick={() => applyTypeToFloor(b, fNum)}
                         className={`p-2 flex flex-col items-center justify-center border-r-2 border-slate-200 dark:border-slate-800 font-black relative overflow-hidden transition-all duration-500 z-20 active:scale-95 cursor-pointer ${isWorkingFloor ? 'bg-blue-600 text-white shadow-[inset_0_0_20px_rgba(255,255,255,0.2)]' : isWireframe ? 'text-slate-400 bg-slate-50/10' : 'text-blue-600 bg-slate-100/30 dark:bg-slate-900/30'} ${showGuide ? 'text-blue-500 bg-blue-50/50 dark:bg-blue-900/30 underline decoration-blue-500/50 decoration-2' : ''}`} 
                         style={{ minWidth: '50px', padding: dynamicFloorHeight ? `${Math.floor(10 * floorScale)}px 0` : '' }}
-                        title={selectedUnitType ? `${fNum}층 전체를 ${selectedUnitType} 타입으로 변경` : '클릭하여 층 전체 타입 변경'}
+                        title={selectedUnitType ? `${fNum}층 전체를 ${selectedUnitType} 타입으로 변경 (Alt+클릭: 전 단지 적용)` : '클릭하여 층 전체 타입 변경 (Alt+클릭: 전 단지 적용)'}
                       >
                         {isWorkingFloor && (
                           <motion.div 
@@ -985,10 +1215,38 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
                         return (
                           <button 
                             key={i} 
-                            onClick={() => cycleUnitType(b, fNum, i + 1)}
+                            onMouseDown={() => {
+                              if (selectedUnitType !== null) {
+                                setIsPainting(true);
+                                // Directly set type if painting instead of cycling
+                                const currentMap = b.unitMap || {};
+                                onUpdateBuilding(b.id, {
+                                  unitMap: { ...currentMap, [`${fNum}:${i + 1}`]: selectedUnitType },
+                                  lastLog: {
+                                    type: 'unit_change',
+                                    description: `${fNum < 0 ? `B${Math.abs(fNum)}` : `${fNum}F`} ${i + 1}호 -> ${selectedUnitType || '삭제'}`,
+                                    timestamp: new Date().toISOString()
+                                  }
+                                });
+                              }
+                            }}
+                            onMouseEnter={() => {
+                              if (isPainting && selectedUnitType !== null) {
+                                if (getUnitType(b, fNum, i + 1) !== selectedUnitType) {
+                                  // Directly set type if painting
+                                  const currentMap = b.unitMap || {};
+                                  onUpdateBuilding(b.id, {
+                                    unitMap: { ...currentMap, [`${fNum}:${i + 1}`]: selectedUnitType }
+                                  });
+                                }
+                              }
+                            }}
+                            onClick={() => {
+                              if (!isPainting) cycleUnitType(b, fNum, i + 1);
+                            }}
                             className={`p-1.5 border-r border-slate-200 dark:border-slate-800 last:border-r-0 flex items-center justify-center hover:bg-blue-500/10 transition-all cursor-pointer group/unit shadow-inner active:scale-95 px-1 ${isOtherTypeHovered ? 'opacity-20 grayscale' : 'opacity-100'}`}
                             style={{ padding: dynamicFloorHeight ? `${Math.floor(6 * floorScale)}px 4px` : '' }}
-                            title={`${fNum}층 ${i + 1}호 타입 변경 (현재: ${type || '없음'})`}
+                            title={`${fNum}층 ${i + 1}호 타입 변경 (현재: ${type || '없음'}) ${selectedUnitType ? '- 드래그하여 페인팅 가능' : ''}`}
                           >
                             <div 
                               className={`w-full py-1.5 rounded-lg text-[9px] font-black text-center shadow-md uppercase tracking-tighter transition-all duration-300 min-h-[24px] flex items-center justify-center ${isTypeHovered ? 'ring-2 ring-blue-500 scale-110 z-10' : ''} ${isWireframe && type ? 'border-2 border-dashed' : colorInfo.className}`}
@@ -1236,7 +1494,7 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
                                 const newConfigs = unitTypeConfigs.filter((_, i) => i !== idx);
                                 onUpdateUnitTypeConfigs?.(newConfigs);
                               }}
-                              className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                              className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
