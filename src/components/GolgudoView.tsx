@@ -25,6 +25,8 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
   const [hoveredFloor, setHoveredFloor] = useState<number | null>(null);
   const [hoveredUnitType, setHoveredUnitType] = useState<string | null>(null);
   const [selectedUnitType, setSelectedUnitType] = useState<string | null>(null);
+  const [isProcessSynced, setIsProcessSynced] = useState(true);
+  const [isWideView, setIsWideView] = useState(false);
   const [guideConfig, setGuideConfig] = useState<{ enabled: boolean, targets: number[] }>({
     enabled: true,
     targets: []
@@ -181,20 +183,79 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
     });
   };
 
+  const applyTypeToBuilding = (b: BuildingData) => {
+    if (!onUpdateBuilding || !selectedUnitType) return;
+    
+    const { mainFloors, basementFloors, lines } = getBuildingUnits(b);
+    const allFloors = [...mainFloors, ...basementFloors];
+    const newUnitMap = { ...(b.unitMap || {}) };
+    
+    allFloors.forEach(f => {
+      if (f === 0) return;
+      for (let l = 1; l <= lines; l++) {
+        const maxFloorNum = b.maxFloor || data.settings.maxFloor;
+        if (f > maxFloorNum || f < 1) {
+           newUnitMap[`${f}:${l}`] = '';
+        } else {
+           newUnitMap[`${f}:${l}`] = selectedUnitType;
+        }
+      }
+    });
+
+    onUpdateBuilding(b.id, { 
+      unitMap: newUnitMap,
+      lastLog: {
+        type: 'unit_change',
+        description: `동 전체 타입 일괄 적용 -> ${selectedUnitType}`,
+        timestamp: new Date().toISOString()
+      }
+    });
+  };
+
+  const applyTypeToFloor = (b: BuildingData, floor: number) => {
+    if (!onUpdateBuilding) return;
+    const { lines } = getBuildingUnits(b);
+    
+    let nextType = selectedUnitType;
+    if (nextType === null) {
+      const current = getUnitType(b, floor, 1);
+      const types = ['', '필로티', ...unitTypeConfigs.map(ut => ut.type)];
+      const currentIndex = types.indexOf(current);
+      nextType = types[(currentIndex + 1) % types.length];
+    }
+
+    const newUnitMap = { ...(b.unitMap || {}) };
+    for (let l = 1; l <= lines; l++) {
+      newUnitMap[`${floor}:${l}`] = nextType;
+    }
+
+    onUpdateBuilding(b.id, { 
+      unitMap: newUnitMap,
+      lastLog: {
+        type: 'unit_change',
+        description: `${floor < 0 ? `B${Math.abs(floor)}` : `${floor}F`} 층 전체 타입 변경 -> ${nextType || '삭제'}`,
+        timestamp: new Date().toISOString()
+      }
+    });
+  };
+
   const cycleLineUnitType = (b: BuildingData, line: number) => {
     const maxFloor = b.maxFloor || data.settings.maxFloor;
     const minFloor = b.minFloor || data.settings.minFloor;
     
-    // Get current type from a mid-floor to determine next cycle state
-    const currentType = getUnitType(b, Math.floor(maxFloor/2) || 2, line);
-    const types = ['', '필로티', ...unitTypeConfigs.map(ut => ut.type)];
-    const currentIndex = types.indexOf(currentType);
-    const nextIndex = (currentIndex + 1) % types.length;
-    const nextType = types[nextIndex];
+    let nextType: string;
+    if (selectedUnitType !== null) {
+      nextType = selectedUnitType;
+    } else {
+      const currentType = getUnitType(b, Math.floor(maxFloor/2) || 2, line);
+      const types = ['', '필로티', ...unitTypeConfigs.map(ut => ut.type)];
+      const currentIndex = types.indexOf(currentType);
+      const nextIndex = (currentIndex + 1) % types.length;
+      nextType = types[nextIndex];
+    }
 
     const newUnitMap = { ...(b.unitMap || {}) };
     
-    // Apply types to main floors, keep PH and Basements empty
     for (let f = minFloor; f <= (maxFloor + 2); f++) {
       if (f === 0) continue;
       if (f > maxFloor || f < 1) {
@@ -215,17 +276,37 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
   };
 
   const getTypeColorInfo = (type: string) => {
-    if (!type) return { className: 'bg-transparent border border-dashed border-slate-200 dark:border-slate-800', style: {} };
-    if (type === '필로티') return { className: 'bg-neutral-800 text-neutral-400', style: {} };
+    if (!type) return { className: 'bg-transparent border border-dashed border-slate-200 dark:border-slate-800', style: { borderStyle: 'dashed' } };
+    if (type === '필로티') return { className: 'bg-neutral-800 text-neutral-400', style: { backgroundColor: '#262626', color: '#a3a3a3' } };
     
     const found = unitTypeConfigs.find(ut => ut.type === type);
-    if (!found) return { className: 'bg-slate-200 text-slate-600', style: {} };
+    if (!found) return { className: 'bg-slate-200 text-slate-600', style: { backgroundColor: '#e2e8f0', color: '#475569' } };
     
     const isTailwind = found.color.startsWith('bg-');
+    
+    // Default fallback colors for common tailwind prefixes if used in types.ts defaults
+    const tailwindMapping: Record<string, string> = {
+      'bg-emerald-500': '#10b981',
+      'bg-amber-500': '#f59e0b',
+      'bg-indigo-500': '#6366f1',
+      'bg-rose-500': '#f43f5e',
+      'bg-cyan-500': '#06b6d4'
+    };
+
+    const bgColor = isTailwind ? (tailwindMapping[found.color] || '#3b82f6') : found.color;
+    
     return {
       className: `${isTailwind ? found.color : ''} ${found.textColor || 'text-white'}`,
-      style: isTailwind ? {} : { backgroundColor: found.color }
+      style: { 
+        backgroundColor: bgColor, 
+        color: found.textColor || '#ffffff' 
+      }
     };
+  };
+
+  const getProcessProgress = (b: BuildingData, processName: string) => {
+    const key = Object.keys(b.processes).find(k => k.includes(processName)) || processName;
+    return b.processes[key] || 0;
   };
 
   const getUnitStats = useMemo(() => {
@@ -251,26 +332,27 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
   return (
     <div className="p-4 md:p-8 space-y-12 max-w-[1700px] mx-auto font-sans">
       {/* Title Header */}
-      <div className="text-center relative">
-        <h1 className={`text-4xl md:text-7xl font-black mb-4 tracking-tighter ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
-          {data.settings.projectName} 단지배치도(골구조도)
-        </h1>
-        <div className="flex flex-col md:flex-row items-center justify-center gap-4 md:gap-8">
-          <div className="flex items-center gap-4">
+      <div className="text-center relative space-y-8">
+        <div>
+          <h1 className={`text-2xl md:text-4xl font-black mb-4 tracking-tighter drop-shadow-sm ${isDarkTheme ? 'text-white' : 'text-slate-900'} antialiased underline-offset-8`}>
+            {data.settings.projectName} 단지배치도(골구조도)
+          </h1>
+          <div className="flex items-center justify-center gap-4">
             <div className="h-[3px] w-12 md:w-24 bg-blue-600 rounded-full" />
             <span className="text-[10px] md:text-xs font-black text-slate-500 uppercase tracking-[0.3em]">Vertical Unit Status Diagram</span>
             <div className="h-[3px] w-12 md:w-24 bg-blue-600 rounded-full" />
           </div>
+        </div>
 
-          {/* Generation Type Color Legend Section */}
-          <div className="flex flex-col items-center gap-3 w-full max-w-4xl">
-            <div className="flex items-center gap-2">
-              <div className="h-px w-8 bg-slate-200 dark:bg-slate-800" />
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">세대 타입별 색상 범례</span>
-              <div className="h-px w-8 bg-slate-200 dark:bg-slate-800" />
+        {/* Generation Type Color Legend Section - Modified to Full Width Horizontal */}
+        <div className="w-full bg-slate-100/50 dark:bg-white/5 border-y border-slate-200 dark:border-white/10 backdrop-blur-md shadow-sm py-4">
+          <div className="max-w-[1700px] mx-auto px-4 md:px-8 flex items-center gap-6 overflow-x-auto no-scrollbar">
+            <div className="flex flex-col items-start pr-6 border-r border-slate-300 dark:border-white/10 whitespace-nowrap">
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-tight">Generation</span>
+              <span className="text-[10px] font-black text-blue-500 uppercase">Legend View</span>
             </div>
             
-            <div className="flex flex-wrap gap-2 justify-center">
+            <div className="flex items-center gap-3">
               {unitTypeConfigs.map(ut => {
                 const colorInfo = getTypeColorInfo(ut.type);
                 const isHovered = hoveredUnitType === ut.type;
@@ -282,20 +364,24 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
                     onMouseEnter={() => setHoveredUnitType(ut.type)}
                     onMouseLeave={() => setHoveredUnitType(null)}
                     onClick={() => setSelectedUnitType(prev => prev === ut.type ? null : ut.type)}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-xl shadow-md border transition-all duration-300 group/btn active:scale-95 ${isSelected ? 'ring-2 ring-blue-500 scale-110 z-10 border-blue-400 bg-blue-500/10' : isHovered ? 'scale-105 border-white/20' : 'border-white/10 opacity-70 hover:opacity-100'} ${colorInfo.className}`}
-                    style={colorInfo.style}
+                    className={`flex items-center gap-3 px-5 py-2.5 rounded-xl shadow-md border-2 transition-all duration-300 group/btn active:scale-95 whitespace-nowrap ${isSelected ? 'ring-4 ring-blue-500/30 scale-105 z-10 border-blue-400' : isHovered ? 'scale-105 border-white/50' : 'border-white/10 opacity-80 hover:opacity-100'}`}
+                    style={{
+                      backgroundColor: colorInfo.style?.backgroundColor,
+                      color: colorInfo.style?.color
+                    }}
+                    title={`클릭하여 ${ut.type} 타입 세대 강조 표시 (토글)`}
                   >
-                    <span className="text-[10px] font-black uppercase tracking-tighter">{ut.type}</span>
-                    {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />}
+                    <span className="text-[12px] font-black uppercase tracking-tighter">{ut.type}</span>
+                    {isSelected && <div className="w-2 h-2 rounded-full bg-white animate-pulse" />}
                   </button>
                 );
               })}
               
-              <div className="w-px h-6 bg-slate-200 dark:bg-slate-800 mx-2 self-center" />
+              <div className="w-px h-8 bg-slate-200 dark:bg-white/10 mx-2" />
 
               <button 
                 onClick={() => setIsEditingUnitTypes(true)}
-                className="w-10 h-10 rounded-xl bg-slate-100 hover:bg-blue-500 hover:text-white dark:bg-slate-900 transition-all shadow-sm flex items-center justify-center group"
+                className="w-10 h-10 rounded-xl bg-slate-200 hover:bg-blue-500 hover:text-white dark:bg-white/10 transition-all flex items-center justify-center group shadow-inner"
                 title="세대 타입 및 색상 설정"
               >
                 <Settings className="w-4 h-4 group-hover:rotate-90 transition-transform duration-500" />
@@ -304,15 +390,20 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
             
             {selectedUnitType && (
               <motion.button
-                initial={{ opacity: 0, y: -5 }}
-                animate={{ opacity: 1, y: 0 }}
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
                 onClick={() => setSelectedUnitType(null)}
-                className="text-[9px] font-bold text-blue-500 hover:underline mt-1 uppercase"
+                className="flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-blue-500/20 whitespace-nowrap active:scale-95 transition-all"
               >
-                하이라이트 해제 (Click to clear)
+                <X className="w-3.5 h-3.5" />
+                Clear Highlight
               </motion.button>
             )}
           </div>
+        </div>
+
+        {/* Dashboard Controls Container */}
+        <div className="flex flex-wrap items-center justify-center gap-4 md:gap-6 px-4">
 
           {/* Opacity Control Slider */}
           <div className="flex items-center gap-3 bg-slate-100 dark:bg-slate-900 px-4 py-2 rounded-full shadow-inner">
@@ -369,6 +460,24 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
               </button>
             </div>
           </div>
+
+          <button 
+            onClick={() => setIsWideView(prev => !prev)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-all shadow-sm active:scale-95 ${isWideView ? 'bg-amber-600 text-white shadow-lg shadow-amber-500/20' : 'bg-slate-100 dark:bg-slate-900 text-slate-500'}`}
+            title="와이드 뷰 (모든 동 가로 배치)"
+          >
+            <ArrowRight className={`w-3.5 h-3.5 ${isWideView ? 'text-white' : 'text-slate-400'}`} />
+            {isWideView ? 'Wide View ON' : 'Grid View'}
+          </button>
+
+          <button 
+            onClick={() => setIsProcessSynced(prev => !prev)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-all shadow-sm active:scale-95 ${isProcessSynced ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20' : 'bg-slate-100 dark:bg-slate-900 text-slate-500'}`}
+            title="공정률 연동 뷰"
+          >
+            <Zap className={`w-3.5 h-3.5 ${isProcessSynced ? 'text-white' : 'text-slate-400'}`} />
+            {isProcessSynced ? 'Process View ON' : 'Design View'}
+          </button>
 
           <button 
             onClick={() => setDynamicFloorHeight(prev => !prev)}
@@ -460,12 +569,18 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
                           onMouseEnter={() => setHoveredUnitType(ut.type)}
                           onMouseLeave={() => setHoveredUnitType(null)}
                           onClick={() => setSelectedUnitType(prev => prev === ut.type ? null : ut.type)}
-                          className={`p-4 text-[11px] font-black border-r border-white/10 min-w-[80px] transition-all duration-300 cursor-pointer ${isHovered ? 'bg-white/20' : ''}`}
+                          className={`p-4 text-[11px] font-black border-r border-white/10 min-w-[90px] transition-all duration-300 cursor-pointer ${isHovered ? 'ring-2 ring-inset ring-white/30 overflow-visible z-20' : ''}`}
+                          style={{
+                            backgroundColor: `${colorInfo.style?.backgroundColor}cc` || undefined,
+                          }}
                         >
                           <div className="flex flex-col items-center gap-2">
                             <div 
-                              className={`px-3 py-1.5 rounded-lg shadow-lg border border-white/30 text-[10px] uppercase tracking-tighter transition-transform duration-300 ${isHovered ? 'scale-110 ring-2 ring-white/50' : ''} ${colorInfo.className}`} 
-                              style={colorInfo.style}
+                              className={`w-full py-2 rounded-lg shadow-lg border-2 border-white/40 text-[10px] font-black uppercase tracking-tighter transition-all duration-300 flex items-center justify-center ${isHovered ? 'scale-110 shadow-xl' : ''}`} 
+                              style={{
+                                backgroundColor: colorInfo.style?.backgroundColor,
+                                color: colorInfo.style?.color
+                              }}
                             >
                               {ut.type}
                             </div>
@@ -489,11 +604,17 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
                       onMouseEnter={() => setHoveredUnitType(ut.type)}
                       onMouseLeave={() => setHoveredUnitType(null)}
                       onClick={() => setSelectedUnitType(prev => prev === ut.type ? null : ut.type)}
-                      className={`p-3 text-[11px] font-bold border-r border-slate-200 dark:border-slate-800 transition-all duration-300 cursor-pointer ${isHovered ? 'bg-blue-500/10' : ''}`}
+                      className={`p-2 px-3 text-[11px] font-bold border-r border-slate-200 dark:border-slate-800 transition-all duration-300 cursor-pointer ${isHovered ? 'ring-2 ring-inset ring-blue-500/30 bg-blue-500/5' : ''}`}
+                      style={{
+                        backgroundColor: colorInfo.style?.backgroundColor ? `${colorInfo.style.backgroundColor}22` : undefined
+                      }}
                     >
                       <div 
-                        className={`inline-block px-3 py-1 rounded-md shadow-md text-white font-black transition-all duration-300 ${isHovered ? 'scale-110 shadow-lg ring-1 ring-white/20' : ''} ${colorInfo.className}`} 
-                        style={colorInfo.style}
+                        className={`w-full py-2 rounded-lg shadow-md font-black transition-all duration-300 flex items-center justify-center ${isHovered ? 'scale-110 shadow-lg border border-white/30' : ''}`} 
+                        style={{
+                          backgroundColor: colorInfo.style?.backgroundColor,
+                          color: colorInfo.style?.color
+                        }}
                       >
                         {getUnitStats[ut.type] || 0}
                       </div>
@@ -509,8 +630,8 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
         </div>
       </div>
 
-      {/* Buildings Grid */}
-      <div className={`grid gap-10 transition-all duration-700 ${viewMode === '3d' ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 perspective-[2000px] py-20' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4'}`}>
+      {/* Buildings Container */}
+      <div className={`transition-all duration-700 ${isWideView ? 'flex flex-nowrap overflow-x-auto pb-12 gap-8 items-end min-h-[600px] custom-scrollbar' : `grid gap-10 ${viewMode === '3d' ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 perspective-[2000px] py-20' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4'}`}`}>
         {data.buildings.map((b) => {
           const { mainFloors, basementFloors, lines } = getBuildingUnits(b);
           const maxFloorNum = b.maxFloor || data.settings.maxFloor;
@@ -528,14 +649,14 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
                 scale: viewMode === '3d' ? 0.9 : 1,
               }}
               viewport={{ once: true }}
-              className={`flex flex-col border-2 ${activeTheme.border} ${activeTheme.card} rounded-[2rem] overflow-hidden shadow-2xl relative group transition-all duration-700 ${viewMode === '3d' ? 'shadow-[20px_40px_60px_-15px_rgba(0,0,0,0.3)] hover:shadow-[30px_60px_80px_-20px_rgba(59,130,246,0.3)] hover:-translate-y-4' : 'hover:-translate-y-1'}`}
+              className={`flex flex-col border-2 ${activeTheme.border} ${activeTheme.card} rounded-[2rem] overflow-hidden shadow-2xl relative group transition-all duration-700 ${isWideView ? 'min-w-[320px] max-w-[400px]' : ''} ${viewMode === '3d' ? 'shadow-[20px_40px_60px_-15px_rgba(0,0,0,0.3)] hover:shadow-[30px_60px_80px_-20px_rgba(59,130,246,0.3)] hover:-translate-y-4' : 'hover:-translate-y-1'}`}
             >
               <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
                 <Building2 className="w-40 h-40" />
               </div>
 
               {/* Building Header */}
-              <div className={`p-6 ${activeTheme.header} text-white relative z-10`}>
+              <div className={`p-6 ${activeTheme.header} text-white relative z-20 sticky top-0 shadow-lg backdrop-blur-sm`}>
                 <div className="flex justify-between items-start mb-4">
                   <div className="bg-white/20 px-3 py-1 rounded-full text-[10px] font-black tracking-widest uppercase">Building Unit Layout</div>
                   <div className="flex gap-2">
@@ -543,6 +664,7 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
                       <button 
                          onClick={() => handlePasteConfig(b.id)}
                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-[10px] font-black uppercase tracking-tighter transition-all shadow-lg animate-pulse"
+                         title="복사된 세대 구성 이 동에 붙여넣기"
                        >
                          <ClipboardPaste className="w-3.5 h-3.5" />
                          붙여넣기
@@ -551,6 +673,7 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
                       <button 
                         onClick={() => handleCopyConfig(b)}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-[10px] font-black uppercase tracking-tighter transition-all shadow-sm"
+                        title="이 동의 세대 구성을 복사"
                       >
                         <Copy className="w-3.5 h-3.5" />
                         구성 복사
@@ -582,7 +705,7 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
                   </div>
                   <div className="text-right">
                     <div className="text-[10px] font-bold opacity-60 uppercase">Progress (건축골조)</div>
-                    <div className="text-xl font-black">{(b.processes['건축골조'] ?? 0)}%</div>
+                    <div className="text-xl font-black">{getProcessProgress(b, '건축골조')}%</div>
                   </div>
                 </div>
                 
@@ -590,8 +713,8 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
                 <div className="mt-4 h-1.5 w-full bg-white/10 rounded-full overflow-hidden shadow-inner flex">
                   <motion.div 
                     initial={{ width: 0 }}
-                    animate={{ width: `${b.processes['건축골조'] ?? 0}%` }}
-                    className={`h-full ${(b.processes['건축골조'] ?? 0) === 100 ? 'bg-green-400' : 'bg-blue-400'} shadow-[0_0_10px_rgba(255,255,255,0.3)]`}
+                    animate={{ width: `${getProcessProgress(b, '건축골조')}%` }}
+                    className={`h-full ${getProcessProgress(b, '건축골조') === 100 ? 'bg-green-400' : 'bg-blue-400'} shadow-[0_0_10px_rgba(255,255,255,0.3)]`}
                   />
                 </div>
               </div>
@@ -662,23 +785,33 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
               </AnimatePresence>
 
               {/* Grid Header (Lines) */}
-              <div className="grid border-b-2 border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 relative z-10" style={{ gridTemplateColumns: `50px repeat(${lines}, 1fr)` }}>
-                <div className="p-3 text-[10px] font-black text-slate-400 text-center border-r-2 border-slate-200 dark:border-slate-800 uppercase">구분</div>
+              <div className="grid border-b-2 border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 relative z-20 sticky top-[136px] backdrop-blur-md shadow-sm" style={{ gridTemplateColumns: `50px repeat(${lines}, 1fr)` }}>
+                <button 
+                  onClick={() => applyTypeToBuilding(b)}
+                  disabled={!selectedUnitType}
+                  className={`p-3 text-[10px] font-black text-center border-r-2 border-slate-200 dark:border-slate-800 uppercase transition-all ${selectedUnitType ? 'text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/40 cursor-pointer active:scale-95' : 'text-slate-400'}`}
+                  title={selectedUnitType ? `전체 호실을 ${selectedUnitType} 타입으로 일괄 변경` : '타입 선택 후 클릭 시 전체 변경'}
+                >
+                  <div className="flex flex-col items-center gap-0.5">
+                    <span>구분</span>
+                    {selectedUnitType && <Zap className="w-2.5 h-2.5 fill-blue-500" />}
+                  </div>
+                </button>
                 {Array.from({ length: lines }).map((_, i) => (
                   <button 
                     key={i} 
                     onClick={() => cycleLineUnitType(b, i + 1)}
                     className="p-2 text-[10px] font-black text-blue-500 hover:bg-blue-500/10 text-center border-r border-slate-200 dark:border-slate-800 last:border-r-0 flex flex-col items-center justify-center gap-1 transition-colors group cursor-pointer active:scale-95 shadow-inner"
-                    title="클릭하여 라인 전체 타입 변경"
+                    title={selectedUnitType ? `${i + 1}호 라인 전체를 ${selectedUnitType} 타입으로 변경` : '클릭하여 라인 전체 타입 변경'}
                   >
                     <span className="group-hover:scale-110 transition-transform">{i + 1}호</span>
-                    <Zap className="w-2.5 h-2.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <Zap className={`w-2.5 h-2.5 transition-opacity ${selectedUnitType ? 'opacity-100 fill-blue-500' : 'opacity-0 group-hover:opacity-100'}`} />
                   </button>
                 ))}
               </div>
 
               {/* Main Floors */}
-              <div className="flex-1 overflow-y-auto max-h-[500px] scrollbar-thin scrollbar-thumb-blue-500/20 relative z-10">
+              <div className="flex-1 relative z-10">
                 {/* Max Floor Adjustment Handle */}
                 <div className="flex items-center justify-center gap-4 py-2 bg-slate-50/50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800">
                   <button 
@@ -758,11 +891,14 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
                 </div>
 
                 {mainFloors.map((fNum, fIdx) => {
-                  const progress = b.processes['건축골조'] || 0;
+                  const progress = getProcessProgress(b, '건축골조');
                   const totalMainFloors = mainFloors.length;
                   const builtFloorCount = Math.floor((progress / 100) * totalMainFloors);
-                  const isWireframe = fIdx < (totalMainFloors - builtFloorCount);
-                  const isJustCompleted = !isWireframe && (fIdx === (totalMainFloors - builtFloorCount));
+                  
+                  // A floor is wireframe if its index is smaller than the remaining unbuilt count (top-down list)
+                  const isWireframe = isProcessSynced && fIdx < (totalMainFloors - builtFloorCount);
+                  const isWorkingFloor = isProcessSynced && fIdx === (totalMainFloors - builtFloorCount - 1) && progress < 100;
+                  
                   const isHovered = hoveredFloor === fNum;
                   const isPersistentGuide = guideConfig.enabled && guideConfig.targets.includes(fNum);
                   const showGuide = isHovered || isPersistentGuide;
@@ -807,18 +943,38 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
                         />
                       )}
 
-                      <div className={`p-2.5 text-[10px] font-black text-center border-r-2 border-slate-200 dark:border-slate-800 relative z-10 ${isWireframe ? 'text-slate-400 bg-slate-50/10' : 'text-slate-500 bg-slate-100/30 dark:bg-slate-900/30'} ${showGuide ? 'text-blue-500 bg-blue-50/50 dark:bg-blue-900/30' : ''} flex items-center justify-center`} style={{ padding: dynamicFloorHeight ? `${Math.floor(10 * floorScale)}px 0` : '' }}>
-                        {fNum > maxFloorNum ? `PH${fNum - maxFloorNum}` : `${fNum}F`}
-                        {!isWireframe && (
+                      <button 
+                        onClick={() => applyTypeToFloor(b, fNum)}
+                        className={`p-2 flex flex-col items-center justify-center border-r-2 border-slate-200 dark:border-slate-800 font-black relative overflow-hidden transition-all duration-500 z-20 active:scale-95 cursor-pointer ${isWorkingFloor ? 'bg-blue-600 text-white shadow-[inset_0_0_20px_rgba(255,255,255,0.2)]' : isWireframe ? 'text-slate-400 bg-slate-50/10' : 'text-blue-600 bg-slate-100/30 dark:bg-slate-900/30'} ${showGuide ? 'text-blue-500 bg-blue-50/50 dark:bg-blue-900/30 underline decoration-blue-500/50 decoration-2' : ''}`} 
+                        style={{ minWidth: '50px', padding: dynamicFloorHeight ? `${Math.floor(10 * floorScale)}px 0` : '' }}
+                        title={selectedUnitType ? `${fNum}층 전체를 ${selectedUnitType} 타입으로 변경` : '클릭하여 층 전체 타입 변경'}
+                      >
+                        {isWorkingFloor && (
+                          <motion.div 
+                            initial={{ x: "-100%" }}
+                            animate={{ x: "200%" }}
+                            transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+                            className="absolute inset-0 bg-white/20 skew-x-12"
+                          />
+                        )}
+                        <span className={`${isWorkingFloor ? 'text-[11px] scale-110' : 'text-[10px]'} relative z-10`}>
+                          {fNum > maxFloorNum ? `PH${fNum - maxFloorNum}` : `${fNum}F`}
+                        </span>
+                        {isWorkingFloor && (
+                          <span className="text-[6px] font-black uppercase tracking-tighter opacity-90 leading-none relative z-10 mt-0.5 px-1 bg-white text-blue-600 rounded-sm">
+                            작업중
+                          </span>
+                        )}
+                        {!isWireframe && fNum <= maxFloorNum && !isWorkingFloor && progress > 0 && (
                           <motion.div 
                             initial={{ scale: 0 }}
                             animate={{ scale: 1 }}
-                            className="absolute -top-1 -right-1"
+                            className="absolute top-1 right-1"
                           >
-                             <Check className={`w-2.5 h-2.5 ${isHovered ? 'text-white bg-blue-500' : 'text-blue-500 bg-white dark:bg-slate-900'} rounded-full shadow-sm transition-colors`} />
+                             <Check className={`w-2.5 h-2.5 ${isHovered || showGuide ? 'text-white bg-blue-500' : 'text-blue-500 bg-white/80 dark:bg-slate-800/80'} rounded-full shadow-sm p-0.5`} />
                           </motion.div>
                         )}
-                      </div>
+                      </button>
                       {Array.from({ length: lines }).map((_, i) => {
                         const type = getUnitType(b, fNum, i + 1);
                         const colorInfo = getTypeColorInfo(type);
@@ -832,12 +988,18 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
                             onClick={() => cycleUnitType(b, fNum, i + 1)}
                             className={`p-1.5 border-r border-slate-200 dark:border-slate-800 last:border-r-0 flex items-center justify-center hover:bg-blue-500/10 transition-all cursor-pointer group/unit shadow-inner active:scale-95 px-1 ${isOtherTypeHovered ? 'opacity-20 grayscale' : 'opacity-100'}`}
                             style={{ padding: dynamicFloorHeight ? `${Math.floor(6 * floorScale)}px 4px` : '' }}
-                            title="클릭하여 타입 변경"
+                            title={`${fNum}층 ${i + 1}호 타입 변경 (현재: ${type || '없음'})`}
                           >
                             <div 
-                              className={`w-full py-1.5 rounded-lg text-[9px] font-black text-center shadow-md uppercase tracking-tighter transition-all duration-300 min-h-[24px] flex items-center justify-center ${isTypeHovered ? 'ring-2 ring-blue-500 scale-110 z-10' : ''} ${isWireframe && type ? 'bg-white/50 dark:bg-slate-800/50 border-2 border-dashed border-blue-400/30 text-blue-400/30' : colorInfo.className}`}
+                              className={`w-full py-1.5 rounded-lg text-[9px] font-black text-center shadow-md uppercase tracking-tighter transition-all duration-300 min-h-[24px] flex items-center justify-center ${isTypeHovered ? 'ring-2 ring-blue-500 scale-110 z-10' : ''} ${isWireframe && type ? 'border-2 border-dashed' : colorInfo.className}`}
                               style={{
-                                ...((!isWireframe || !type) ? colorInfo.style : { borderColor: colorInfo.style?.backgroundColor }),
+                                ...colorInfo.style,
+                                ...(isWireframe && type ? { 
+                                  backgroundColor: colorInfo.style?.backgroundColor ? `${colorInfo.style.backgroundColor}20` : 'rgba(148, 163, 184, 0.15)',
+                                  borderColor: colorInfo.style?.backgroundColor || '#94a3b8',
+                                  color: colorInfo.style?.backgroundColor || '#94a3b8',
+                                  boxShadow: 'none'
+                                } : {}),
                                 padding: dynamicFloorHeight ? `${Math.floor(6 * floorScale)}px 0` : '',
                                 minHeight: dynamicFloorHeight ? `${Math.floor(24 * floorScale)}px` : '24px',
                                 fontSize: dynamicFloorHeight ? `${Math.max(7, Math.floor(9 * floorScale))}px` : '9px'
@@ -941,7 +1103,7 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
                             >
                                {type ? (
                                 <div 
-                                  className={`w-full py-0.5 rounded text-[7px] font-black text-center uppercase tracking-tighter opacity-50 group-hover/unit:opacity-100 transition-all duration-300 ${isTypeHovered ? 'scale-125 opacity-100 ring-1 ring-blue-500 z-10' : ''} ${colorInfo.className}`}
+                                  className={`w-full py-1 rounded text-[7px] font-black text-center uppercase tracking-tighter shadow-sm transition-all duration-300 ${isTypeHovered ? 'scale-125 shadow-lg ring-1 ring-white/30 z-10 opacity-100' : 'opacity-80'}`}
                                   style={{
                                     ...colorInfo.style,
                                     fontSize: dynamicFloorHeight ? `${Math.max(6, Math.floor(7 * floorScale))}px` : '7px'
@@ -984,7 +1146,7 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
           whileTap={{ scale: 0.98 }}
           animate={{ opacity: layerOpacity }}
           onClick={onAddBuilding}
-          className={`flex flex-col items-center justify-center border-2 border-dashed ${activeTheme.border} ${activeTheme.card} rounded-[2rem] p-10 min-h-[400px] group transition-all hover:border-blue-500 hover:bg-blue-500/5`}
+          className={`flex flex-col items-center justify-center border-2 border-dashed ${activeTheme.border} ${activeTheme.card} rounded-[2rem] p-10 min-h-[400px] group transition-all hover:border-blue-500 hover:bg-blue-500/5 ${isWideView ? 'min-w-[320px]' : ''}`}
         >
           <div className="w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-900 flex items-center justify-center mb-4 group-hover:bg-blue-500 group-hover:text-white transition-all shadow-inner">
             <Building2 className="w-8 h-8 text-slate-400 group-hover:text-white" />
