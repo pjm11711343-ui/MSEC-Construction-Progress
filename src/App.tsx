@@ -245,6 +245,7 @@ export default function App() {
     sites: [],
     adminPassword: '4714'
   });
+  const [adminPasswordSaveStatus, setAdminPasswordSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
   
   const [storageState, setStorageState] = useState<AppState>(createNewSite('스마트 아파트 현장'));
   const setData = setStorageState;
@@ -3283,17 +3284,62 @@ export default function App() {
                        className="px-4 py-2 border-2 border-indigo-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all w-full md:w-48 bg-white font-bold"
                        placeholder="비밀번호 설정"
                      />
-                     <button
-                       onClick={() => {
-                         const adminUrl = `${getPublicOrigin()}${window.location.pathname}?role=ADMIN&pw=${multiData.adminPassword || '4714'}${data.id ? `&site=${data.id}` : ''}`;
-                         setShareUrl(adminUrl);
-                         copyToClipboard(adminUrl);
-                       }}
-                       className="whitespace-nowrap bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs px-4 py-2.5 rounded-lg flex items-center gap-1.5 shadow-md shadow-indigo-100 transition-all w-full md:w-auto justify-center"
-                     >
-                       <LinkIcon className="w-3.5 h-3.5" />
-                       관리자 링크 복사
-                     </button>
+                                           <button
+                        onClick={async () => {
+                          setAdminPasswordSaveStatus('saving');
+                          try {
+                            const responsePost = await fetch('/api/project-data', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ data: multiData }),
+                            });
+                            if (responsePost.ok) {
+                              lastSyncedContentRef.current = JSON.stringify(multiData);
+                              setAdminPasswordSaveStatus('success');
+                              setTimeout(() => setAdminPasswordSaveStatus('idle'), 3000);
+                            } else {
+                              setAdminPasswordSaveStatus('error');
+                              setTimeout(() => setAdminPasswordSaveStatus('idle'), 3000);
+                              alert('비밀번호 저장 실패: 서버 오류가 발생했습니다.');
+                            }
+                          } catch (err) {
+                            console.error(err);
+                            setAdminPasswordSaveStatus('error');
+                            setTimeout(() => setAdminPasswordSaveStatus('idle'), 3000);
+                            alert('비밀번호 저장 실패: 네트워크 연결 상태를 확인해 주세요.');
+                          }
+                        }}
+                        disabled={adminPasswordSaveStatus === 'saving'}
+                        className={`whitespace-nowrap font-black text-xs px-4 py-2.5 rounded-lg flex items-center gap-1.5 shadow-md transition-all w-full md:w-auto justify-center ${
+                          adminPasswordSaveStatus === 'saving'
+                            ? 'bg-slate-400 text-white cursor-not-allowed'
+                            : adminPasswordSaveStatus === 'success'
+                            ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-100'
+                            : adminPasswordSaveStatus === 'error'
+                            ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-100'
+                            : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-100'
+                        }`}
+                      >
+                        <Save className={`w-3.5 h-3.5 ${adminPasswordSaveStatus === 'saving' ? 'animate-spin' : ''}`} />
+                        {adminPasswordSaveStatus === 'saving' 
+                          ? '저장 중...' 
+                          : adminPasswordSaveStatus === 'success' 
+                          ? '저장 완료 ✓' 
+                          : adminPasswordSaveStatus === 'error' 
+                          ? '저장 실패 ✗' 
+                          : '비밀번호 저장'}
+                      </button>
+                      <button
+                        onClick={() => {
+                          const adminUrl = `${getPublicOrigin()}${window.location.pathname}?role=ADMIN&pw=${multiData.adminPassword || '4714'}${data.id ? `&site=${data.id}` : ''}`;
+                          setShareUrl(adminUrl);
+                          copyToClipboard(adminUrl);
+                        }}
+                        className="whitespace-nowrap bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs px-4 py-2.5 rounded-lg flex items-center gap-1.5 shadow-md shadow-indigo-100 transition-all w-full md:w-auto justify-center"
+                      >
+                        <LinkIcon className="w-3.5 h-3.5" />
+                        관리자 링크 복사
+                      </button>
                    </div>
                  </div>
 
