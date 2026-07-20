@@ -77,6 +77,8 @@ import ReportPrintView from './components/ReportPrintView';
 import AIPredictionView from './components/AIPredictionView';
 import BuildingDetailModal from './components/BuildingDetailModal';
 import GolgudoView from './components/GolgudoView';
+import { ProcessMemoCell } from './components/ProcessMemoCell';
+import { DashboardMaterialCalendar } from './components/DashboardMaterialCalendar';
 import { 
   Sparkles, 
   MessageSquare,
@@ -248,6 +250,7 @@ export default function App() {
   const setData = setStorageState;
   const [processes, setProcesses] = useState<string[]>(DEFAULT_PROCESSES);
   const [viewMode, setViewMode] = useState<'grid' | 'table' | 'settings' | 'analytics' | 'calendar' | 'daily_report' | 'gantt' | 'report' | 'prediction' | 'golgudo'>('table');
+  const [dashboardSubTab, setDashboardSubTab] = useState<'charts' | 'materials'>('charts');
   const [viewDate, setViewDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [isAutoSaving, setIsAutoSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -518,7 +521,8 @@ export default function App() {
                 settings: activeSite.settings,
                 buildings: activeSite.buildings,
                 facilities: activeSite.facilities,
-                approval: activeSite.approval
+                approval: activeSite.approval,
+                processMemos: activeSite.processMemos
               });
               setData(activeSite);
               if (activeSite.buildings?.[0]?.processes) {
@@ -624,7 +628,8 @@ export default function App() {
                   settings: activeSite.settings,
                   buildings: activeSite.buildings,
                   facilities: activeSite.facilities,
-                  approval: activeSite.approval
+                  approval: activeSite.approval,
+                  processMemos: activeSite.processMemos
                 });
                 setData(activeSite);
                 if (activeSite.buildings?.[0]?.processes) {
@@ -809,7 +814,8 @@ export default function App() {
               settings: activeSite.settings,
               buildings: activeSite.buildings,
               facilities: activeSite.facilities,
-              approval: activeSite.approval
+              approval: activeSite.approval,
+              processMemos: activeSite.processMemos
             });
             setData(activeSite);
             if (activeSite.buildings?.[0]?.processes) {
@@ -848,7 +854,8 @@ export default function App() {
         settings: site.settings,
         buildings: site.buildings,
         facilities: site.facilities,
-        approval: site.approval
+        approval: site.approval,
+        processMemos: site.processMemos
       });
       setData(site);
       setMultiData(prev => ({ ...prev, activeSiteId: id }));
@@ -4211,13 +4218,14 @@ export default function App() {
                     return (
                       <td 
                         key={`memo-${p}`} 
-                        className={`border-r ${isDarkTheme ? 'border-slate-800' : 'border-slate-200'} p-1 min-w-[120px] text-center`}
+                        className={`border-r ${isDarkTheme ? 'border-slate-800' : 'border-slate-200'} p-0.5 min-w-[130px]`}
                       >
-                        <textarea
+                        <ProcessMemoCell
+                          processName={p}
                           value={memoValue}
                           disabled={role === 'GUEST'}
-                          onChange={(e) => {
-                            const val = e.target.value;
+                          isDarkTheme={isDarkTheme}
+                          onChange={(val) => {
                             setData(prev => ({
                               ...prev,
                               processMemos: {
@@ -4226,13 +4234,6 @@ export default function App() {
                               }
                             }));
                           }}
-                          placeholder={role === 'GUEST' ? '' : "메모 입력..."}
-                          rows={1}
-                          className={`w-full text-[9px] p-1 border rounded resize-none focus:ring-1 leading-tight text-center transition-all ${
-                            isDarkTheme 
-                              ? 'bg-slate-900/60 border-slate-700 text-white placeholder-slate-600 focus:ring-emerald-500 focus:border-emerald-500' 
-                              : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400 focus:ring-blue-500 focus:border-blue-500'
-                          } print:border-none print:bg-transparent print:p-0 print:text-xs print:font-bold`}
                         />
                       </td>
                     );
@@ -4914,10 +4915,46 @@ export default function App() {
                 isIndustrial={isDarkTheme} 
               />
 
-              {/* Stacked Progress Bar Chart (D3 Visualization) */}
-              <div className="no-print">
-                <StackedProgressBarChart buildings={data.buildings} processes={processes} />
+              {/* Dashboard Sub-Tab Navigation */}
+              <div className="flex border-b border-slate-200/40 dark:border-slate-800 pb-2 gap-4 items-center no-print">
+                <button
+                  type="button"
+                  onClick={() => setDashboardSubTab('charts')}
+                  className={`flex items-center gap-2 pb-2 px-1 text-xs font-black transition-all border-b-2 -mb-[10px] ${
+                    dashboardSubTab === 'charts'
+                      ? `${isDarkTheme ? 'border-emerald-500 text-emerald-400' : 'border-blue-600 text-blue-600 font-extrabold'}`
+                      : 'border-transparent text-slate-400 hover:text-slate-200 dark:hover:text-slate-300'
+                  }`}
+                >
+                  <TrendingUp className="w-4 h-4" />
+                  종합 분석 및 공정
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDashboardSubTab('materials')}
+                  className={`flex items-center gap-2 pb-2 px-1 text-xs font-black transition-all border-b-2 -mb-[10px] ${
+                    dashboardSubTab === 'materials'
+                      ? `${isDarkTheme ? 'border-emerald-500 text-emerald-400' : 'border-blue-600 text-blue-600 font-extrabold'}`
+                      : 'border-transparent text-slate-400 hover:text-slate-200 dark:hover:text-slate-300'
+                  }`}
+                >
+                  <Calendar className="w-4 h-4" />
+                  자재 입고 예정 달력
+                </button>
               </div>
+
+              {dashboardSubTab === 'materials' ? (
+                <DashboardMaterialCalendar 
+                  data={data}
+                  theme={data.settings.theme}
+                  activeTheme={activeTheme}
+                />
+              ) : (
+                <>
+                  {/* Stacked Progress Bar Chart (D3 Visualization) */}
+                  <div className="no-print">
+                    <StackedProgressBarChart buildings={data.buildings} processes={processes} />
+                  </div>
 
               {/* Dynamic Behind Schedule Alert */}
               {processes.some(p => getProcessDiagnosis(p).isBehind) && (
@@ -5375,6 +5412,8 @@ export default function App() {
                  );
                })}
             </div>
+                </>
+              )}
           </div>
           </motion.div>
          )}
