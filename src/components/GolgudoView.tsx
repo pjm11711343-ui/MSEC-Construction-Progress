@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Building2, Info, Trash2, Settings, X, Check, ArrowRight, Layers, Plus, Minus, Clock, Zap, Copy, ClipboardPaste, RefreshCcw, Eraser, Printer } from 'lucide-react';
-import { AppState, BuildingData, UnitTypeConfig, DEFAULT_UNIT_TYPES } from '../types';
+import { AppState, BuildingData, UnitTypeConfig, DEFAULT_UNIT_TYPES, DEFAULT_PROCESSES } from '../types';
 
 interface GolgudoViewProps {
   data: AppState;
@@ -30,6 +30,29 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
   const [isWideView, setIsWideView] = useState(false);
   const [isPainting, setIsPainting] = useState(false);
   const [isLegendOpen, setIsLegendOpen] = useState(true);
+  const [showSummary, setShowSummary] = useState(true);
+  const [showRecentMods, setShowRecentMods] = useState(true);
+  const [isLocked, setIsLocked] = useState(false);
+
+  const [layoutConfig, setLayoutConfig] = useState({
+    cellHeight: 40,
+    fontSize: 9,
+    gridGap: 40,
+    cardWidth: 350,
+    showSettings: false
+  });
+
+  const visibleProcesses = useMemo(() => {
+    return [
+      "1. 건축골조",
+      "5. 스리브",
+      "8. 단위세대오배수",
+      "11. 세대 수전구",
+      "15. 세대 SP배관",
+      "17. 세대 난방코일",
+      "18. 세대 환기&직배기"
+    ];
+  }, []);
 
   const handlePrint = () => {
     window.print();
@@ -122,6 +145,10 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
   };
 
   const handleSave = (id: number) => {
+    if (isLocked) {
+      alert('편집 잠금 상태입니다. 상단 열쇠 아이콘을 눌러 잠금을 해제하세요.');
+      return;
+    }
     const b = data.buildings.find(item => item.id === id);
     let logDesc = `${editValues.name} 정보 수정`;
     
@@ -201,6 +228,7 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
   };
 
   const cycleUnitType = (b: BuildingData, floor: number, line: number) => {
+    if (isLocked) return;
     const currentType = getUnitType(b, floor, line);
     const types = ['', '필로티', ...unitTypeConfigs.map(ut => ut.type)];
     const currentIndex = types.indexOf(currentType);
@@ -219,7 +247,7 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
   };
 
   const applyTypeToBuilding = (b: BuildingData) => {
-    if (!onUpdateBuilding || !selectedUnitType) return;
+    if (isLocked || !onUpdateBuilding || !selectedUnitType) return;
     
     if (!window.confirm(`${b.name}의 모든 세대를 ${selectedUnitType || '삭제'} 타입으로 일괄 변경하시겠습니까?`)) {
       return;
@@ -268,7 +296,7 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
   };
 
   const applyTypeToFloor = (b: BuildingData, floor: number) => {
-    if (!onUpdateBuilding) return;
+    if (isLocked || !onUpdateBuilding) return;
     const { lines } = getBuildingUnits(b);
     
     let nextType = selectedUnitType;
@@ -313,6 +341,7 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
   };
 
   const cycleLineUnitType = (b: BuildingData, line: number) => {
+    if (isLocked) return;
     const maxFloor = b.maxFloor || data.settings.maxFloor;
     const minFloor = b.minFloor || data.settings.minFloor;
     
@@ -397,7 +426,7 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
       className: `${isTailwind ? found.color : ''} ${found.textColor || 'text-white'}`,
       style: { 
         backgroundColor: bgColor, 
-        color: found.textColor || '#ffffff' 
+        color: found.textColor === 'text-slate-900' ? '#0f172a' : '#ffffff' 
       }
     };
   };
@@ -433,12 +462,14 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
         {`
           @media print {
             @page {
-              size: A3 landscape;
-              margin: 1cm;
+              size: landscape;
+              margin: 10mm;
             }
             body {
               background: white !important;
               color: black !important;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
             }
             .no-print {
               display: none !important;
@@ -447,39 +478,37 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
               max-width: 100% !important;
               margin: 0 !important;
               padding: 0 !important;
-              space-y: 1.5rem !important;
             }
             .buildings-grid {
               display: flex !important;
               flex-wrap: wrap !important;
-              gap: 20px !important;
-              grid-template-columns: none !important;
+              gap: 15px !important;
+              justify-content: center !important;
             }
             .building-card {
               break-inside: avoid;
-              border: 1px solid #e2e8f0 !important;
+              border: 1.5px solid #cbd5e1 !important;
               box-shadow: none !important;
-              min-width: 300px !important;
-              max-width: 350px !important;
+              width: 320px !important;
+              min-width: 320px !important;
               background-color: white !important;
+              margin-bottom: 15px;
             }
-            .building-card * {
+            .unit-cell, .unit-cell * {
               -webkit-print-color-adjust: exact !important;
               print-color-adjust: exact !important;
             }
-            .sticky {
-              position: static !important;
-            }
-            input, button, .slider-container {
-              display: none !important;
-            }
             .print-header {
               display: flex !important;
-              justify-content: space-between;
-              align-items: center;
+              flex-direction: column !important;
+              align-items: flex-start !important;
               margin-bottom: 2rem;
-              border-bottom: 2px solid #3b82f6;
+              border-bottom: 3px solid #3b82f6;
               padding-bottom: 1rem;
+              width: 100%;
+            }
+            .sticky {
+              position: static !important;
             }
           }
         `}
@@ -487,283 +516,250 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
 
       {/* Title Header */}
       <div className="text-center relative space-y-8">
-        <div className="print-header relative">
-          <button 
-            onClick={onClose || (() => window.history.back())} 
-            className="no-print absolute left-0 top-1/2 -translate-y-1/2 flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 rounded-xl text-[11px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-all active:scale-95 border-2 border-slate-200 dark:border-white/10"
-          >
-            <ArrowRight className="w-4 h-4 rotate-180" />
-            <span>Go Back</span>
-          </button>
-
-           <h1 className={`text-2xl md:text-4xl font-black mb-4 tracking-tighter drop-shadow-sm ${isDarkTheme ? 'text-white' : 'text-slate-900'} antialiased underline-offset-8`}>
-            {data.settings.projectName} 단지배치도(골구조도)
-          </h1>
-          <div className="no-print flex items-center justify-center gap-4">
-            <div className="h-[3px] w-12 md:w-24 bg-blue-600 rounded-full" />
-            <span className="text-[10px] md:text-xs font-black text-slate-500 uppercase tracking-[0.3em]">Vertical Unit Status Diagram</span>
-            <div className="h-[3px] w-12 md:w-24 bg-blue-600 rounded-full" />
+        <div className="print-header">
+          <div className="flex flex-col items-start gap-1">
+            <h1 className={`text-2xl md:text-4xl font-black tracking-tighter drop-shadow-sm ${isDarkTheme ? 'text-white' : 'text-slate-900'} antialiased underline-offset-8`}>
+              {data.settings.projectName} 단지배치도(골구조도)
+            </h1>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest no-print">골구조도 현황판 (Golgudo Status Board)</p>
           </div>
-        </div>
-
-        {/* Generation Type Color Legend Section - Modified to Full Width Horizontal */}
-        <div className="no-print flex justify-end px-8 -mb-4">
-          <button 
-            onClick={() => setIsLegendOpen(prev => !prev)}
-            className="flex items-center gap-2 px-3 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 rounded-t-lg border-x-2 border-t-2 border-slate-200 dark:border-white/10 text-[9px] font-black uppercase tracking-widest text-slate-500 transition-all active:scale-95 z-10"
-          >
-            {isLegendOpen ? <><Minus className="w-3 h-3" /> Hide Legend</> : <><Plus className="w-3 h-3" /> Show Legend</>}
-          </button>
-        </div>
-
-        <AnimatePresence>
-          {isLegendOpen && (
-            <motion.div 
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              className="w-full bg-slate-100/50 dark:bg-white/5 border-y border-slate-200 dark:border-white/10 backdrop-blur-md shadow-sm py-4 no-print overflow-hidden"
-            >
-              <div className="max-w-[1700px] mx-auto px-4 md:px-8 flex items-center gap-6 overflow-x-auto no-scrollbar">
-                <div className="flex flex-col items-start pr-6 border-r border-slate-300 dark:border-white/10 whitespace-nowrap">
-                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-tight">Generation</span>
-                  <span className="text-[10px] font-black text-blue-500 uppercase">Legend View</span>
-                </div>
-                
-                <div className="flex items-center gap-3">
-                  {/* Legend Content */}
-                  {unitTypeConfigs.map(ut => {
-                    const colorInfo = getTypeColorInfo(ut.type);
-                    const isHovered = hoveredUnitType === ut.type;
-                    const isSelected = selectedUnitType === ut.type;
-                    
-                    return (
-                      <div key={ut.type} className="relative group/legend">
-                        <button 
-                          onMouseEnter={() => setHoveredUnitType(ut.type)}
-                          onMouseLeave={() => setHoveredUnitType(null)}
-                          onClick={() => setSelectedUnitType(prev => prev === ut.type ? null : ut.type)}
-                          className={`flex items-center gap-3 px-5 py-2.5 rounded-xl shadow-md border-2 transition-all duration-300 group/btn active:scale-95 whitespace-nowrap ${isSelected ? 'ring-4 ring-blue-500/30 scale-105 z-10 border-blue-400' : isHovered ? 'scale-105 border-white/50' : 'border-white/10 opacity-80 hover:opacity-100'}`}
-                          style={{
-                            backgroundColor: colorInfo.style?.backgroundColor,
-                            color: colorInfo.style?.color
-                          }}
-                          title={`클릭하여 ${ut.type} 타입 세대 강조 표시 (토글)`}
-                        >
-                          <span className="text-[12px] font-black uppercase tracking-tighter">{ut.type}</span>
-                          {isSelected && <div className="w-2 h-2 rounded-full bg-white animate-pulse" />}
-                        </button>
-                        
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (window.confirm(`'${ut.type}' 타입을 삭제하시겠습니까?`)) {
-                              const newConfigs = unitTypeConfigs.filter(c => c.type !== ut.type);
-                              onUpdateUnitTypeConfigs?.(newConfigs);
-                            }
-                          }}
-                          className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-red-500 text-white flex items-center justify-center shadow-lg opacity-0 group-hover/legend:opacity-100 transition-opacity z-20 hover:bg-red-600 active:scale-90"
-                          title={`${ut.type} 타입 삭제`}
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    );
-                  })}
-                  
-                  <div className="w-px h-8 bg-slate-200 dark:bg-white/10 mx-2" />
-    
-                  <button 
-                    onClick={() => setSelectedUnitType(prev => prev === "" ? null : "")}
-                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 transition-all duration-300 active:scale-95 whitespace-nowrap ${selectedUnitType === "" ? 'bg-slate-800 text-white border-slate-700 ring-4 ring-slate-500/20' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500 hover:border-slate-300'}`}
-                    title="지우개 도구 (타입 삭제 페인팅)"
-                  >
-                    <Eraser className="w-4 h-4" />
-                    <span className="text-[10px] font-black uppercase tracking-tighter">Eraser</span>
-                  </button>
-    
-                  <div className="w-px h-8 bg-slate-200 dark:bg-white/10 mx-2" />
-    
-                  <button 
-                    onClick={() => setIsEditingUnitTypes(true)}
-                    className="w-10 h-10 rounded-xl bg-slate-200 hover:bg-blue-500 hover:text-white dark:bg-white/10 transition-all flex items-center justify-center group shadow-inner"
-                    title="세대 타입 및 색상 설정"
-                  >
-                    <Settings className="w-4 h-4 group-hover:rotate-90 transition-transform duration-500" />
-                  </button>
-                </div>
-                
-                {selectedUnitType && (
-                  <div className="flex items-center gap-2">
-                    <motion.button
-                      initial={{ opacity: 0, x: -10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      onClick={() => setSelectedUnitType(null)}
-                      className="flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-blue-500/20 whitespace-nowrap active:scale-95 transition-all"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                      Clear Selection
-                    </motion.button>
-                    
-                    <motion.button
-                      initial={{ opacity: 0, x: 10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      onClick={() => {
-                        if (window.confirm(`모든 동의 모든 세대를 ${selectedUnitType} 타입으로 일괄 변경하시겠습니까?`)) {
-                          data.buildings.forEach(b => applyTypeToBuilding(b));
-                        }
-                      }}
-                      className="flex items-center gap-2 bg-amber-500 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-amber-500/20 whitespace-nowrap active:scale-95 transition-all"
-                    >
-                      <Zap className="w-3.5 h-3.5 fill-white" />
-                      Apply to All Buildings
-                    </motion.button>
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Dashboard Controls Container */}
-        <div className="flex flex-wrap items-center justify-center gap-4 md:gap-6 px-4 no-print">
-          <button 
-            onClick={handlePrint}
-            className="flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full text-[11px] font-black uppercase tracking-widest transition-all shadow-xl shadow-indigo-500/20 active:scale-95 group"
-          >
-            <Printer className="w-4 h-4 group-hover:animate-bounce" />
-            Print Optimization
-          </button>
-
-          {/* Opacity Control Slider */}
-          <div className="flex items-center gap-3 bg-slate-100 dark:bg-slate-900 px-4 py-2 rounded-full shadow-inner">
-            <Layers className="w-4 h-4 text-slate-400" />
-            <span className="text-[9px] font-black text-slate-500 uppercase tracking-tighter">Opacity</span>
-            <input 
-              type="range"
-              min="0.2"
-              max="1"
-              step="0.1"
-              value={layerOpacity}
-              onChange={(e) => setLayerOpacity(parseFloat(e.target.value))}
-              className="w-24 md:w-32 h-1.5 bg-slate-200 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
-            />
-            <span className="text-[9px] font-black text-blue-500 w-8">{Math.round(layerOpacity * 100)}%</span>
-          </div>
-
-          {/* Guide Line Control Panel */}
-          <div className="flex items-center gap-3 bg-slate-100 dark:bg-slate-900 px-4 py-2 rounded-full shadow-inner">
+          <div className="no-print flex items-center gap-3">
             <button 
-              onClick={() => setGuideConfig(prev => ({ ...prev, enabled: !prev.enabled }))}
-              className={`p-1.5 rounded-full transition-all ${guideConfig.enabled ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/20' : 'bg-slate-200 dark:bg-slate-800 text-slate-400'}`}
-              title="Align Guide Toggle"
+              onClick={() => setIsLocked(prev => !prev)}
+              className={`p-2.5 rounded-xl transition-all shadow-md flex items-center gap-2 text-[10px] font-black uppercase tracking-widest ${isLocked ? 'bg-amber-100 text-amber-700 border-2 border-amber-300' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-2 border-emerald-200'}`}
+              title={isLocked ? "편집 잠금 해제" : "실수 방지 잠금 설정"}
             >
-              <Zap className={`w-3.5 h-3.5 ${guideConfig.enabled ? 'fill-white' : ''}`} />
+              {isLocked ? <Zap className="w-4 h-4 fill-current" /> : <Settings className="w-4 h-4" />}
+              <span>{isLocked ? 'Locked' : 'Unlocked'}</span>
             </button>
-            <div className="flex items-center gap-2">
-              <span className="text-[9px] font-black text-slate-500 uppercase tracking-tighter whitespace-nowrap">Target Floors</span>
-              <div className="flex gap-1.5 max-w-[150px] overflow-x-auto no-scrollbar py-0.5">
-                {[1, 10, 20, 25, 29].map(f => (
-                  <button
-                    key={f}
-                    onClick={() => {
-                      setGuideConfig(prev => {
-                        const exists = prev.targets.includes(f);
-                        return {
-                          ...prev,
-                          targets: exists ? prev.targets.filter(t => t !== f) : [...prev.targets, f]
-                        };
-                      });
-                    }}
-                    className={`px-2 py-0.5 rounded text-[8px] font-black transition-all ${guideConfig.targets.includes(f) ? 'bg-blue-500 text-white shadow-md shadow-blue-500/10' : 'bg-slate-200 dark:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'}`}
-                  >
-                    {f}F
-                  </button>
-                ))}
-              </div>
+            <div className="w-[1px] h-6 bg-slate-300 mx-1" />
+            <button 
+              onClick={() => setLayoutConfig(prev => ({ ...prev, showSettings: !prev.showSettings }))}
+              className={`p-2.5 rounded-xl transition-all shadow-md flex items-center gap-2 text-[10px] font-black uppercase tracking-widest ${layoutConfig.showSettings ? 'bg-blue-600 text-white shadow-blue-500/20' : 'bg-white dark:bg-slate-800 text-slate-600 hover:bg-slate-50 border-2 border-slate-200 dark:border-slate-700'}`}
+              title="레이아웃 간격 및 크기 조절"
+            >
+              <Layers className="w-4 h-4" />
+              <span>Layout</span>
+            </button>
+            <button 
+              onClick={() => setShowSummary(prev => !prev)}
+              className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-sm ${showSummary ? 'bg-blue-600 text-white shadow-blue-500/20' : 'bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-300 hover:dark:text-white'}`}
+              title="요약 테이블 토글"
+            >
+              {showSummary ? 'Hide Summary' : 'Show Summary'}
+            </button>
+            <button 
+              onClick={() => setShowRecentMods(prev => !prev)}
+              className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-sm ${showRecentMods ? 'bg-indigo-600 text-white shadow-indigo-500/20' : 'bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-300 hover:dark:text-white'}`}
+              title="최근 수정 로그 토글"
+            >
+              {showRecentMods ? 'Hide Logs' : 'Show Logs'}
+            </button>
+            <div className="w-[2px] h-8 bg-slate-200 dark:bg-slate-800 mx-1" />
+            <button 
+              onClick={handlePrint}
+              className="flex items-center gap-2 px-5 py-2.5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg active:scale-95 group"
+            >
+              <Printer className="w-4 h-4" />
+              <span>Print</span>
+            </button>
+            <button 
+              onClick={() => setIsEditingUnitTypes(true)}
+              className="w-10 h-10 rounded-xl bg-slate-200 hover:bg-blue-500 hover:text-white dark:bg-white/10 transition-all flex items-center justify-center group shadow-inner"
+              title="세대 타입 및 색상 설정"
+            >
+              <Settings className="w-4 h-4 group-hover:rotate-90 transition-transform duration-500" />
+            </button>
+            {onClose && (
               <button 
-                onClick={() => setGuideConfig(prev => ({ ...prev, targets: [] }))}
-                className="p-1 text-slate-400 hover:text-red-500 transition-colors"
-                title="Clear all targets"
+                onClick={onClose}
+                className="w-10 h-10 rounded-xl bg-red-50 hover:bg-red-500 hover:text-white dark:bg-red-950/20 transition-all flex items-center justify-center group shadow-md"
+                title="닫기"
               >
-                <X className="w-3 h-3" />
+                <X className="w-4 h-4 text-red-500 group-hover:text-white transition-colors" />
               </button>
-            </div>
-          </div>
-
-          <button 
-            onClick={() => setIsWideView(prev => !prev)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-all shadow-sm active:scale-95 ${isWideView ? 'bg-amber-600 text-white shadow-lg shadow-amber-500/20' : 'bg-slate-100 dark:bg-slate-900 text-slate-500'}`}
-            title="와이드 뷰 (모든 동 가로 배치)"
-          >
-            <ArrowRight className={`w-3.5 h-3.5 ${isWideView ? 'text-white' : 'text-slate-400'}`} />
-            {isWideView ? 'Wide View ON' : 'Grid View'}
-          </button>
-
-          <button 
-            onClick={() => setIsProcessSynced(prev => !prev)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-all shadow-sm active:scale-95 ${isProcessSynced ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20' : 'bg-slate-100 dark:bg-slate-900 text-slate-500'}`}
-            title="공정률 연동 뷰"
-          >
-            <Zap className={`w-3.5 h-3.5 ${isProcessSynced ? 'text-white' : 'text-slate-400'}`} />
-            {isProcessSynced ? 'Process View ON' : 'Design View'}
-          </button>
-
-          <button 
-            onClick={() => setDynamicFloorHeight(prev => !prev)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-all shadow-sm active:scale-95 ${dynamicFloorHeight ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' : 'bg-slate-100 dark:bg-slate-900 text-slate-500'}`}
-            title="층고 동적 조절"
-          >
-            <Layers className={`w-3.5 h-3.5 ${dynamicFloorHeight ? 'text-white' : 'text-slate-400'}`} />
-            {dynamicFloorHeight ? 'Dynamic Height ON' : 'Fixed Height'}
-          </button>
-
-          <button 
-            onClick={() => setViewMode(prev => prev === '2d' ? '3d' : '2d')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-all shadow-sm active:scale-95 ${viewMode === '3d' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'bg-slate-100 dark:bg-slate-900 text-slate-500'}`}
-          >
-            <div className={`w-3.5 h-3.5 flex items-center justify-center border-2 rounded-sm ${viewMode === '3d' ? 'border-white' : 'border-slate-400'}`}>
-              <div className={`w-1.5 h-1.5 ${viewMode === '3d' ? 'bg-white' : 'bg-slate-400'} rounded-full`} />
-            </div>
-            {viewMode === '3d' ? '3D Isometric' : '2D Grid'}
-          </button>
-
-          <button 
-            onClick={onResetAll}
-            className="flex items-center gap-2 bg-slate-100 hover:bg-red-50 dark:bg-slate-900 dark:hover:bg-red-950/30 px-4 py-2 rounded-full text-[10px] font-black text-slate-500 hover:text-red-500 uppercase tracking-widest transition-all shadow-sm active:scale-95"
-            title="모든 동 설정 초기화"
-          >
-            <RefreshCcw className="w-3.5 h-3.5" />
-            Reset All
-          </button>
-
-          <AnimatePresence>
-            {copyBuffer && (
-              <motion.button
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: 20 }}
-                onClick={() => setCopyBuffer(null)}
-                className="flex items-center gap-2 bg-red-500 hover:bg-red-400 text-white px-4 py-2 rounded-full text-[9px] font-black uppercase tracking-widest shadow-lg active:scale-95 transition-all"
-              >
-                <X className="w-3 h-3" />
-                Cancel Copy
-              </motion.button>
             )}
-          </AnimatePresence>
+          </div>
         </div>
       </div>
 
+      <AnimatePresence>
+        {layoutConfig.showSettings && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="flex justify-center -mb-4 relative z-20 no-print"
+          >
+            <div className={`p-6 rounded-[2rem] border-2 ${activeTheme.border} ${activeTheme.card} shadow-xl flex flex-wrap gap-8 items-center justify-center`}>
+              <div className="flex flex-col gap-2">
+                <label className="text-[10px] font-black text-slate-500 dark:text-slate-300 uppercase tracking-widest flex items-center gap-2">
+                   <Layers className="w-3 h-3" />
+                   Cell Height ({layoutConfig.cellHeight}px)
+                </label>
+                <div className="flex items-center gap-4">
+                  <input 
+                    type="range" min="20" max="80" step="1" 
+                    value={layoutConfig.cellHeight} 
+                    onChange={(e) => setLayoutConfig(prev => ({ ...prev, cellHeight: parseInt(e.target.value) }))}
+                    className="w-32 accent-blue-500"
+                  />
+                  <div className="flex gap-1">
+                    {[24, 32, 40, 50, 60].map(v => (
+                       <button 
+                        key={v} 
+                        onClick={() => setLayoutConfig(prev => ({ ...prev, cellHeight: v }))}
+                        className={`px-2 py-1 rounded text-[9px] font-bold ${layoutConfig.cellHeight === v ? 'bg-blue-500 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-300 hover:dark:bg-slate-700'}`}
+                      >
+                        {v}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="w-[1px] h-10 bg-slate-200 dark:bg-slate-800" />
+
+              <div className="flex flex-col gap-2">
+                <label className="text-[10px] font-black text-slate-500 dark:text-slate-300 uppercase tracking-widest flex items-center gap-2">
+                   <Plus className="w-3 h-3 text-emerald-500" />
+                   Grid Gap ({layoutConfig.gridGap}px)
+                </label>
+                <div className="flex items-center gap-4">
+                  <input 
+                    type="range" min="0" max="100" step="5" 
+                    value={layoutConfig.gridGap} 
+                    onChange={(e) => setLayoutConfig(prev => ({ ...prev, gridGap: parseInt(e.target.value) }))}
+                    className="w-32 accent-emerald-500"
+                  />
+                  <div className="flex gap-1">
+                    {[0, 10, 20, 40, 60].map(v => (
+                       <button 
+                        key={v} 
+                        onClick={() => setLayoutConfig(prev => ({ ...prev, gridGap: v }))}
+                        className={`px-2 py-1 rounded text-[9px] font-bold ${layoutConfig.gridGap === v ? 'bg-emerald-500 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-300 hover:dark:bg-slate-700'}`}
+                      >
+                        {v}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="w-[1px] h-10 bg-slate-200 dark:bg-slate-800" />
+
+              <div className="flex flex-col gap-2">
+                <label className="text-[10px] font-black text-slate-500 dark:text-slate-300 uppercase tracking-widest flex items-center gap-2">
+                   <ArrowRight className="w-3 h-3 text-amber-500" />
+                   Card Width ({layoutConfig.cardWidth}px)
+                </label>
+                <div className="flex items-center gap-4">
+                  <input 
+                    type="range" min="200" max="600" step="10" 
+                    value={layoutConfig.cardWidth} 
+                    onChange={(e) => setLayoutConfig(prev => ({ ...prev, cardWidth: parseInt(e.target.value) }))}
+                    className="w-32 accent-amber-500"
+                  />
+                  <div className="flex gap-1">
+                    {[280, 320, 350, 400, 500].map(v => (
+                       <button 
+                        key={v} 
+                        onClick={() => setLayoutConfig(prev => ({ ...prev, cardWidth: v }))}
+                        className={`px-2 py-1 rounded text-[9px] font-bold ${layoutConfig.cardWidth === v ? 'bg-amber-500 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-300 hover:dark:bg-slate-700'}`}
+                      >
+                        {v}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="w-[1px] h-10 bg-slate-200 dark:bg-slate-800" />
+
+              <div className="flex flex-col gap-2">
+                <label className="text-[10px] font-black text-slate-500 dark:text-slate-300 uppercase tracking-widest flex items-center gap-2">
+                   <Settings className="w-3 h-3 text-indigo-500" />
+                   Font Size ({layoutConfig.fontSize}px)
+                </label>
+                <div className="flex items-center gap-4">
+                  <input 
+                    type="range" min="6" max="16" step="0.5" 
+                    value={layoutConfig.fontSize} 
+                    onChange={(e) => setLayoutConfig(prev => ({ ...prev, fontSize: parseFloat(e.target.value) }))}
+                    className="w-24 accent-indigo-500"
+                  />
+                  <div className="flex gap-1">
+                    {[7, 8, 9, 10, 12].map(v => (
+                      <button 
+                        key={v} 
+                        onClick={() => setLayoutConfig(prev => ({ ...prev, fontSize: v }))}
+                        className={`px-2 py-1 rounded text-[9px] font-bold ${layoutConfig.fontSize === v ? 'bg-indigo-500 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-300 hover:dark:bg-slate-700'}`}
+                      >
+                        {v}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="w-[1px] h-10 bg-slate-200 dark:bg-slate-800" />
+
+              <div className="flex flex-col gap-2">
+                <label className="text-[10px] font-black text-slate-500 dark:text-slate-300 uppercase tracking-widest flex items-center gap-2">
+                   <Clock className="w-3 h-3 text-blue-500" />
+                   Height Mode
+                </label>
+                <button 
+                  onClick={() => setDynamicFloorHeight(prev => !prev)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${dynamicFloorHeight ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-300 hover:bg-slate-200 hover:dark:bg-slate-700'}`}
+                >
+                  {dynamicFloorHeight ? 'Auto-Fit ON' : 'Fixed Height'}
+                </button>
+              </div>
+
+              <div className="ml-auto flex items-center gap-2">
+                 <button 
+                    onClick={() => setLayoutConfig({
+                      cellHeight: 40,
+                      fontSize: 9,
+                      gridGap: 40,
+                      cardWidth: 350,
+                      showSettings: true
+                    })}
+                    className="p-2 rounded-xl bg-slate-100 hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all flex items-center gap-2 text-[10px] font-black uppercase"
+                 >
+                    <RefreshCcw className="w-3.5 h-3.5" />
+                    Reset
+                 </button>
+                 <button 
+                    onClick={() => setLayoutConfig(prev => ({ ...prev, showSettings: false }))}
+                    className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-all"
+                 >
+                    <X className="w-4 h-4" />
+                 </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Recent Modifications Panel */}
       <AnimatePresence>
-        {recentMods.length > 0 && (
+        {showRecentMods && recentMods.length > 0 && (
           <motion.div 
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
-            className="flex justify-center -mb-4 relative z-20"
+            className="flex justify-center -mb-4 relative z-20 no-print"
           >
-            <div className={`flex items-center gap-4 px-6 py-3 rounded-2xl border-2 ${activeTheme.border} ${activeTheme.card} shadow-xl max-w-full overflow-x-auto no-scrollbar`}>
+            <div className={`flex items-center gap-4 px-6 py-3 rounded-2xl border-2 ${activeTheme.border} ${activeTheme.card} shadow-xl max-w-full overflow-x-auto no-scrollbar relative`}>
+               <button 
+                onClick={() => setShowRecentMods(false)}
+                className="absolute top-1 right-1 p-1 hover:bg-red-50 hover:text-red-500 rounded-lg transition-colors"
+                title="Hide Logs"
+              >
+                <X className="w-3 h-3" />
+              </button>
               <div className="flex items-center gap-2 pr-4 border-r border-slate-200 dark:border-slate-800">
                 <Clock className="w-4 h-4 text-blue-500" />
                 <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest whitespace-nowrap">Recent Modifications</span>
@@ -783,9 +779,23 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
       </AnimatePresence>
 
       {/* Summary Table */}
-      <div className={`overflow-hidden rounded-3xl border-2 ${activeTheme.border} ${activeTheme.card} shadow-2xl`}>
-        <div className="overflow-x-auto">
-          <table className="w-full text-center border-separate border-spacing-0 min-w-max">
+      <AnimatePresence>
+        {showSummary && (
+          <motion.div 
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className={`overflow-hidden rounded-3xl border-2 ${activeTheme.border} ${activeTheme.card} shadow-2xl relative group/table no-print`}
+          >
+             <button 
+              onClick={() => setShowSummary(false)}
+              className="absolute top-4 right-4 z-30 p-2 bg-slate-900/5 hover:bg-red-50 hover:text-red-500 rounded-xl transition-all opacity-0 group-hover/table:opacity-100 no-print"
+              title="Close Summary Table"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <div className="overflow-x-auto">
+              <table className="w-full text-center border-separate border-spacing-0 min-w-max">
                 <thead>
                   <tr className={`${activeTheme.header} text-white`}>
                     <th className="p-4 text-[11px] font-black border-r border-white/10 uppercase bg-black/20 sticky left-0 z-20">구분</th>
@@ -858,10 +868,15 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
             </tbody>
           </table>
         </div>
-      </div>
+      </motion.div>
+      )}
+      </AnimatePresence>
 
       {/* Buildings Container */}
-      <div className={`buildings-grid transition-all duration-700 ${isWideView ? 'flex flex-nowrap overflow-x-auto pb-12 gap-8 items-end min-h-[600px] custom-scrollbar' : `grid gap-10 ${viewMode === '3d' ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 perspective-[2000px] py-20' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4'}`}`}>
+      <div 
+        className={`buildings-grid transition-all duration-700 ${isWideView ? 'flex flex-nowrap overflow-x-auto pb-12 items-end min-h-[600px] custom-scrollbar' : `grid ${viewMode === '3d' ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 perspective-[2000px] py-20' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4'}`}`}
+        style={{ gap: `${layoutConfig.gridGap}px` }}
+      >
         {data.buildings.map((b) => {
           const { mainFloors, basementFloors, lines } = getBuildingUnits(b);
           const maxFloorNum = b.maxFloor || data.settings.maxFloor;
@@ -879,7 +894,8 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
                 scale: viewMode === '3d' ? 0.9 : 1,
               }}
               viewport={{ once: true }}
-              className={`building-card flex flex-col border-2 ${activeTheme.border} ${activeTheme.card} rounded-[2rem] overflow-hidden shadow-2xl relative group transition-all duration-700 ${isWideView ? 'min-w-[320px] max-w-[400px]' : ''} ${viewMode === '3d' ? 'shadow-[20px_40px_60px_-15px_rgba(0,0,0,0.3)] hover:shadow-[30px_60px_80px_-20px_rgba(59,130,246,0.3)] hover:-translate-y-4' : 'hover:-translate-y-1'}`}
+              className={`building-card flex flex-col border-2 ${activeTheme.border} ${activeTheme.card} rounded-[2rem] overflow-hidden shadow-2xl relative group transition-all duration-700 ${isWideView ? '' : ''} ${viewMode === '3d' ? 'shadow-[20px_40px_60px_-15px_rgba(0,0,0,0.3)] hover:shadow-[30px_60px_80px_-20px_rgba(59,130,246,0.3)] hover:-translate-y-4' : 'hover:-translate-y-1'}`}
+              style={{ minWidth: isWideView ? `${layoutConfig.cardWidth}px` : undefined, maxWidth: isWideView ? `${layoutConfig.cardWidth}px` : undefined, width: !isWideView ? '100%' : undefined }}
             >
               <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
                 <Building2 className="w-40 h-40" />
@@ -1015,109 +1031,122 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
               </AnimatePresence>
 
               {/* Grid Header (Lines) */}
-              <div className="grid border-b-2 border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 relative z-20 sticky top-[136px] backdrop-blur-md shadow-sm" style={{ gridTemplateColumns: `50px repeat(${lines}, 1fr)` }}>
-                <button 
-                  onClick={() => applyTypeToBuilding(b)}
-                  disabled={!selectedUnitType}
-                  className={`p-3 text-[10px] font-black text-center border-r-2 border-slate-200 dark:border-slate-800 uppercase transition-all ${selectedUnitType ? 'text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/40 cursor-pointer active:scale-95' : 'text-slate-400'}`}
-                  title={selectedUnitType ? `전체 호실을 ${selectedUnitType} 타입으로 일괄 변경 (Alt+클릭: 전 단지 동일 적용)` : '타입 선택 후 클릭 시 전체 변경'}
-                >
-                  <div className="flex flex-col items-center gap-0.5">
-                    <span>구분</span>
-                    {selectedUnitType && <Zap className="w-2.5 h-2.5 fill-blue-500" />}
-                  </div>
-                </button>
-                {Array.from({ length: lines }).map((_, i) => (
+              <div className="flex no-print sticky top-[136px] z-[60] bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b-2 border-slate-200 dark:border-slate-800">
+                <div className="flex-1 grid" style={{ gridTemplateColumns: `50px repeat(${lines}, 1fr)` }}>
                   <button 
-                    key={i} 
-                    onClick={() => cycleLineUnitType(b, i + 1)}
-                    className="p-2 text-[10px] font-black text-blue-500 hover:bg-blue-500/10 text-center border-r border-slate-200 dark:border-slate-800 last:border-r-0 flex flex-col items-center justify-center gap-1 transition-colors group cursor-pointer active:scale-95 shadow-inner"
-                    title={selectedUnitType ? `${i + 1}호 라인 전체를 ${selectedUnitType} 타입으로 변경 (Alt+클릭: 전 단지 적용)` : '클릭하여 라인 전체 타입 변경 (Alt+클릭: 전 단지 적용)'}
+                    onClick={() => applyTypeToBuilding(b)}
+                    disabled={!selectedUnitType}
+                    className={`p-3 text-center border-r-2 border-slate-200 dark:border-slate-800 uppercase transition-all ${selectedUnitType ? 'text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/40 cursor-pointer active:scale-95' : 'text-slate-400'}`}
+                    style={{ fontSize: `${Math.max(8, layoutConfig.fontSize + 1)}px`, fontWeight: 900 }}
+                    title={selectedUnitType ? `전체 호실을 ${selectedUnitType} 타입으로 일괄 변경 (Alt+클릭: 전 단지 동일 적용)` : '타입 선택 후 클릭 시 전체 변경'}
                   >
-                    <span className="group-hover:scale-110 transition-transform">{i + 1}호</span>
-                    <Zap className={`w-2.5 h-2.5 transition-opacity ${selectedUnitType ? 'opacity-100 fill-blue-500' : 'opacity-0 group-hover:opacity-100'}`} />
+                    <div className="flex flex-col items-center gap-0.5">
+                      <span>구분</span>
+                      {selectedUnitType && <Zap className="w-2.5 h-2.5 fill-blue-500" />}
+                    </div>
                   </button>
-                ))}
+                  {Array.from({ length: lines }).map((_, i) => (
+                    <button 
+                      key={i} 
+                      onClick={() => cycleLineUnitType(b, i + 1)}
+                      className="p-2 text-blue-500 hover:bg-blue-500/10 text-center border-r border-slate-200 dark:border-slate-800 last:border-r-0 flex flex-col items-center justify-center gap-1 transition-colors group cursor-pointer active:scale-95 shadow-inner font-black"
+                      style={{ fontSize: `${Math.max(8, layoutConfig.fontSize + 1)}px` }}
+                      title={selectedUnitType ? `${i + 1}호 라인 전체를 ${selectedUnitType} 타입으로 변경 (Alt+클릭: 전 단지 적용)` : '클릭하여 라인 전체 타입 변경 (Alt+클릭: 전 단지 적용)'}
+                    >
+                      <span className="group-hover:scale-110 transition-transform">{i + 1}호</span>
+                      <Zap className={`w-2.5 h-2.5 transition-opacity ${selectedUnitType ? 'opacity-100 fill-blue-500' : 'opacity-0 group-hover:opacity-100'}`} />
+                    </button>
+                  ))}
+                </div>
+                <div className="w-[60px] flex items-center justify-center border-l border-slate-200 dark:border-slate-800">
+                  <span className="text-[7px] font-black uppercase text-slate-400 rotate-90">Progress</span>
+                </div>
               </div>
 
               {/* Main Floors */}
               <div className="flex-1 relative z-10">
                 {/* Max Floor Adjustment Handle */}
-                <div className="flex items-center justify-center gap-4 py-2 bg-slate-50/50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800">
-                  <button 
-                    onClick={() => {
-                      const current = b.maxFloor || data.settings.maxFloor;
-                      const newValue = Math.max(1, current - 1);
-                      onUpdateBuilding(b.id, { 
-                        maxFloor: newValue,
-                        lastLog: {
-                          type: 'floor_change',
-                          description: `지상층수 하향: ${current}F -> ${newValue}F`,
-                          timestamp: new Date().toISOString()
-                        }
-                      });
-                    }}
-                    className="p-1 rounded-md hover:bg-red-500/10 text-slate-400 hover:text-red-500 transition-colors"
-                  >
-                    <Minus className="w-3 h-3" />
-                  </button>
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">Height Control</span>
-                  <button 
-                    onClick={() => {
-                      const current = b.maxFloor || data.settings.maxFloor;
-                      const newValue = current + 1;
-                      onUpdateBuilding(b.id, { 
-                        maxFloor: newValue,
-                        lastLog: {
-                          type: 'floor_change',
-                          description: `지상층수 상향: ${current}F -> ${newValue}F`,
-                          timestamp: new Date().toISOString()
-                        }
-                      });
-                    }}
-                    className="p-1 rounded-md hover:bg-blue-500/10 text-slate-400 hover:text-blue-500 transition-colors"
-                  >
-                    <Plus className="w-3 h-3" />
-                  </button>
+                <div className="flex no-print">
+                  <div className="flex-1 flex items-center justify-center gap-4 py-2 bg-slate-50/50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800">
+                    <button 
+                      onClick={() => {
+                        const current = b.maxFloor || data.settings.maxFloor;
+                        const newValue = Math.max(1, current - 1);
+                        onUpdateBuilding(b.id, { 
+                          maxFloor: newValue,
+                          lastLog: {
+                            type: 'floor_change',
+                            description: `지상층수 하향: ${current}F -> ${newValue}F`,
+                            timestamp: new Date().toISOString()
+                          }
+                        });
+                      }}
+                      className="p-1 rounded-md hover:bg-red-500/10 text-slate-400 hover:text-red-500 transition-colors"
+                    >
+                      <Minus className="w-3 h-3" />
+                    </button>
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">Height Control</span>
+                    <button 
+                      onClick={() => {
+                        const current = b.maxFloor || data.settings.maxFloor;
+                        const newValue = current + 1;
+                        onUpdateBuilding(b.id, { 
+                          maxFloor: newValue,
+                          lastLog: {
+                            type: 'floor_change',
+                            description: `지상층수 상향: ${current}F -> ${newValue}F`,
+                            timestamp: new Date().toISOString()
+                          }
+                        });
+                      }}
+                      className="p-1 rounded-md hover:bg-blue-500/10 text-slate-400 hover:text-blue-500 transition-colors"
+                    >
+                      <Plus className="w-3 h-3" />
+                    </button>
+                  </div>
+                  <div className="w-[60px] border-l border-b border-slate-200 dark:border-slate-800 bg-slate-50/10 dark:bg-slate-900/10" />
                 </div>
 
                 {/* Line Adjustment Handle */}
-                <div className="flex items-center justify-center gap-4 py-2 bg-slate-50/30 dark:bg-slate-900/10 border-b border-slate-200 dark:border-slate-800">
-                  <button 
-                    onClick={() => {
-                      const current = b.lines || 4;
-                      const newValue = Math.max(1, current - 1);
-                      onUpdateBuilding(b.id, { 
-                        lines: newValue,
-                        lastLog: {
-                          type: 'floor_change',
-                          description: `호라인 감축: ${current}호 -> ${newValue}호`,
-                          timestamp: new Date().toISOString()
-                        }
-                      });
-                    }}
-                    className="p-1 rounded-md hover:bg-red-500/10 text-slate-400 hover:text-red-500 transition-colors"
-                  >
-                    <Minus className="w-3 h-3" />
-                  </button>
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">Line Control</span>
-                  <button 
-                    onClick={() => {
-                      const current = b.lines || 4;
-                      const newValue = current + 1;
-                      onUpdateBuilding(b.id, { 
-                        lines: newValue,
-                        lastLog: {
-                          type: 'floor_change',
-                          description: `호라인 상향: ${current}호 -> ${newValue}호`,
-                          timestamp: new Date().toISOString()
-                        }
-                      });
-                    }}
-                    className="p-1 rounded-md hover:bg-blue-500/10 text-slate-400 hover:text-blue-500 transition-colors"
-                  >
-                    <Plus className="w-3 h-3" />
-                  </button>
+                <div className="flex no-print">
+                  <div className="flex-1 flex items-center justify-center gap-4 py-2 bg-slate-50/30 dark:bg-slate-900/10 border-b border-slate-200 dark:border-slate-800">
+                    <button 
+                      onClick={() => {
+                        const current = b.lines || 4;
+                        const newValue = Math.max(1, current - 1);
+                        onUpdateBuilding(b.id, { 
+                          lines: newValue,
+                          lastLog: {
+                            type: 'floor_change',
+                            description: `호라인 감축: ${current}호 -> ${newValue}호`,
+                            timestamp: new Date().toISOString()
+                          }
+                        });
+                      }}
+                      className="p-1 rounded-md hover:bg-red-500/10 text-slate-400 hover:text-red-500 transition-colors"
+                    >
+                      <Minus className="w-3 h-3" />
+                    </button>
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">Line Control</span>
+                    <button 
+                      onClick={() => {
+                        const current = b.lines || 4;
+                        const newValue = current + 1;
+                        onUpdateBuilding(b.id, { 
+                          lines: newValue,
+                          lastLog: {
+                            type: 'floor_change',
+                            description: `호라인 상향: ${current}호 -> ${newValue}호`,
+                            timestamp: new Date().toISOString()
+                          }
+                        });
+                      }}
+                      className="p-1 rounded-md hover:bg-blue-500/10 text-slate-400 hover:text-blue-500 transition-colors"
+                    >
+                      <Plus className="w-3 h-3" />
+                    </button>
+                  </div>
+                  <div className="w-[60px] border-l border-b border-slate-200 dark:border-slate-800 bg-slate-50/10 dark:bg-slate-900/10" />
                 </div>
 
                 {mainFloors.map((fNum, fIdx) => {
@@ -1137,244 +1166,292 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
                   const floorScale = dynamicFloorHeight ? Math.max(0.6, Math.min(1, 22 / totalBuildingFloors)) : 1;
 
                   return (
-                    <motion.div 
-                      key={fNum} 
-                      onMouseEnter={() => setHoveredFloor(fNum)}
-                      onMouseLeave={() => setHoveredFloor(null)}
-                      initial={false}
-                      animate={{ 
-                        backgroundColor: showGuide 
-                          ? (isDarkTheme ? (isPersistentGuide ? "rgba(59, 130, 246, 0.1)" : "rgba(59, 130, 246, 0.2)") : (isPersistentGuide ? "rgba(59, 130, 246, 0.05)" : "rgba(59, 130, 246, 0.1)"))
-                          : isWireframe ? "rgba(0,0,0,0)" : (isDarkTheme ? "rgba(59, 130, 246, 0.05)" : "rgba(59, 130, 246, 0.02)"),
-                        opacity: isWireframe ? 0.4 : 1
-                      }}
-                      className={`grid border-b border-slate-200 dark:border-slate-800 last:border-b-0 hover:bg-blue-500/5 transition-colors relative group/floor ${isWireframe ? 'grayscale-[0.5]' : ''} ${showGuide ? 'z-30' : 'z-10'}`} 
-                      style={{ 
-                        gridTemplateColumns: `50px repeat(${lines}, 1fr)`,
-                        minHeight: dynamicFloorHeight ? `${Math.floor(40 * floorScale)}px` : '40px'
-                      }}
-                    >
-                      {/* Highlight Guide Line Overlay */}
-                      {showGuide && (
-                        <motion.div 
-                          layoutId={isPersistentGuide ? undefined : "guide-line"}
-                          className={`absolute inset-0 border-y ${isPersistentGuide ? 'border-blue-500/20' : 'border-blue-500/50'} pointer-events-none`}
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                        />
-                      )}
-
-                      {/* Highlight Glow for Completed Floor */}
-                      {!isWireframe && (
-                        <motion.div 
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          className={`absolute inset-0 pointer-events-none border-l-4 ${showGuide ? 'border-blue-500' : 'border-blue-500/50'} z-20`}
-                        />
-                      )}
-
-                      <button 
-                        onClick={() => applyTypeToFloor(b, fNum)}
-                        className={`p-2 flex flex-col items-center justify-center border-r-2 border-slate-200 dark:border-slate-800 font-black relative overflow-hidden transition-all duration-500 z-20 active:scale-95 cursor-pointer ${isWorkingFloor ? 'bg-blue-600 text-white shadow-[inset_0_0_20px_rgba(255,255,255,0.2)]' : isWireframe ? 'text-slate-400 bg-slate-50/10' : 'text-blue-600 bg-slate-100/30 dark:bg-slate-900/30'} ${showGuide ? 'text-blue-500 bg-blue-50/50 dark:bg-blue-900/30 underline decoration-blue-500/50 decoration-2' : ''}`} 
-                        style={{ minWidth: '50px', padding: dynamicFloorHeight ? `${Math.floor(10 * floorScale)}px 0` : '' }}
-                        title={selectedUnitType ? `${fNum}층 전체를 ${selectedUnitType} 타입으로 변경 (Alt+클릭: 전 단지 적용)` : '클릭하여 층 전체 타입 변경 (Alt+클릭: 전 단지 적용)'}
+                    <div key={fNum} className="flex">
+                      <motion.div 
+                        onMouseEnter={() => setHoveredFloor(fNum)}
+                        onMouseLeave={() => setHoveredFloor(null)}
+                        initial={false}
+                        animate={{ 
+                          backgroundColor: showGuide 
+                            ? (isDarkTheme ? (isPersistentGuide ? "rgba(59, 130, 246, 0.1)" : "rgba(59, 130, 246, 0.2)") : (isPersistentGuide ? "rgba(59, 130, 246, 0.05)" : "rgba(59, 130, 246, 0.1)"))
+                            : isWireframe ? "rgba(0,0,0,0)" : (isDarkTheme ? "rgba(59, 130, 246, 0.05)" : "rgba(59, 130, 246, 0.02)"),
+                          opacity: isWireframe ? 0.4 : 1
+                        }}
+                        className={`grid flex-1 border-b border-slate-200 dark:border-slate-800 last:border-b-0 hover:bg-blue-500/5 transition-colors relative group/floor ${isWireframe ? 'grayscale-[0.5]' : ''} ${showGuide ? 'z-30' : 'z-10'}`} 
+                        style={{ 
+                          gridTemplateColumns: `50px repeat(${lines}, 1fr)`,
+                          minHeight: dynamicFloorHeight ? `${Math.floor(layoutConfig.cellHeight * floorScale)}px` : `${layoutConfig.cellHeight}px`
+                        }}
                       >
-                        {isWorkingFloor && (
+                        {/* Highlight Guide Line Overlay */}
+                        {showGuide && (
                           <motion.div 
-                            initial={{ x: "-100%" }}
-                            animate={{ x: "200%" }}
-                            transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
-                            className="absolute inset-0 bg-white/20 skew-x-12"
+                            layoutId={isPersistentGuide ? undefined : "guide-line"}
+                            className={`absolute inset-0 border-y ${isPersistentGuide ? 'border-blue-500/20' : 'border-blue-500/50'} pointer-events-none`}
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
                           />
                         )}
-                        <span className={`${isWorkingFloor ? 'text-[11px] scale-110' : 'text-[10px]'} relative z-10`}>
-                          {fNum > maxFloorNum ? `PH${fNum - maxFloorNum}` : `${fNum}F`}
-                        </span>
-                        {isWorkingFloor && (
-                          <span className="text-[6px] font-black uppercase tracking-tighter opacity-90 leading-none relative z-10 mt-0.5 px-1 bg-white text-blue-600 rounded-sm">
-                            작업중
-                          </span>
-                        )}
-                        {!isWireframe && fNum <= maxFloorNum && !isWorkingFloor && progress > 0 && (
+
+                        {/* Highlight Glow for Completed Floor */}
+                        {!isWireframe && (
                           <motion.div 
-                            initial={{ scale: 0 }}
-                            animate={{ scale: 1 }}
-                            className="absolute top-1 right-1"
-                          >
-                             <Check className={`w-2.5 h-2.5 ${isHovered || showGuide ? 'text-white bg-blue-500' : 'text-blue-500 bg-white/80 dark:bg-slate-800/80'} rounded-full shadow-sm p-0.5`} />
-                          </motion.div>
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            className={`absolute inset-0 pointer-events-none border-l-4 ${showGuide ? 'border-blue-500' : 'border-blue-500/50'} z-20`}
+                          />
                         )}
-                      </button>
-                      {Array.from({ length: lines }).map((_, i) => {
-                        const type = getUnitType(b, fNum, i + 1);
-                        const colorInfo = getTypeColorInfo(type);
-                        const activeFilter = selectedUnitType || hoveredUnitType;
-                        const isTypeHovered = activeFilter !== null && type === activeFilter;
-                        const isOtherTypeHovered = activeFilter !== null && type !== activeFilter;
-                        
-                        return (
-                          <button 
-                            key={i} 
-                            onMouseDown={() => {
-                              if (selectedUnitType !== null) {
-                                setIsPainting(true);
-                                // Directly set type if painting instead of cycling
-                                const currentMap = b.unitMap || {};
-                                onUpdateBuilding(b.id, {
-                                  unitMap: { ...currentMap, [`${fNum}:${i + 1}`]: selectedUnitType },
-                                  lastLog: {
-                                    type: 'unit_change',
-                                    description: `${fNum < 0 ? `B${Math.abs(fNum)}` : `${fNum}F`} ${i + 1}호 -> ${selectedUnitType || '삭제'}`,
-                                    timestamp: new Date().toISOString()
-                                  }
-                                });
-                              }
-                            }}
-                            onMouseEnter={() => {
-                              if (isPainting && selectedUnitType !== null) {
-                                if (getUnitType(b, fNum, i + 1) !== selectedUnitType) {
-                                  // Directly set type if painting
-                                  const currentMap = b.unitMap || {};
-                                  onUpdateBuilding(b.id, {
-                                    unitMap: { ...currentMap, [`${fNum}:${i + 1}`]: selectedUnitType }
-                                  });
-                                }
-                              }
-                            }}
-                            onClick={() => {
-                              if (!isPainting) cycleUnitType(b, fNum, i + 1);
-                            }}
-                            className={`p-1.5 border-r border-slate-200 dark:border-slate-800 last:border-r-0 flex items-center justify-center hover:bg-blue-500/10 transition-all cursor-pointer group/unit shadow-inner active:scale-95 px-1 ${isOtherTypeHovered ? 'opacity-20 grayscale' : 'opacity-100'}`}
-                            style={{ padding: dynamicFloorHeight ? `${Math.floor(6 * floorScale)}px 4px` : '' }}
-                            title={`${fNum}층 ${i + 1}호 타입 변경 (현재: ${type || '없음'}) ${selectedUnitType ? '- 드래그하여 페인팅 가능' : ''}`}
-                          >
-                            <div 
-                              className={`w-full py-1.5 rounded-lg text-[9px] font-black text-center shadow-md uppercase tracking-tighter transition-all duration-300 min-h-[24px] flex items-center justify-center ${isTypeHovered ? 'ring-2 ring-blue-500 scale-110 z-10' : ''} ${isWireframe && type ? 'border-2 border-dashed' : colorInfo.className}`}
-                              style={{
-                                ...colorInfo.style,
-                                ...(isWireframe && type ? { 
-                                  backgroundColor: colorInfo.style?.backgroundColor ? `${colorInfo.style.backgroundColor}20` : 'rgba(148, 163, 184, 0.15)',
-                                  borderColor: colorInfo.style?.backgroundColor || '#94a3b8',
-                                  color: colorInfo.style?.backgroundColor || '#94a3b8',
-                                  boxShadow: 'none'
-                                } : {}),
-                                padding: dynamicFloorHeight ? `${Math.floor(6 * floorScale)}px 0` : '',
-                                minHeight: dynamicFloorHeight ? `${Math.floor(24 * floorScale)}px` : '24px',
-                                fontSize: dynamicFloorHeight ? `${Math.max(7, Math.floor(9 * floorScale))}px` : '9px'
-                              }}
-                            >
-                              {type}
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </motion.div>
-                );
-              })}
-              </div>
 
-              {/* Basement Floors */}
-              {basementFloors.length >= 0 && (
-                <div className="bg-slate-100/50 dark:bg-slate-950/50 border-t-2 border-slate-200 dark:border-slate-800 relative z-10">
-                   {/* Basement Adjustment Handle */}
-                   <div className="flex items-center justify-center gap-4 py-2 border-b border-slate-200/50 dark:border-slate-800/50">
-                    <button 
-                      onClick={() => {
-                        const current = b.minFloor || data.settings.minFloor;
-                        const newValue = current - 1;
-                        onUpdateBuilding(b.id, { 
-                          minFloor: newValue,
-                          lastLog: {
-                            type: 'floor_change',
-                            description: `지하층수 증설: B${Math.abs(current)} -> B${Math.abs(newValue)}`,
-                            timestamp: new Date().toISOString()
-                          }
-                        });
-                      }}
-                      className="p-1 rounded-md hover:bg-blue-500/10 text-slate-400 hover:text-blue-500 transition-colors"
-                    >
-                      <Plus className="w-3 h-3" />
-                    </button>
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">Basement Control</span>
-                    <button 
-                      onClick={() => {
-                        const current = b.minFloor || data.settings.minFloor;
-                        const newValue = Math.min(0, current + 1);
-                        onUpdateBuilding(b.id, { 
-                          minFloor: newValue,
-                          lastLog: {
-                            type: 'floor_change',
-                            description: `지하층수 감축: B${Math.abs(current)} -> B${Math.abs(newValue)}`,
-                            timestamp: new Date().toISOString()
-                          }
-                        });
-                      }}
-                      className="p-1 rounded-md hover:bg-red-500/10 text-slate-400 hover:text-red-500 transition-colors"
-                    >
-                      <Minus className="w-3 h-3" />
-                    </button>
-                  </div>
-
-                   {basementFloors.map(fNum => {
-                     const isHovered = hoveredFloor === fNum;
-                     const isPersistentGuide = guideConfig.enabled && guideConfig.targets.includes(fNum);
-                     const showGuide = isHovered || isPersistentGuide;
-                     
-                     const totalBuildingFloors = mainFloors.length + basementFloors.length;
-                     const floorScale = dynamicFloorHeight ? Math.max(0.6, Math.min(1, 22 / totalBuildingFloors)) : 1;
-
-                     return (
-                       <div 
-                          key={fNum} 
-                          onMouseEnter={() => setHoveredFloor(fNum)}
-                          onMouseLeave={() => setHoveredFloor(null)}
-                          className={`grid border-b border-slate-200/50 dark:border-slate-800/50 last:border-b-0 relative transition-colors ${showGuide ? (isDarkTheme ? 'bg-blue-900/20' : 'bg-blue-50') : ''}`} 
-                          style={{ 
-                            gridTemplateColumns: `50px repeat(${lines}, 1fr)`,
-                            minHeight: dynamicFloorHeight ? `${Math.floor(32 * floorScale)}px` : '32px'
-                          }}
+                        <button 
+                          onClick={() => applyTypeToFloor(b, fNum)}
+                          className={`p-2 flex flex-col items-center justify-center border-r-2 border-slate-200 dark:border-slate-800 font-black relative overflow-hidden transition-all duration-500 z-20 active:scale-95 cursor-pointer ${isWorkingFloor ? 'bg-blue-600 text-white shadow-[inset_0_0_20px_rgba(255,255,255,0.2)]' : isWireframe ? 'text-slate-400 bg-slate-50/10' : 'text-blue-600 bg-slate-100/30 dark:bg-slate-900/30'} ${showGuide ? 'text-blue-500 bg-blue-50/50 dark:bg-blue-900/30 underline decoration-blue-500/50 decoration-2' : ''}`} 
+                          style={{ minWidth: '50px', padding: dynamicFloorHeight ? `${Math.floor(layoutConfig.cellHeight * 0.25 * floorScale)}px 0` : `${Math.floor(layoutConfig.cellHeight * 0.25)}px 0` }}
+                          title={selectedUnitType ? `${fNum}층 전체를 ${selectedUnitType} 타입으로 변경 (Alt+클릭: 전 단지 적용)` : '클릭하여 층 전체 타입 변경 (Alt+클릭: 전 단지 적용)'}
                         >
-                          {showGuide && (
-                             <motion.div 
-                               layoutId={isPersistentGuide ? undefined : "guide-line"}
-                               className={`absolute inset-0 border-y ${isPersistentGuide ? 'border-blue-500/10' : 'border-blue-500/20'} pointer-events-none`}
-                               initial={{ opacity: 0 }}
-                               animate={{ opacity: 1 }}
-                             />
-                           )}
-                          <div className={`p-2 text-[10px] font-black text-center border-r-2 border-slate-200 dark:border-slate-800 transition-colors ${showGuide ? 'text-blue-500 bg-blue-100/20 shadow-inner' : 'text-slate-400'} flex items-center justify-center`} style={{ padding: dynamicFloorHeight ? `${Math.floor(6 * floorScale)}px 0` : '' }}>
-                            B{Math.abs(fNum)}
-                          </div>
+                          {isWorkingFloor && (
+                            <motion.div 
+                              initial={{ x: "-100%" }}
+                              animate={{ x: "200%" }}
+                              transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+                              className="absolute inset-0 bg-white/20 skew-x-12"
+                            />
+                          )}
+                          <span className={`${isWorkingFloor ? 'text-[11px] scale-110' : 'text-[10px]'} relative z-10`}>
+                            {fNum > maxFloorNum ? `PH${fNum - maxFloorNum}` : `${fNum}F`}
+                          </span>
+                          {isWorkingFloor && (
+                            <span className="text-[6px] font-black uppercase tracking-tighter opacity-90 leading-none relative z-10 mt-0.5 px-1 bg-white text-blue-600 rounded-sm">
+                              작업중
+                            </span>
+                          )}
+                          {!isWireframe && fNum <= maxFloorNum && !isWorkingFloor && progress > 0 && (
+                            <motion.div 
+                              initial={{ scale: 0 }}
+                              animate={{ scale: 1 }}
+                              className="absolute top-1 right-1"
+                            >
+                               <Check className={`w-2.5 h-2.5 ${isHovered || showGuide ? 'text-white bg-blue-500' : 'text-blue-500 bg-white/80 dark:bg-slate-800/80'} rounded-full shadow-sm p-0.5`} />
+                            </motion.div>
+                          )}
+                        </button>
                         {Array.from({ length: lines }).map((_, i) => {
                           const type = getUnitType(b, fNum, i + 1);
                           const colorInfo = getTypeColorInfo(type);
                           const activeFilter = selectedUnitType || hoveredUnitType;
                           const isTypeHovered = activeFilter !== null && type === activeFilter;
                           const isOtherTypeHovered = activeFilter !== null && type !== activeFilter;
+                          
                           return (
                             <button 
                               key={i} 
-                              onClick={() => cycleUnitType(b, fNum, i + 1)}
-                              className={`p-1 border-r border-slate-200/50 dark:border-slate-800/50 last:border-r-0 hover:bg-white/5 transition-all group/unit min-h-[20px] flex items-center justify-center cursor-pointer px-1 ${isOtherTypeHovered ? 'opacity-20 grayscale' : 'opacity-100'}`}
-                              style={{ padding: dynamicFloorHeight ? `${Math.floor(4 * floorScale)}px 4px` : '' }}
-                              title="클릭하여 타입 변경"
+                              onMouseDown={() => {
+                                if (isLocked) return;
+                                if (selectedUnitType !== null) {
+                                  setIsPainting(true);
+                                  // Directly set type if painting instead of cycling
+                                  const currentMap = b.unitMap || {};
+                                  onUpdateBuilding(b.id, {
+                                    unitMap: { ...currentMap, [`${fNum}:${i + 1}`]: selectedUnitType },
+                                    lastLog: {
+                                      type: 'unit_change',
+                                      description: `${fNum < 0 ? `B${Math.abs(fNum)}` : `${fNum}F`} ${i + 1}호 -> ${selectedUnitType || '삭제'}`,
+                                      timestamp: new Date().toISOString()
+                                    }
+                                  });
+                                }
+                              }}
+                              onMouseEnter={() => {
+                                if (isLocked) return;
+                                if (isPainting && selectedUnitType !== null) {
+                                  if (getUnitType(b, fNum, i + 1) !== selectedUnitType) {
+                                    // Directly set type if painting
+                                    const currentMap = b.unitMap || {};
+                                    onUpdateBuilding(b.id, {
+                                      unitMap: { ...currentMap, [`${fNum}:${i + 1}`]: selectedUnitType }
+                                    });
+                                  }
+                                }
+                              }}
+                              onClick={() => {
+                                if (!isPainting) cycleUnitType(b, fNum, i + 1);
+                              }}
+                              className={`p-1.5 border-r border-slate-200 dark:border-slate-800 last:border-r-0 flex items-center justify-center hover:bg-blue-500/10 transition-all cursor-pointer group/unit shadow-inner active:scale-95 px-1 ${isOtherTypeHovered ? 'opacity-20 grayscale' : 'opacity-100'}`}
+                              style={{ padding: dynamicFloorHeight ? `${Math.floor(6 * floorScale)}px 4px` : '' }}
+                              title={`${fNum}층 ${i + 1}호 타입 변경 (현재: ${type || '없음'}) ${selectedUnitType ? '- 드래그하여 페인팅 가능' : ''}`}
                             >
-                               {type ? (
-                                <div 
-                                  className={`w-full py-1 rounded text-[7px] font-black text-center uppercase tracking-tighter shadow-sm transition-all duration-300 ${isTypeHovered ? 'scale-125 shadow-lg ring-1 ring-white/30 z-10 opacity-100' : 'opacity-80'}`}
-                                  style={{
-                                    ...colorInfo.style,
-                                    fontSize: dynamicFloorHeight ? `${Math.max(6, Math.floor(7 * floorScale))}px` : '7px'
-                                  }}
-                                >
-                                   {type}
-                                </div>
-                               ) : (
-                                <div className="w-full h-4 border border-dashed border-slate-300 dark:border-slate-700 rounded opacity-40" />
-                               )}
+                              <div 
+                                className={`unit-cell w-full py-1.5 rounded-lg font-black text-center shadow-md uppercase tracking-tighter transition-all duration-300 flex items-center justify-center ${isTypeHovered ? 'ring-2 ring-blue-500 scale-110 z-10' : ''} ${isWireframe && type ? 'border-2 border-dashed' : colorInfo.className}`}
+                                style={{
+                                  ...colorInfo.style,
+                                  ...(isWireframe && type ? { 
+                                    backgroundColor: colorInfo.style?.backgroundColor ? `${colorInfo.style.backgroundColor}20` : 'rgba(148, 163, 184, 0.15)',
+                                    borderColor: colorInfo.style?.backgroundColor || '#94a3b8',
+                                    color: colorInfo.style?.backgroundColor || '#94a3b8',
+                                    boxShadow: 'none'
+                                  } : {}),
+                                  padding: dynamicFloorHeight ? `${Math.floor(layoutConfig.cellHeight * 0.15 * floorScale)}px 0` : `${Math.floor(layoutConfig.cellHeight * 0.15)}px 0`,
+                                  minHeight: dynamicFloorHeight ? `${Math.floor(layoutConfig.cellHeight * 0.6 * floorScale)}px` : `${Math.floor(layoutConfig.cellHeight * 0.6)}px`,
+                                  fontSize: dynamicFloorHeight ? `${Math.max(7, Math.floor(layoutConfig.fontSize * floorScale))}px` : `${layoutConfig.fontSize}px`
+                                }}
+                              >
+                                {type}
+                              </div>
                             </button>
                           );
                         })}
+                      </motion.div>
+                      
+                      <div className="w-[60px] no-print border-l border-b border-slate-200/50 dark:border-slate-800/50 bg-slate-50/10 dark:bg-slate-900/10 flex items-center justify-center gap-0.5 px-0.5 py-1">
+                        {visibleProcesses.map((p) => {
+                          const mode = data.settings.processModes?.[p] || data.settings.progressMode || 'floor';
+                          const curVal = b.processes[p] || 0;
+                          let isReached = false;
+                          if (mode === 'floor') {
+                            isReached = fNum <= curVal;
+                          } else {
+                            const total = maxFloorNum || 1;
+                            isReached = fNum <= (curVal / 100) * total;
+                          }
+                          return (
+                            <div 
+                              key={p} 
+                              className={`flex-1 h-full rounded-[1px] transition-all duration-300 ${isReached ? 'bg-blue-500/60 shadow-[0_0_4px_rgba(59,130,246,0.2)]' : 'bg-slate-200/10'}`}
+                              title={`${p}: ${curVal}${mode === 'floor' ? 'F' : '%'}`}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Basement Floors */}
+              {basementFloors.length >= 0 && (
+                <div className="bg-slate-100/50 dark:bg-slate-950/50 border-t-2 border-slate-200 dark:border-slate-800 relative z-10">
+                   {/* Basement Adjustment Handle */}
+                   <div className="flex no-print">
+                     <div className="flex-1 flex items-center justify-center gap-4 py-2 border-b border-slate-200/50 dark:border-slate-800/50">
+                      <button 
+                        onClick={() => {
+                          const current = b.minFloor || data.settings.minFloor;
+                          const newValue = current - 1;
+                          onUpdateBuilding(b.id, { 
+                            minFloor: newValue,
+                            lastLog: {
+                              type: 'floor_change',
+                              description: `지하층수 증설: B${Math.abs(current)} -> B${Math.abs(newValue)}`,
+                              timestamp: new Date().toISOString()
+                            }
+                          });
+                        }}
+                        className="p-1 rounded-md hover:bg-blue-500/10 text-slate-400 hover:text-blue-500 transition-colors"
+                      >
+                        <Plus className="w-3 h-3" />
+                      </button>
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">Basement Control</span>
+                      <button 
+                        onClick={() => {
+                          const current = b.minFloor || data.settings.minFloor;
+                          const newValue = Math.min(0, current + 1);
+                          onUpdateBuilding(b.id, { 
+                            minFloor: newValue,
+                            lastLog: {
+                              type: 'floor_change',
+                              description: `지하층수 감축: B${Math.abs(current)} -> B${Math.abs(newValue)}`,
+                                timestamp: new Date().toISOString()
+                            }
+                          });
+                        }}
+                        className="p-1 rounded-md hover:bg-red-500/10 text-slate-400 hover:text-red-500 transition-colors"
+                      >
+                        <Minus className="w-3 h-3" />
+                      </button>
+                    </div>
+                    <div className="w-[60px] border-l border-b border-slate-200/50 dark:border-slate-800/50 bg-slate-50/10 dark:bg-slate-900/10" />
+                  </div>
+
+                  {basementFloors.map(fNum => {
+                    const isHovered = hoveredFloor === fNum;
+                    const isPersistentGuide = guideConfig.enabled && guideConfig.targets.includes(fNum);
+                    const showGuide = isHovered || isPersistentGuide;
+                    
+                    const totalBuildingFloors = mainFloors.length + basementFloors.length;
+                    const floorScale = dynamicFloorHeight ? Math.max(0.6, Math.min(1, 22 / totalBuildingFloors)) : 1;
+
+                    return (
+                      <div key={fNum} className="flex">
+                        <div 
+                           onMouseEnter={() => setHoveredFloor(fNum)}
+                           onMouseLeave={() => setHoveredFloor(null)}
+                           className={`grid flex-1 border-b border-slate-200/50 dark:border-slate-800/50 last:border-b-0 relative transition-colors ${showGuide ? (isDarkTheme ? 'bg-blue-900/20' : 'bg-blue-50') : ''}`} 
+                           style={{ 
+                             gridTemplateColumns: `50px repeat(${lines}, 1fr)`,
+                             minHeight: dynamicFloorHeight ? `${Math.floor(layoutConfig.cellHeight * 0.8 * floorScale)}px` : `${Math.floor(layoutConfig.cellHeight * 0.8)}px`
+                           }}
+                         >
+                            {showGuide && (
+                               <motion.div 
+                                 layoutId={isPersistentGuide ? undefined : "guide-line"}
+                                 className={`absolute inset-0 border-y ${isPersistentGuide ? 'border-blue-500/10' : 'border-blue-500/20'} pointer-events-none`}
+                                 initial={{ opacity: 0 }}
+                                 animate={{ opacity: 1 }}
+                               />
+                             )}
+                            <div className={`p-2 font-black text-center border-r-2 border-slate-200 dark:border-slate-800 transition-colors ${showGuide ? 'text-blue-500 bg-blue-100/20 shadow-inner' : 'text-slate-400'} flex items-center justify-center`} style={{ padding: dynamicFloorHeight ? `${Math.floor(layoutConfig.cellHeight * 0.15 * floorScale)}px 0` : `${Math.floor(layoutConfig.cellHeight * 0.15)}px 0`, fontSize: `${Math.max(7, layoutConfig.fontSize - 1)}px` }}>
+                              B{Math.abs(fNum)}
+                            </div>
+                          {Array.from({ length: lines }).map((_, i) => {
+                            const type = getUnitType(b, fNum, i + 1);
+                            const colorInfo = getTypeColorInfo(type);
+                            const activeFilter = selectedUnitType || hoveredUnitType;
+                            const isTypeHovered = activeFilter !== null && type === activeFilter;
+                            const isOtherTypeHovered = activeFilter !== null && type !== activeFilter;
+                            return (
+                              <button 
+                                key={i} 
+                                onClick={() => cycleUnitType(b, fNum, i + 1)}
+                                className={`p-1 border-r border-slate-200/50 dark:border-slate-800/50 last:border-r-0 hover:bg-white/5 transition-all group/unit min-h-[20px] flex items-center justify-center cursor-pointer px-1 ${isOtherTypeHovered ? 'opacity-20 grayscale' : 'opacity-100'}`}
+                                style={{ padding: dynamicFloorHeight ? `${Math.floor(layoutConfig.cellHeight * 0.1 * floorScale)}px 4px` : `${Math.floor(layoutConfig.cellHeight * 0.1)}px 4px` }}
+                                title="클릭하여 타입 변경"
+                              >
+                                 {type ? (
+                                  <div 
+                                    className={`unit-cell w-full py-1 rounded text-[7px] font-black text-center uppercase tracking-tighter shadow-sm transition-all duration-300 ${isTypeHovered ? 'scale-125 shadow-lg ring-1 ring-white/30 z-10 opacity-100' : 'opacity-80'}`}
+                                    style={{
+                                      ...colorInfo.style,
+                                      fontSize: dynamicFloorHeight ? `${Math.max(6, Math.floor((layoutConfig.fontSize - 2) * floorScale))}px` : `${layoutConfig.fontSize - 2}px`
+                                    }}
+                                  >
+                                     {type}
+                                  </div>
+                                 ) : (
+                                  <div className="w-full h-4 border border-dashed border-slate-300 dark:border-slate-700 rounded opacity-40" />
+                                 )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div className="w-[60px] no-print border-l border-b border-slate-200/50 dark:border-slate-800/50 bg-slate-50/10 dark:bg-slate-900/10 flex items-center justify-center gap-0.5 px-0.5 py-1">
+                          {visibleProcesses.map((p) => {
+                            const mode = data.settings.processModes?.[p] || data.settings.progressMode || 'floor';
+                            const curVal = b.processes[p] || 0;
+                            let isReached = false;
+                            if (mode === 'floor') {
+                              isReached = fNum <= curVal;
+                            } else {
+                              const total = maxFloorNum || 1;
+                              isReached = fNum <= (curVal / 100) * total;
+                            }
+                            return (
+                              <div 
+                                key={p} 
+                                className={`flex-1 h-full rounded-[1px] transition-all duration-300 ${isReached ? 'bg-blue-500/60 shadow-[0_0_4px_rgba(59,130,246,0.2)]' : 'bg-slate-200/10'}`}
+                                title={`${p}: ${curVal}${mode === 'floor' ? 'F' : '%'}`}
+                              />
+                            );
+                          })}
+                        </div>
                       </div>
                     );
                   })}
@@ -1442,25 +1519,21 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="border-b border-slate-200 dark:border-slate-800">
-                        <th className="pb-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Type Name</th>
-                        <th className="pb-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Color Class (Tailwind)</th>
-                        <th className="pb-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Preview</th>
+                        <th className="pb-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">세대 타입 (Type)</th>
+                        <th className="pb-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">색상 코드 / 선택 (Color)</th>
+                        <th className="pb-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">색상 프리셋 (Presets)</th>
+                        <th className="pb-3 text-[10px] font-black text-slate-500 uppercase tracking-widest text-center">미리보기 (Preview)</th>
                         <th className="pb-3 text-right"></th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                       {unitTypeConfigs.map((ut, idx) => {
                         const colorInfo = getTypeColorInfo(ut.type);
+                        const isTailwind = ut.color.startsWith('bg-');
+                        const hexVal = isTailwind ? (colorInfo.style?.backgroundColor || '#3b82f6') : ut.color;
                         return (
                           <tr key={idx} className="group">
-                          <td className="py-3">
-                            <div className="flex items-center gap-3">
-                              <div 
-                                className={`w-10 h-10 rounded-xl shadow-lg border-2 border-white/20 flex items-center justify-center transition-all ${colorInfo.className}`}
-                                style={colorInfo.style}
-                              >
-                                 <span className="text-[10px] font-black">{ut.type}</span>
-                              </div>
+                            <td className="py-4">
                               <input 
                                 type="text"
                                 value={ut.type}
@@ -1469,37 +1542,104 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
                                   newConfigs[idx] = { ...ut, type: e.target.value };
                                   onUpdateUnitTypeConfigs?.(newConfigs);
                                 }}
-                                placeholder="e.g. 84A"
-                                className="bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-1.5 outline-none font-black text-blue-500 focus:ring-2 focus:ring-blue-500/20 w-32"
+                                placeholder="예: 84A"
+                                className="bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-1.5 outline-none font-black text-blue-500 focus:ring-2 focus:ring-blue-500/20 w-24 text-sm"
                               />
-                            </div>
-                          </td>
-                          <td className="py-3">
-                            <input 
-                              type="text"
-                              value={ut.color}
-                              onChange={(e) => {
-                                const newConfigs = [...unitTypeConfigs];
-                                newConfigs[idx] = { ...ut, color: e.target.value };
-                                onUpdateUnitTypeConfigs?.(newConfigs);
-                              }}
-                              placeholder="bg-blue-500 or #HEX"
-                              className="bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-1.5 outline-none font-bold text-slate-400 focus:ring-2 focus:ring-blue-500/20 w-full text-xs"
-                            />
-                          </td>
-                          <td className="py-3 text-right">
-                            <button 
-                              onClick={() => {
-                                if (!window.confirm(`'${ut.type}' 타입을 삭제하시겠습니까?`)) return;
-                                const newConfigs = unitTypeConfigs.filter((_, i) => i !== idx);
-                                onUpdateUnitTypeConfigs?.(newConfigs);
-                              }}
-                              className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </td>
-                        </tr>
+                            </td>
+                            <td className="py-4">
+                              <div className="flex items-center gap-2">
+                                <div 
+                                  className="relative w-8 h-8 rounded-xl cursor-pointer overflow-hidden border border-slate-300 dark:border-slate-700 shadow-md transition-transform hover:scale-105 active:scale-95 flex items-center justify-center shrink-0" 
+                                  style={{ backgroundColor: hexVal }}
+                                  title="색상 선택기 열기"
+                                >
+                                  <input 
+                                    type="color" 
+                                    value={hexVal.startsWith('#') && hexVal.length === 7 ? hexVal : '#3b82f6'}
+                                    onChange={(e) => {
+                                      const newConfigs = [...unitTypeConfigs];
+                                      newConfigs[idx] = { ...ut, color: e.target.value };
+                                      onUpdateUnitTypeConfigs?.(newConfigs);
+                                    }}
+                                    className="absolute inset-0 opacity-0 cursor-pointer w-full h-full scale-150"
+                                  />
+                                </div>
+                                <input 
+                                  type="text"
+                                  value={ut.color}
+                                  onChange={(e) => {
+                                    const newConfigs = [...unitTypeConfigs];
+                                    newConfigs[idx] = { ...ut, color: e.target.value };
+                                    onUpdateUnitTypeConfigs?.(newConfigs);
+                                  }}
+                                  placeholder="bg-blue-500 또는 #HEX"
+                                  className="bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-2.5 py-1.5 outline-none font-bold text-slate-700 dark:text-slate-300 focus:ring-2 focus:ring-blue-500/20 w-28 text-xs"
+                                />
+                              </div>
+                            </td>
+                            <td className="py-4">
+                              <div className="flex flex-wrap gap-1 max-w-[150px]">
+                                {[
+                                  { bg: '#3b82f6', tw: 'bg-blue-500', name: '블루' },
+                                  { bg: '#10b981', tw: 'bg-emerald-500', name: '에머럴드' },
+                                  { bg: '#f59e0b', tw: 'bg-amber-500', name: '앰バー' },
+                                  { bg: '#ef4444', tw: 'bg-rose-500', name: '레드' },
+                                  { bg: '#06b6d4', tw: 'bg-cyan-500', name: '시안' },
+                                  { bg: '#6366f1', tw: 'bg-indigo-500', name: '인디고' },
+                                  { bg: '#a855f7', tw: 'bg-purple-500', name: '퍼플' },
+                                  { bg: '#ec4899', tw: 'bg-pink-500', name: '핑크' }
+                                ].map((p) => (
+                                  <button
+                                    key={p.tw}
+                                    type="button"
+                                    onClick={() => {
+                                      const newConfigs = [...unitTypeConfigs];
+                                      newConfigs[idx] = { ...ut, color: p.tw };
+                                      onUpdateUnitTypeConfigs?.(newConfigs);
+                                    }}
+                                    className={`w-5 h-5 rounded-md border shadow-sm hover:scale-115 active:scale-95 transition-transform ${ut.color === p.tw ? 'ring-2 ring-blue-500 scale-110 border-blue-500' : 'border-slate-200 dark:border-slate-800'}`}
+                                    style={{ backgroundColor: p.bg }}
+                                    title={`${p.name} (${p.tw})`}
+                                  />
+                                ))}
+                              </div>
+                            </td>
+                            <td className="py-4 text-center">
+                              <div className="flex flex-col items-center justify-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const newConfigs = [...unitTypeConfigs];
+                                    const isDarkText = ut.textColor === 'text-slate-900';
+                                    newConfigs[idx] = { 
+                                      ...ut, 
+                                      textColor: isDarkText ? 'text-white' : 'text-slate-900' 
+                                    };
+                                    onUpdateUnitTypeConfigs?.(newConfigs);
+                                  }}
+                                  className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-tighter shadow-md text-center transition-all ${colorInfo.className} hover:scale-105 active:scale-95`}
+                                  style={colorInfo.style}
+                                  title="클릭하여 글자색 변경 (흰색 / 검은색)"
+                                >
+                                  {ut.type || 'N/A'}
+                                </button>
+                                <span className="text-[8px] font-bold text-slate-400 select-none">글자색 클릭 전환</span>
+                              </div>
+                            </td>
+                            <td className="py-4 text-right">
+                              <button 
+                                type="button"
+                                onClick={() => {
+                                  if (!window.confirm(`'${ut.type}' 타입을 삭제하시겠습니까?`)) return;
+                                  const newConfigs = unitTypeConfigs.filter((_, i) => i !== idx);
+                                  onUpdateUnitTypeConfigs?.(newConfigs);
+                                }}
+                                className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
                         );
                       })}
                     </tbody>

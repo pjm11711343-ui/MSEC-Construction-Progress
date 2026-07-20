@@ -386,8 +386,7 @@ export default function GanttView({
                 return (
                   <div key={p} className="flex group hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
                     <div 
-                        className="w-64 flex-shrink-0 p-4 border-r border-slate-100 dark:border-slate-800 flex items-center justify-between cursor-pointer"
-                        onClick={() => handleEdit(p)}
+                        className="w-64 flex-shrink-0 p-4 border-r border-slate-100 dark:border-slate-800 flex items-center justify-between"
                     >
                       <div className="flex flex-col min-w-0">
                         <span className="text-[11px] font-black tracking-tight truncate">{p}</span>
@@ -406,7 +405,16 @@ export default function GanttView({
                            )}
                         </div>
                       </div>
-                      {role !== 'GUEST' && <Settings2 className="w-3 h-3 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />}
+                      {role !== 'GUEST' && (
+                        <button
+                          type="button"
+                          onClick={() => handleEdit(p)}
+                          className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-300 hover:text-slate-500 dark:hover:text-slate-200 transition-all cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity"
+                          title="공정 일정 편집"
+                        >
+                          <Settings2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                       <div className="flex-1 relative h-16 p-4">
                         {/* Column lines */}

@@ -71,6 +71,7 @@ import LocationPicker from './components/LocationPicker';
 import StackedProgressBarChart from './components/StackedProgressBarChart';
 import { QuickEditKeypad } from './components/QuickEditKeypad';
 import { DashboardWidgets } from './components/DashboardWidgets';
+import { DailySiteJournal } from './components/DailySiteJournal';
 import ReactMarkdown from 'react-markdown';
 import ReportPrintView from './components/ReportPrintView';
 import AIPredictionView from './components/AIPredictionView';
@@ -149,7 +150,9 @@ const createNewSite = (name: string): AppState => ({
   history: [],
   dailyReports: [],
   processSchedules: DEFAULT_PROCESSES.reduce((acc, p, i) => ({ ...acc, [p]: { startOffset: i * 7, duration: 30 } }), {}),
-  milestones: []
+  milestones: [],
+  dailyJournals: {},
+  processMemos: {}
 });
 
 const migrateSite = (site: any) => {
@@ -185,6 +188,8 @@ const migrateSite = (site: any) => {
     processSchedules: newProcessSchedules,
     milestones: site.milestones || [],
     dailyReports: site.dailyReports || [],
+    dailyJournals: site.dailyJournals || {},
+    processMemos: site.processMemos || {},
     history: site.history || [],
     settings: {
       ...site.settings,
@@ -652,7 +657,8 @@ export default function App() {
       settings: storageState.settings,
       buildings: storageState.buildings,
       facilities: storageState.facilities,
-      approval: storageState.approval
+      approval: storageState.approval,
+      processMemos: storageState.processMemos
     });
 
     if (contentToCompare === lastSavedContent.current) return;
@@ -1994,6 +2000,27 @@ export default function App() {
       ...prev,
       dailyReports: (prev.dailyReports || []).filter(r => r.date !== date)
     }));
+  };
+
+  const handleSaveDailyJournal = (date: string, entry: { notes: string; issues?: string; milestones?: string }) => {
+    setData(prev => ({
+      ...prev,
+      dailyJournals: {
+        ...(prev.dailyJournals || {}),
+        [date]: entry
+      }
+    }));
+  };
+
+  const handleClearDailyJournal = (date: string) => {
+    setData(prev => {
+      const nextJournals = { ...(prev.dailyJournals || {}) };
+      delete nextJournals[date];
+      return {
+        ...prev,
+        dailyJournals: nextJournals
+      };
+    });
   };
 
   const handleUpdateBuildingCount = (count: number) => {
@@ -4172,6 +4199,52 @@ export default function App() {
                   <th className={`text-center font-black px-2 py-1 w-24 text-[10px] uppercase tracking-tighter ${data.settings.theme === 'industrial' ? 'bg-emerald-800' : 'bg-blue-800'}`} style={data.settings.headerColor ? { backgroundColor: data.settings.headerColor, filter: 'brightness(90%)' } : {}}>평균</th>
                   {role !== 'GUEST' && <th className="border-l border-white/10 w-16 text-center font-black px-1 py-1 text-[10px] uppercase tracking-tighter no-print" style={data.settings.headerColor ? { backgroundColor: data.settings.headerColor } : {}}>삭제</th>}
                 </tr>
+                {/* Process Memos Row */}
+                <tr className={`${isDarkTheme ? 'bg-[#15181d] text-slate-200 border-b border-slate-800' : 'bg-slate-50 text-slate-700 border-b border-slate-200'}`}>
+                  <td className={`sticky left-0 z-10 border-r-2 ${isDarkTheme ? 'bg-[#15181d] border-slate-800' : 'bg-slate-100 border-slate-200'} text-center no-print`} style={{ padding: '4px' }}></td>
+                  <td className={`sticky left-8 z-10 border-r-2 ${isDarkTheme ? 'bg-[#15181d] border-slate-800' : 'bg-slate-100 border-slate-200'} text-center`} style={{ padding: '4px' }}></td>
+                  <td className={`sticky left-16 z-10 border-r-2 ${isDarkTheme ? 'bg-[#15181d] border-slate-800 text-white' : 'bg-slate-100 border-slate-200 text-slate-900'} text-center font-black text-[10px] uppercase tracking-tighter`} style={{ padding: '4px' }}>
+                    공정메모
+                  </td>
+                  {sortedDisplayProcesses.map((p) => {
+                    const memoValue = (data.processMemos && data.processMemos[p]) || '';
+                    return (
+                      <td 
+                        key={`memo-${p}`} 
+                        className={`border-r ${isDarkTheme ? 'border-slate-800' : 'border-slate-200'} p-1 min-w-[120px] text-center`}
+                      >
+                        <textarea
+                          value={memoValue}
+                          disabled={role === 'GUEST'}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setData(prev => ({
+                              ...prev,
+                              processMemos: {
+                                ...(prev.processMemos || {}),
+                                [p]: val
+                              }
+                            }));
+                          }}
+                          placeholder={role === 'GUEST' ? '' : "메모 입력..."}
+                          rows={1}
+                          className={`w-full text-[9px] p-1 border rounded resize-none focus:ring-1 leading-tight text-center transition-all ${
+                            isDarkTheme 
+                              ? 'bg-slate-900/60 border-slate-700 text-white placeholder-slate-600 focus:ring-emerald-500 focus:border-emerald-500' 
+                              : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400 focus:ring-blue-500 focus:border-blue-500'
+                          } print:border-none print:bg-transparent print:p-0 print:text-xs print:font-bold`}
+                        />
+                      </td>
+                    );
+                  })}
+                  {role !== 'GUEST' && (
+                    <td className="border-r border-slate-200 dark:border-slate-800 bg-transparent no-print"></td>
+                  )}
+                  <td className={`border-r border-slate-200 dark:border-slate-800 ${isDarkTheme ? 'bg-[#15181d]' : 'bg-slate-100'}`}></td>
+                  {role !== 'GUEST' && (
+                    <td className="bg-transparent no-print"></td>
+                  )}
+                </tr>
               </thead>
               <tbody 
                 className={`divide-y-2 ${data.settings.theme === 'industrial' ? 'divide-slate-800' : 'divide-slate-200'}`}
@@ -4289,21 +4362,7 @@ export default function App() {
                         return (
                           <td 
                             key={p} 
-                            className={`border-r-2 ${isIndustrial ? 'border-slate-800' : 'border-slate-200'} p-0 relative transition-all cursor-pointer hover:bg-slate-500/5 dark:hover:bg-slate-300/5`}
-                            onClick={(e) => {
-                              if (role === 'GUEST') return;
-                              const target = e.target as HTMLElement;
-                              if (target.closest('select') || target.closest('button') || target.closest('input') || target.closest('svg') || target.tagName === 'OPTION') {
-                                return;
-                              }
-                              setQuickEditCell({
-                                building: b,
-                                processName: p,
-                                currentValue: bProcesses[p] ?? 0,
-                                isPercentMode: getProcessMode(p) === 'percent',
-                                floors
-                              });
-                            }}
+                            className={`border-r-2 ${isIndustrial ? 'border-slate-800' : 'border-slate-200'} p-0 relative transition-all`}
                           >
                             <div 
                               className={`space-y-1`}
@@ -5060,6 +5119,17 @@ export default function App() {
                 </div>
               </div>
               <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500 opacity-[0.02] rounded-full -translate-y-1/2 translate-x-1/2" />
+            </div>
+
+            {/* Daily Site Journal Section */}
+            <div className="no-print">
+              <DailySiteJournal
+                theme={data.settings.theme}
+                activeTheme={activeTheme}
+                dailyJournals={data.dailyJournals}
+                onSaveJournal={handleSaveDailyJournal}
+                onClearJournal={handleClearDailyJournal}
+              />
             </div>
 
             <div className="mb-6 flex items-center gap-4">

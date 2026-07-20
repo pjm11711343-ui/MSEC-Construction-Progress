@@ -136,6 +136,8 @@ export interface AppState {
   aiDiagnosis?: string;
   aiRisks?: string[];
   aiActions?: string[];
+  dailyJournals?: Record<string, { notes: string; issues?: string; milestones?: string }>;
+  processMemos?: Record<string, string>;
 }
 
 export interface MultiProjectData {
