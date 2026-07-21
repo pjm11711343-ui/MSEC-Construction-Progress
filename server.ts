@@ -2,7 +2,7 @@ import express from "express";
 import path from "path";
 
 // import { createServer as createViteServer } from "vite"; // Removed from top level
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
 import cors from "cors";
 import fs from "fs";
@@ -668,6 +668,30 @@ app.post(["/api/diagnosis", "/api/ai-diagnosis"], async (req, res) => {
             contents: [{ role: "user", parts: [{ text: prompt }] }],
             config: {
               responseMimeType: "application/json",
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  diagnosis: {
+                    type: Type.STRING,
+                    description: "전체 진단 내용 (마크다운 형식, 기상 분석 섹션 포함 필수)",
+                  },
+                  risks: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.STRING,
+                    },
+                    description: "기상 관련 위험 포함 핵심 요소 목록",
+                  },
+                  actions: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.STRING,
+                    },
+                    description: "날씨 대응 포함 권장 조치 목록",
+                  }
+                },
+                required: ["diagnosis", "risks", "actions"]
+              }
             }
           });
           lastError = null;
@@ -776,15 +800,93 @@ app.post("/api/predict-schedule", async (req, res) => {
       }
     `;
 
-    const response = await genAI.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      config: {
-        responseMimeType: "application/json",
+    const modelsToTry = ["gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-3.1-pro-preview", "gemini-flash-latest"];
+    console.log(`Starting prediction request sequence with ${modelsToTry.length} models...`);
+    
+    let response;
+    let lastError;
+    
+    for (const genModel of modelsToTry) {
+      const maxRetries = 2;
+      for (let i = 0; i <= maxRetries; i++) {
+        try {
+          console.log(`Attempting prediction with ${genModel} (try ${i+1})...`);
+          response = await genAI.models.generateContent({
+            model: genModel,
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+            config: {
+              responseMimeType: "application/json",
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  predictedCompletionDate: {
+                    type: Type.STRING,
+                    description: "예측 준공일 (YYYY-MM-DD)",
+                  },
+                  delayDays: {
+                    type: Type.INTEGER,
+                    description: "예정 준공일과의 편차 일수 (지연은 양수, 단축은 음수, 정상은 0)",
+                  },
+                  status: {
+                    type: Type.STRING,
+                    description: "공정 상태 (AHEAD, ON_TRACK, BEHIND 중 하나)",
+                  },
+                  analysis: {
+                    type: Type.STRING,
+                    description: "마크다운 형식의 심층 분석 내용 (현황 분석, 지연 원인 등)",
+                  },
+                  risks: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        process: { type: Type.STRING, description: "리스크 관련 공종명" },
+                        riskLevel: { type: Type.STRING, description: "리스크 등급 (CRITICAL, HIGH, MEDIUM 중 하나)" },
+                        impact: { type: Type.STRING, description: "공기에 미치는 영향도 설명" }
+                      },
+                      required: ["process", "riskLevel", "impact"]
+                    },
+                    description: "주요 위험 요인 목록"
+                  },
+                  recommendations: {
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING },
+                    description: "공기 단축 및 지연 만회를 위한 전략적 제언 목록"
+                  }
+                },
+                required: ["predictedCompletionDate", "delayDays", "status", "analysis", "risks", "recommendations"]
+              }
+            }
+          });
+          lastError = null;
+          break; // Success
+        } catch (error: any) {
+          lastError = error;
+          const isRetryable = error.message?.includes("503") || error.message?.includes("UNAVAILABLE") || error.message?.includes("demand");
+          if (isRetryable) {
+            if (i < maxRetries) {
+              const delay = (i + 1) * 4000 + Math.random() * 1000;
+              console.warn(`Prediction Gemini 503 error for ${genModel} (attempt ${i + 1}). Retrying in ${Math.round(delay/1000)}s...`);
+              await new Promise(resolve => setTimeout(resolve, delay));
+              continue;
+            } else {
+              console.warn(`Exhausted retries for ${genModel}. Falling back to next model if available.`);
+              await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+          } else {
+            console.warn(`Non-503 error with ${genModel}: ${error.message}. Trying next model...`);
+            break; // Proceed to next model
+          }
+        }
       }
-    });
+      if (response) break;
+    }
 
-    const resultText = response.text;
+    if (!response && lastError) {
+      throw lastError;
+    }
+
+    const resultText = response?.text;
     if (!resultText) throw new Error("Gemini API response is empty");
 
     res.json(JSON.parse(resultText));
@@ -861,6 +963,29 @@ app.post("/api/extract-progress", async (req, res) => {
             },
             config: {
               responseMimeType: "application/json",
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  buildings: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        name: {
+                          type: Type.STRING,
+                          description: "동 번호 또는 동 이름 (예: 101동)",
+                        },
+                        processes: {
+                          type: Type.OBJECT,
+                          description: "공종별 진행율 맵 (예: {'건축골조': 27, '스리브': 100}). 수치는 0에서 100 사이의 정수여야 함.",
+                        }
+                      },
+                      required: ["name", "processes"]
+                    }
+                  }
+                },
+                required: ["buildings"]
+              }
             }
           });
           lastError = null;

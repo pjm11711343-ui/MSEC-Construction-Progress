@@ -79,6 +79,7 @@ import BuildingDetailModal from './components/BuildingDetailModal';
 import GolgudoView from './components/GolgudoView';
 import { ProcessMemoCell } from './components/ProcessMemoCell';
 import { DashboardMaterialCalendar } from './components/DashboardMaterialCalendar';
+import { RadarChartCompare } from './components/RadarChartCompare';
 import { 
   Sparkles, 
   MessageSquare,
@@ -5002,6 +5003,15 @@ export default function App() {
                     <StackedProgressBarChart buildings={data.buildings} processes={processes} />
                   </div>
 
+                  {/* Interactive Radar Chart Comparison */}
+                  <div className="no-print">
+                    <RadarChartCompare 
+                      data={data}
+                      theme={data.settings.theme}
+                      activeTheme={activeTheme}
+                    />
+                  </div>
+
               {/* Dynamic Behind Schedule Alert */}
               {processes.some(p => getProcessDiagnosis(p).isBehind) && (
                 <motion.div 
@@ -6061,6 +6071,15 @@ export default function App() {
               theme={data.settings.theme}
               activeTheme={activeTheme}
               location={data.settings.location}
+              onUpdateLocation={(newLoc) => {
+                setData(prev => ({
+                  ...prev,
+                  settings: {
+                    ...prev.settings,
+                    location: newLoc
+                  }
+                }));
+              }}
             />
           </motion.div>
         )}
