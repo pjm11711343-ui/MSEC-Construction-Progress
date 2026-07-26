@@ -2715,286 +2715,96 @@ export default function App() {
             </motion.div>
           )}
         </AnimatePresence>
-        <div className="max-w-full mx-auto px-2 md:px-6 h-auto md:h-24 flex flex-col md:flex-row md:items-center justify-between gap-1.5 md:gap-6 py-2 md:py-0">
-          {/* Top Brand (logo + project name + calendar) AND mobile quick actions */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between w-full md:w-auto min-w-0 shrink-0 flex-1 gap-1 md:gap-6">
-            <div className="flex items-center justify-between w-full md:w-auto shrink-0 gap-2">
+        {/* Top Header Bar */}
+        <div className="max-w-[1640px] mx-auto px-3 md:px-6 py-2 md:py-3 space-y-2 md:space-y-3">
+          {/* Top Row: Brand, Site Name, Context, and Primary Actions */}
+          <div className="flex flex-wrap items-center justify-between gap-2 md:gap-4">
+            {/* Left: Project Brand & Info */}
+            <div className="flex flex-wrap items-center gap-2 md:gap-3 min-w-0 flex-1">
+              <div className={`${activeTheme.accent} p-2 md:p-2.5 rounded-xl md:rounded-2xl text-white shadow-md shadow-blue-500/20 shrink-0 ${isDarkTheme ? 'text-black' : ''}`}>
+                <Construction className="w-5 h-5 md:w-6 md:h-6" />
+              </div>
+
               <div className="flex items-center gap-2 min-w-0">
-                <div className={`${activeTheme.accent} p-1.5 md:p-3 rounded-xl md:rounded-2xl text-white shadow-lg md:shadow-xl shadow-blue-500/25 shrink-0 ${isDarkTheme ? 'text-black' : ''}`}>
-                  <Construction className="w-4 h-4 md:w-8 md:h-8" />
-                </div>
-                <div className="min-w-0">
-                  <h1 className={`font-black text-xs md:text-2xl leading-tight uppercase tracking-tighter truncate ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
-                    {data.settings.projectName}
-                  </h1>
-                </div>
+                <h1 className={`font-black text-base sm:text-lg md:text-2xl leading-tight uppercase tracking-tight ${isDarkTheme ? 'text-white' : 'text-slate-900'} truncate`}>
+                  {data.settings.projectName}
+                </h1>
+                {data.settings.companyName && (
+                  <span className="hidden sm:inline-block text-[10px] md:text-xs font-bold px-2.5 py-1 bg-slate-100 dark:bg-slate-800/80 rounded-lg text-slate-500 dark:text-slate-400 border border-slate-200/60 dark:border-slate-700/60 shrink-0 whitespace-nowrap">
+                    {data.settings.companyName}
+                  </span>
+                )}
               </div>
 
-              {/* Mobile Actions: Save, Print, Logout */}
-              <div className="flex items-center gap-1 md:hidden shrink-0">
-                <div className="flex items-center text-[8px] font-bold text-slate-400">
-                  {isAutoSaving ? (
-                    <span className="flex items-center gap-0.5"><div className="w-1 h-1 bg-green-500 rounded-full animate-pulse" /> 저장중</span>
-                  ) : (
-                    <span>저장됨</span>
-                  )}
-                </div>
-                <button 
-                  type="button"
-                  onClick={saveData} 
-                  className={`p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-600 dark:text-slate-300 transition-colors ${isDarkTheme ? 'hover:bg-slate-800' : ''}`} 
-                  title="저장"
-                >
-                  <Save className="w-4 h-4" />
-                </button>
-                <button 
-                  type="button"
-                  onClick={() => window.print()} 
-                  className={`p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-600 dark:text-slate-300 transition-colors ${isDarkTheme ? 'hover:bg-slate-800' : ''}`} 
-                  title="인쇄"
-                >
-                  <Printer className="w-4 h-4" />
-                </button>
-                <button 
-                  type="button"
-                  onClick={() => { setRole(null); setSiteAuthenticatedId(null); }} 
-                  className="p-1.5 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg text-red-500 transition-colors" 
-                  title="로그아웃"
-                >
-                  <LogOut className="w-4 h-4" />
-                </button>
+              {/* Date Picker & Clock */}
+              <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800/80 px-2.5 py-1 rounded-xl border border-slate-200/80 dark:border-slate-700/80 shrink-0">
+                <Calendar className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                <input 
+                  type="date" 
+                  value={viewDate}
+                  onChange={(e) => setViewDate(e.target.value)}
+                  className={`bg-transparent border-none p-0 text-xs font-bold focus:ring-0 cursor-pointer w-24 md:w-28 ${isDarkTheme ? 'text-slate-200' : 'text-slate-700'}`}
+                />
+                <div className="h-3 w-[1px] bg-slate-300 dark:bg-slate-600 mx-0.5" />
+                <Clock className="w-3 h-3 text-slate-400 shrink-0" />
+                <span className="text-[10px] md:text-xs font-bold text-slate-500 dark:text-slate-400 font-mono tracking-tight">
+                  {currentTime.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                </span>
               </div>
-            </div>
 
-            {/* Sub-info: Company Name, Calendar, Site Selection */}
-            <div className="flex items-center gap-1.5 overflow-hidden md:mt-0">
-              <span className="text-slate-400 text-[9px] md:text-base font-black uppercase tracking-widest whitespace-nowrap border-r border-slate-200 dark:border-slate-700 pr-1.5 md:pr-4">{data.settings.companyName}</span>
-              <div className="flex flex-col md:items-end">
-                <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 md:px-2 md:py-1 rounded-md md:rounded-lg border border-slate-200 dark:border-slate-700 shrink-0 hover:border-blue-400 hover:bg-white dark:hover:bg-slate-900 transition-colors">
-                  <Calendar className="w-3 h-3 md:w-3.5 md:h-3.5 text-blue-500" />
-                  <input 
-                    type="date" 
-                    value={viewDate}
-                    onChange={(e) => setViewDate(e.target.value)}
-                    className={`bg-transparent border-none p-0 text-[9px] md:text-sm font-black focus:ring-0 cursor-pointer w-18 md:w-32 ${isDarkTheme ? 'text-slate-300' : 'text-slate-600'}`}
-                  />
-                </div>
-                <div className="flex items-center justify-end gap-1 px-1 mt-0.5">
-                   <Clock className="w-2.5 h-2.5 text-slate-400" />
-                   <span className="text-[9px] md:text-[10px] font-black text-slate-500 font-mono tracking-tighter">
-                     {currentTime.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                   </span>
-                </div>
-              </div>
-              {/* Site Selection Button (Header Version) */}
               {!isLockedToSite && (
                 <button 
                   onClick={() => setSiteAuthenticatedId(null)}
-                  className="hidden lg:flex items-center gap-2 px-4 py-1.5 bg-blue-600 text-white rounded-xl text-xs font-black hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20 uppercase tracking-tighter"
+                  className="hidden lg:flex items-center gap-1.5 px-3 py-1 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-all shadow-md shadow-blue-600/20"
                 >
-                  <LayoutGrid className="w-4 h-4" />
-                  현장 선택
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  현장 목록
                 </button>
               )}
             </div>
-          </div>
 
-          {/* Mobile middle row: Site Selector + Admin/Role/Sync control bar */}
-          <div className="flex md:hidden items-center justify-between gap-2 w-full border-t border-slate-200/40 dark:border-slate-800/40 pt-2 shrink-0">
-            <div className={`flex items-center gap-0.5 ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-100'} rounded-lg p-0.5 border ${activeTheme.border} flex-1 min-w-0 overflow-hidden`}>
-              <div className="flex items-center px-1 py-0.5 gap-1 border-r border-slate-300 dark:border-slate-700 min-w-0 flex-1">
-                <Building2 className={`w-2.5 h-2.5 ${activeTheme.text} shrink-0`} />
+            {/* Right: Site Switcher, Admin Tools, Mode Switches & Action Icons */}
+            <div className="flex items-center gap-1.5 md:gap-2 shrink-0 ml-auto flex-wrap">
+              {/* Site Selector Dropdown */}
+              <div className={`flex items-center gap-1 ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-100'} rounded-xl p-1 border ${activeTheme.border} max-w-[200px] md:max-w-[240px]`}>
+                <Building2 className={`w-3.5 h-3.5 ${activeTheme.text} shrink-0 ml-1`} />
                 {isLockedToSite && role !== 'ADMIN' ? (
-                  <div className={`text-[8px] font-black ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'} px-0.5 truncate`}>
+                  <div className={`text-xs font-bold ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'} px-1 truncate`}>
                     {data.settings.projectName}
                   </div>
                 ) : (
                   <select 
                     value={data.id} 
                     onChange={(e) => switchSite(e.target.value)}
-                    className={`bg-transparent text-[8px] font-black border-none focus:ring-0 cursor-pointer appearance-none ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'} px-0.5 truncate w-full`}
+                    className={`bg-transparent text-xs font-bold border-none focus:ring-0 cursor-pointer appearance-none ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'} px-1 truncate w-full`}
                   >
                     {multiData.sites.map((s, index) => (
-                      <option key={`${s.id || s.settings.projectName || 's'}-${index}`} value={s.id} className={data.settings.theme === 'industrial' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
+                      <option key={`${s.id || s.settings.projectName || 's'}-${index}`} value={s.id} className={data.settings.theme === 'industrial' ? 'bg-slate-900 text-white' : 'bg-white text-slate-950'}>
                         {s.settings.projectName}
                       </option>
                     ))}
                   </select>
                 )}
-              </div>
-              <div className="flex items-center gap-0.5 px-0.5 shrink-0">
-                {role === 'FIELD' && !isLockedToSite && (
-                  <button 
-                    type="button"
-                    onClick={() => setSiteAuthenticatedId(null)}
-                    className={`p-1 hover:bg-white dark:hover:bg-slate-700 rounded-md transition-all group`}
-                    title="현장 목록으로 돌아가기"
-                  >
-                    <LayoutGrid className={`w-2.5 h-2.5 ${activeTheme.text}`} />
-                  </button>
-                )}
-                <button 
-                  type="button"
-                  onClick={copySiteLink}
-                  className={`p-1 hover:bg-white dark:hover:bg-slate-700 rounded-md transition-all group relative`}
-                  title="현장 링크 복사"
-                >
-                  {isCopied ? <CheckCircle2 className="w-2.5 h-2.5 text-green-500" /> : <LinkIcon className={`w-2.5 h-2.5 ${activeTheme.text}`} />}
-                </button>
-                {role === 'ADMIN' && (
-                  <button 
-                    type="button"
-                    onClick={() => setIsAddingSite(true)}
-                    className={`p-1 hover:bg-white dark:hover:bg-slate-700 rounded-md transition-all group`}
-                    title="신규 현장 추가"
-                  >
-                    <Plus className={`w-3 h-3 ${activeTheme.text}`} />
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div className="flex items-center gap-1 shrink-0 text-[8px] no-print">
-              {role === 'ADMIN' && (
-                <button 
-                  type="button"
-                  onClick={() => setIsEditMode(!isEditMode)}
-                  className={`flex items-center gap-0.5 font-bold px-2 py-0.5 rounded-full transition-all ${isEditMode ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-705'}`}
-                >
-                  <SettingsIcon className={`w-2 h-2 ${isEditMode ? 'animate-spin-slow' : ''}`} />
-                  {isEditMode ? '수정중' : '수정'}
-                </button>
-              )}
-              {!isLockedToSite && (
-                <button 
-                  type="button"
-                  onClick={() => {
-                    const nextRole = role === 'ADMIN' ? 'FIELD' : 'ADMIN';
-                    setRole(nextRole);
-                    if (nextRole === 'FIELD') setSiteAuthenticatedId(null);
-                  }}
-                  className={`flex items-center gap-0.5 font-bold px-2 py-0.5 rounded-full transition-all ${role === 'ADMIN' ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'}`}
-                >
-                  {role === 'ADMIN' ? <ShieldCheck className="w-2.5 h-2.5" /> : <User className="w-2.5 h-2.5" />}
-                  {role === 'ADMIN' ? '현장' : '관리자'}
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Mobile Swipeable Navigation Menu Tabs Row */}
-          <div className="w-full md:hidden overflow-x-auto scrollbar-none shrink-0 border-t border-slate-200/40 dark:border-slate-800/40 pt-2 no-print">
-            <div className={`flex ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-100'} rounded-lg p-0.5 min-w-max gap-0.5`}>
-              <button 
-                type="button"
-                onClick={() => setViewMode('table')}
-                className={`px-3 py-1.5 rounded-md text-[9px] font-black transition-all ${viewMode === 'table' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
-              >
-                공정표
-              </button>
-              <button 
-                type="button"
-                onClick={() => setViewMode('grid')}
-                className={`px-3 py-1.5 rounded-md text-[9px] font-black transition-all ${viewMode === 'grid' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
-              >
-                대시보드
-              </button>
-              <button 
-                type="button"
-                onClick={() => setViewMode('golgudo')}
-                className={`px-3 py-1.5 rounded-md text-[9px] font-black transition-all ${viewMode === 'golgudo' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
-              >
-                골구조도
-              </button>
-              <button 
-                type="button"
-                onClick={() => setViewMode('calendar')}
-                className={`px-3 py-1.5 rounded-md text-[9px] font-black transition-all ${viewMode === 'calendar' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
-              >
-                달력
-              </button>
-              <button 
-                type="button"
-                onClick={() => setViewMode('daily_report')}
-                className={`px-3 py-1.5 rounded-md text-[9px] font-black transition-all ${viewMode === 'daily_report' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
-              >
-                일보
-              </button>
-              <button 
-                type="button"
-                onClick={() => setViewMode('gantt')}
-                className={`px-3 py-1.5 rounded-md text-[9px] font-black transition-all ${viewMode === 'gantt' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
-              >
-                간트
-              </button>
-              <button 
-                type="button"
-                onClick={() => setViewMode('analytics')}
-                className={`px-3 py-1.5 rounded-md text-[9px] font-black transition-all ${viewMode === 'analytics' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
-              >
-                리포트
-              </button>
-              <button 
-                type="button"
-                onClick={() => setViewMode('prediction')}
-                className={`px-3 py-1.5 rounded-md text-[9px] font-black transition-all ${viewMode === 'prediction' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'} flex items-center gap-1.5`}
-              >
-                <Sparkles className="w-3 h-3" />
-                AI예측
-              </button>
-              {(role === 'ADMIN' || role === 'FIELD') && (
-                <button 
-                  type="button"
-                  onClick={() => setViewMode('settings')}
-                  className={`px-3 py-1.5 rounded-md text-[9px] font-black transition-all ${viewMode === 'settings' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-700'}`}
-                >
-                  {role === 'ADMIN' ? '설정' : '보안'}
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Desktop Right Hand Containers (Flex-1 flow on md: viewport and up) */}
-          <div className="hidden md:flex items-center justify-end gap-1 flex-1 min-w-0">
-              <div className={`flex items-center gap-0.5 ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-100'} rounded-lg p-0.5 mr-0.5 border ${activeTheme.border} shrink-1 min-w-0 overflow-hidden`}>
-                <div className="flex items-center px-0.5 py-0.5 gap-1 border-r border-slate-300 dark:border-slate-700 max-w-[120px]">
-                  <Building2 className={`w-2.5 h-2.5 ${activeTheme.text} shrink-0`} />
-                  {isLockedToSite && role !== 'ADMIN' ? (
-                    <div className={`text-[8px] font-black ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'} px-0.5 truncate`}>
-                      {data.settings.projectName}
-                    </div>
-                  ) : (
-                    <select 
-                      value={data.id} 
-                      onChange={(e) => switchSite(e.target.value)}
-                      className={`bg-transparent text-[8px] font-black border-none focus:ring-0 cursor-pointer appearance-none ${data.settings.theme === 'industrial' ? 'text-white' : 'text-slate-900'} px-0.5 truncate w-full`}
-                    >
-                      {multiData.sites.map((s, index) => (
-                        <option key={`${s.id || s.settings.projectName || 's'}-${index}`} value={s.id} className={data.settings.theme === 'industrial' ? 'bg-slate-900 text-white' : 'bg-white text-slate-950'}>
-                          {s.settings.projectName}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                </div>
-                <div className="flex items-center gap-0.5 px-0.5">
+                
+                {/* Quick actions next to site selector */}
+                <div className="flex items-center gap-0.5 border-l border-slate-300 dark:border-slate-700 pl-1">
                   {role === 'FIELD' && !isLockedToSite && (
                     <button 
                       type="button"
                       onClick={() => setSiteAuthenticatedId(null)}
-                      className={`p-1 hover:bg-white dark:hover:bg-slate-700 rounded-md transition-all group`}
+                      className="p-1 hover:bg-white dark:hover:bg-slate-700 rounded-lg transition-all"
                       title="현장 목록으로 돌아가기"
                     >
-                      <LayoutGrid className={`w-2.5 h-2.5 ${activeTheme.text}`} />
+                      <LayoutGrid className={`w-3.5 h-3.5 ${activeTheme.text}`} />
                     </button>
                   )}
                   <button 
                     type="button"
                     onClick={copySiteLink}
-                    className={`p-1 hover:bg-white dark:hover:bg-slate-700 rounded-md transition-all group relative`}
+                    className="p-1 hover:bg-white dark:hover:bg-slate-700 rounded-lg transition-all"
                     title="현장 링크 복사"
                   >
-                    {isCopied ? <CheckCircle2 className="w-2.5 h-2.5 text-green-500" /> : <LinkIcon className={`w-2.5 h-2.5 ${activeTheme.text}`} />}
+                    {isCopied ? <CheckCircle2 className="w-3.5 h-3.5 text-green-500" /> : <LinkIcon className={`w-3.5 h-3.5 ${activeTheme.text}`} />}
                   </button>
                   {role === 'ADMIN' && (
                     <>
@@ -3005,86 +2815,174 @@ export default function App() {
                           setShareUrl(adminUrl);
                           copyToClipboard(adminUrl);
                         }}
-                        className={`p-1 hover:bg-white dark:hover:bg-slate-700 rounded-md transition-all group`}
+                        className="p-1 hover:bg-white dark:hover:bg-slate-700 rounded-lg transition-all"
                         title="관리자 접속 링크 복사"
                       >
-                        <ShieldCheck className={`w-2.5 h-2.5 text-indigo-650 dark:text-indigo-400`} />
+                        <ShieldCheck className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
                       </button>
                       <button 
                         type="button"
                         onClick={() => setIsAddingSite(true)}
-                        className={`p-1 hover:bg-white dark:hover:bg-slate-700 rounded-md transition-all group`}
+                        className="p-1 hover:bg-white dark:hover:bg-slate-700 rounded-lg transition-all"
                         title="신규 현장 추가"
                       >
-                        <Plus className={`w-3 h-3 ${activeTheme.text}`} />
+                        <Plus className={`w-3.5 h-3.5 ${activeTheme.text}`} />
                       </button>
                     </>
                   )}
                 </div>
               </div>
-              
-              <div className={`flex ${data.settings.theme === 'industrial' ? 'bg-slate-800' : 'bg-slate-100'} rounded-lg p-0.5 shrink-0`}>
+
+              {/* Edit Mode & Role Toggles */}
+              {role === 'ADMIN' && (
+                <button 
+                  type="button"
+                  onClick={() => setIsEditMode(!isEditMode)}
+                  className={`flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-xl transition-all ${isEditMode ? 'bg-amber-100 text-amber-800 border border-amber-300' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'}`}
+                >
+                  <SettingsIcon className={`w-3.5 h-3.5 ${isEditMode ? 'animate-spin-slow text-amber-600' : ''}`} />
+                  {isEditMode ? '수정중' : '수정'}
+                </button>
+              )}
+
+              {!isLockedToSite && (
+                <button 
+                  type="button"
+                  onClick={() => {
+                    const nextRole = role === 'ADMIN' ? 'FIELD' : 'ADMIN';
+                    setRole(nextRole);
+                    if (nextRole === 'FIELD') setSiteAuthenticatedId(null);
+                  }}
+                  className={`flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-xl transition-all ${role === 'ADMIN' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'}`}
+                >
+                  {role === 'ADMIN' ? <ShieldCheck className="w-3.5 h-3.5" /> : <User className="w-3.5 h-3.5" />}
+                  <span className="hidden sm:inline">{role === 'ADMIN' ? '관리자 모드' : '현장 모드'}</span>
+                  <span className="sm:hidden">{role === 'ADMIN' ? '관리자' : '현장'}</span>
+                </button>
+              )}
+
+              {multiData.syncMode === 'manual' && (
+                <button 
+                  type="button"
+                  onClick={handleManualSync}
+                  disabled={isSyncing}
+                  className={`flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-xl transition-all ${
+                    syncStatus === 'success' 
+                      ? 'bg-green-100 text-green-700' 
+                      : syncStatus === 'error' 
+                      ? 'bg-rose-100 text-rose-700' 
+                      : 'bg-amber-100 text-amber-700'
+                  }`}
+                  title="수동 동기화 실행"
+                >
+                  <Save className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                  <span className="hidden sm:inline">{isSyncing ? '동기화 중' : syncStatus === 'success' ? '동기화 완료' : syncStatus === 'error' ? '실패' : '수동 동기화'}</span>
+                </button>
+              )}
+
+              {/* Status indicator */}
+              <div className="hidden lg:flex items-center gap-1 text-[11px] font-medium text-slate-400 px-1">
+                {isAutoSaving ? (
+                  <span className="flex items-center gap-1 text-emerald-500 font-bold"><div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" /> 저장중</span>
+                ) : (
+                  <span>저장완료</span>
+                )}
+              </div>
+
+              {/* Primary Action Buttons */}
+              <div className="flex items-center gap-1 border-l border-slate-200 dark:border-slate-700 pl-2">
+                <button 
+                  type="button" 
+                  onClick={saveData} 
+                  className={`p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl text-slate-600 dark:text-slate-300 transition-colors`} 
+                  title="저장"
+                >
+                  <Save className="w-4 h-4" />
+                </button>
+                <button 
+                  type="button" 
+                  onClick={() => window.print()} 
+                  className={`p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl text-slate-600 dark:text-slate-300 transition-colors`} 
+                  title="인쇄"
+                >
+                  <Printer className="w-4 h-4" />
+                </button>
+                <button 
+                  type="button" 
+                  onClick={() => { setRole(null); setSiteAuthenticatedId(null); }} 
+                  className="p-2 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-xl text-red-500 transition-colors" 
+                  title="로그아웃"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Bottom Row: Dedicated Navigation Tab Bar */}
+          <div className="border-t border-slate-200/60 dark:border-slate-800/60 pt-2 no-print overflow-x-auto scrollbar-none">
+            <div className={`flex items-center gap-1 p-1 rounded-2xl ${data.settings.theme === 'industrial' ? 'bg-slate-800/90' : 'bg-slate-100/90 dark:bg-slate-800/60'} min-w-max`}>
               <button 
                 type="button"
                 onClick={() => setViewMode('table')}
-                className={`px-1.5 py-1 rounded-md text-[8px] font-black transition-all ${viewMode === 'table' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-750'}`}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${viewMode === 'table' ? `bg-white dark:bg-slate-900 shadow-sm ${activeTheme.text}` : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
               >
                 공정표
               </button>
               <button 
                 type="button"
                 onClick={() => setViewMode('grid')}
-                className={`px-1.5 py-1 rounded-md text-[8px] font-black transition-all ${viewMode === 'grid' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-750'}`}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${viewMode === 'grid' ? `bg-white dark:bg-slate-900 shadow-sm ${activeTheme.text}` : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
               >
                 대시보드
               </button>
               <button 
                 type="button"
                 onClick={() => setViewMode('golgudo')}
-                className={`px-1.5 py-1 rounded-md text-[8px] font-black transition-all ${viewMode === 'golgudo' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-750'}`}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${viewMode === 'golgudo' ? `bg-white dark:bg-slate-900 shadow-sm ${activeTheme.text}` : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
               >
                 골구조도
               </button>
               <button 
                 type="button"
                 onClick={() => setViewMode('calendar')}
-                className={`px-1.5 py-1 rounded-md text-[8px] font-black transition-all ${viewMode === 'calendar' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-750'}`}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${viewMode === 'calendar' ? `bg-white dark:bg-slate-900 shadow-sm ${activeTheme.text}` : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
               >
                 달력
               </button>
               <button 
                 type="button"
                 onClick={() => setViewMode('daily_report')}
-                className={`px-1.5 py-1 rounded-md text-[8px] font-black transition-all ${viewMode === 'daily_report' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-755'}`}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${viewMode === 'daily_report' ? `bg-white dark:bg-slate-900 shadow-sm ${activeTheme.text}` : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
               >
                 일보
               </button>
               <button 
                 type="button"
                 onClick={() => setViewMode('gantt')}
-                className={`px-1.5 py-1 rounded-md text-[8px] font-black transition-all ${viewMode === 'gantt' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-750'}`}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${viewMode === 'gantt' ? `bg-white dark:bg-slate-900 shadow-sm ${activeTheme.text}` : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
               >
                 간트
               </button>
               <button 
                 type="button"
                 onClick={() => setViewMode('analytics')}
-                className={`px-1.5 py-1 rounded-md text-[8px] font-black transition-all ${viewMode === 'analytics' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-750'}`}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${viewMode === 'analytics' ? `bg-white dark:bg-slate-900 shadow-sm ${activeTheme.text}` : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
               >
                 리포트
               </button>
               <button 
                 type="button"
                 onClick={() => setViewMode('prediction')}
-                className={`px-1.5 py-1 rounded-md text-[8px] font-black transition-all ${viewMode === 'prediction' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-750'} flex items-center gap-1`}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${viewMode === 'prediction' ? `bg-white dark:bg-slate-900 shadow-sm ${activeTheme.text}` : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'} flex items-center gap-1.5`}
               >
-                <Sparkles className="w-2.5 h-2.5" />
+                <Sparkles className="w-3.5 h-3.5 text-amber-500" />
                 AI예측
               </button>
               <button 
                 type="button"
                 onClick={() => setViewMode('report')}
-                className={`px-1.5 py-1 rounded-md text-[8px] font-black transition-all ${viewMode === 'report' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-750'}`}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${viewMode === 'report' ? `bg-white dark:bg-slate-900 shadow-sm ${activeTheme.text}` : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
               >
                 인쇄모드
               </button>
@@ -3092,74 +2990,12 @@ export default function App() {
                 <button 
                   type="button"
                   onClick={() => setViewMode('settings')}
-                  className={`px-1.5 py-1 rounded-md text-[8px] font-black transition-all ${viewMode === 'settings' ? `bg-white shadow-sm ${activeTheme.text}` : 'text-slate-500 hover:text-slate-750'}`}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${viewMode === 'settings' ? `bg-white dark:bg-slate-900 shadow-sm ${activeTheme.text}` : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
                 >
                   {role === 'ADMIN' ? '설정' : '보안'}
                 </button>
               )}
             </div>
-
-            <div className={`flex items-center gap-0.5 ml-auto border-r pr-1 ${activeTheme.border} no-print text-[8px] shrink-0`}>
-               {role === 'ADMIN' && (
-                 <button 
-                  type="button"
-                  onClick={() => setIsEditMode(!isEditMode)}
-                  className={`flex items-center gap-1 font-bold px-2 py-0.5 rounded-full transition-all hover:scale-105 active:scale-95 ${isEditMode ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
-                 >
-                  <SettingsIcon className={`w-2.5 h-2.5 ${isEditMode ? 'animate-spin-slow' : ''}`} />
-                  {isEditMode ? '수정 중' : '수정'}
-                </button>
-               )}
-               {!isLockedToSite && (
-                 <button 
-                  type="button"
-                  onClick={() => {
-                    const nextRole = role === 'ADMIN' ? 'FIELD' : 'ADMIN';
-                    setRole(nextRole);
-                    if (nextRole === 'FIELD') setSiteAuthenticatedId(null);
-                  }}
-                  className={`flex items-center gap-1 font-bold px-2.5 py-0.5 rounded-full transition-all hover:scale-105 active:scale-95 ${role === 'ADMIN' ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'}`}
-                 >
-                  {role === 'ADMIN' ? <ShieldCheck className="w-2.5 h-2.5" /> : <User className="w-2.5 h-2.5" />}
-                  {role === 'ADMIN' ? '현장 모드' : '관리자 모드'}
-                </button>
-               )}
-               {multiData.syncMode === 'manual' && (
-                 <button 
-                   type="button"
-                   onClick={handleManualSync}
-                   disabled={isSyncing}
-                   className={`flex items-center gap-1 font-bold px-2.5 py-0.5 rounded-full transition-all hover:scale-105 active:scale-95 ${
-                     syncStatus === 'success' 
-                       ? 'bg-green-100 text-green-700 hover:bg-green-200' 
-                       : syncStatus === 'error' 
-                       ? 'bg-rose-100 text-rose-700 hover:bg-rose-200' 
-                       : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
-                   }`}
-                   title="수동 동기화 실행 (로컬 저장 후 원격 데이터 가져오기)"
-                 >
-                   <Save className={`w-2.5 h-2.5 ${isSyncing ? 'animate-spin' : ''}`} />
-                   {isSyncing ? '동기화 중' : syncStatus === 'success' ? '동기화 완료' : syncStatus === 'error' ? '실패' : '수동 동기화'}
-                 </button>
-               )}
-              <div className="flex items-center gap-1 text-slate-400 min-w-[70px]">
-                {isAutoSaving ? (
-                  <span className="flex items-center gap-1"><div className={`w-1.5 h-1.5 ${activeTheme.accent} rounded-full animate-pulse`} /> 저장중...</span>
-                ) : (
-                  <span>저장완료: {data.lastSaved.split(',')[1]}</span>
-                )}
-              </div>
-            </div>
-
-            <button type="button" onClick={saveData} className={`p-2 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors ${data.settings.theme === 'industrial' ? 'hover:bg-slate-800' : ''}`} title="저장">
-              <Save className="w-5 h-5" />
-            </button>
-            <button type="button" onClick={() => window.print()} className={`p-2 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors ${data.settings.theme === 'industrial' ? 'hover:bg-slate-800' : ''}`} title="인쇄">
-              <Printer className="w-5 h-5" />
-            </button>
-            <button type="button" onClick={() => { setRole(null); setSiteAuthenticatedId(null); }} className="p-2 hover:bg-red-50 rounded-lg text-red-500 transition-colors" title="로그아웃">
-              <LogOut className="w-5 h-5" />
-            </button>
           </div>
         </div>
       </header>
