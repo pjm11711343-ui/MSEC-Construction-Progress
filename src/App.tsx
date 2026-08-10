@@ -3316,56 +3316,56 @@ export default function App() {
               <button 
                 type="button"
                 onClick={() => setViewMode('table')}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${viewMode === 'table' ? `bg-white dark:bg-slate-900 shadow-sm ${activeTheme.text}` : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all ${viewMode === 'table' ? `bg-white dark:bg-slate-900 shadow-sm ${activeTheme.text}` : 'text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white'}`}
               >
                 공정표
               </button>
               <button 
                 type="button"
                 onClick={() => setViewMode('grid')}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${viewMode === 'grid' ? `bg-white dark:bg-slate-900 shadow-sm ${activeTheme.text}` : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all ${viewMode === 'grid' ? `bg-white dark:bg-slate-900 shadow-sm ${activeTheme.text}` : 'text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white'}`}
               >
                 대시보드
               </button>
               <button 
                 type="button"
                 onClick={() => setViewMode('golgudo')}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${viewMode === 'golgudo' ? `bg-white dark:bg-slate-900 shadow-sm ${activeTheme.text}` : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all ${viewMode === 'golgudo' ? `bg-white dark:bg-slate-900 shadow-sm ${activeTheme.text}` : 'text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white'}`}
               >
                 골구조도
               </button>
               <button 
                 type="button"
                 onClick={() => setViewMode('calendar')}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${viewMode === 'calendar' ? `bg-white dark:bg-slate-900 shadow-sm ${activeTheme.text}` : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all ${viewMode === 'calendar' ? `bg-white dark:bg-slate-900 shadow-sm ${activeTheme.text}` : 'text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white'}`}
               >
                 달력
               </button>
               <button 
                 type="button"
                 onClick={() => setViewMode('daily_report')}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${viewMode === 'daily_report' ? `bg-white dark:bg-slate-900 shadow-sm ${activeTheme.text}` : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all ${viewMode === 'daily_report' ? `bg-white dark:bg-slate-900 shadow-sm ${activeTheme.text}` : 'text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white'}`}
               >
                 일보
               </button>
               <button 
                 type="button"
                 onClick={() => setViewMode('gantt')}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${viewMode === 'gantt' ? `bg-white dark:bg-slate-900 shadow-sm ${activeTheme.text}` : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all ${viewMode === 'gantt' ? `bg-white dark:bg-slate-900 shadow-sm ${activeTheme.text}` : 'text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white'}`}
               >
                 간트
               </button>
               <button 
                 type="button"
                 onClick={() => setViewMode('analytics')}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${viewMode === 'analytics' ? `bg-white dark:bg-slate-900 shadow-sm ${activeTheme.text}` : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all ${viewMode === 'analytics' ? `bg-white dark:bg-slate-900 shadow-sm ${activeTheme.text}` : 'text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white'}`}
               >
                 리포트
               </button>
               <button 
                 type="button"
                 onClick={() => setViewMode('prediction')}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${viewMode === 'prediction' ? `bg-white dark:bg-slate-900 shadow-sm ${activeTheme.text}` : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'} flex items-center gap-1.5`}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all ${viewMode === 'prediction' ? `bg-white dark:bg-slate-900 shadow-sm ${activeTheme.text}` : 'text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white'} flex items-center gap-1.5`}
               >
                 <Sparkles className="w-3.5 h-3.5 text-amber-500" />
                 AI예측
@@ -3373,7 +3373,7 @@ export default function App() {
               <button 
                 type="button"
                 onClick={() => setViewMode('report')}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${viewMode === 'report' ? `bg-white dark:bg-slate-900 shadow-sm ${activeTheme.text}` : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all ${viewMode === 'report' ? `bg-white dark:bg-slate-900 shadow-sm ${activeTheme.text}` : 'text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white'}`}
               >
                 인쇄모드
               </button>
@@ -3381,7 +3381,7 @@ export default function App() {
                 <button 
                   type="button"
                   onClick={() => setViewMode('settings')}
-                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${viewMode === 'settings' ? `bg-white dark:bg-slate-900 shadow-sm ${activeTheme.text}` : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all ${viewMode === 'settings' ? `bg-white dark:bg-slate-900 shadow-sm ${activeTheme.text}` : 'text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white'}`}
                 >
                   {role === 'ADMIN' ? '설정' : '보안'}
                 </button>
@@ -4622,7 +4622,7 @@ export default function App() {
                     />
                   </th>
                   <th className={`border-r border-white/20 w-8 text-center font-black px-1 py-1 text-[9px] uppercase tracking-tighter sticky left-8 z-30 ${activeTheme.header}`} style={data.settings.headerColor ? { backgroundColor: data.settings.headerColor } : {}}>No.</th>
-                  <th className={`border-r border-white/20 w-24 text-center font-black px-1 py-1 text-[10px] uppercase tracking-tighter sticky left-16 z-30 ${activeTheme.header}`} style={data.settings.headerColor ? { backgroundColor: data.settings.headerColor } : {}}>동 명칭</th>
+                  <th className={`border-r border-white/20 w-32 md:w-36 min-w-[130px] text-center font-black px-2 py-1 text-[11px] uppercase tracking-tighter sticky left-16 z-30 ${activeTheme.header}`} style={data.settings.headerColor ? { backgroundColor: data.settings.headerColor } : {}}>동 명칭</th>
                   {sortedDisplayProcesses.map((p, idx) => {
                     const diag = getProcessDiagnosis(p);
                     const isBehind = diag.isBehind;
@@ -4862,17 +4862,17 @@ export default function App() {
                         />
                       </td>
                       <td 
-                        className={`border-r-2 ${isDark ? 'border-slate-800 text-slate-400' : 'border-slate-200 text-slate-500'} ${stickyBgClass} text-center font-black text-[10px] sticky left-8 z-10`}
+                        className={`border-r-2 ${isDark ? 'border-slate-800 text-slate-200' : 'border-slate-200 text-slate-800'} ${stickyBgClass} text-center font-black text-xs sticky left-8 z-10`}
                         style={{ padding: cellPadding }}
                       >
                         {bIdx + 1}
                       </td>
                       <td 
-                        className={`border-r-2 ${isDark ? 'border-[#2d333d] text-white' : 'border-slate-200 text-slate-900'} ${stickyBgClass} text-center font-black group relative sticky left-16 z-10`}
+                        className={`border-r-2 ${isDark ? 'border-[#2d333d] text-white' : 'border-slate-200 text-slate-900'} ${stickyBgClass} text-center font-black group relative sticky left-16 z-10 min-w-[130px]`}
                         style={{ padding: cellPadding }}
                       >
                         <div 
-                          className={`flex flex-col items-center justify-center gap-0.5`}
+                          className={`flex flex-col items-center justify-center gap-0.5 min-w-[120px]`}
                           style={{ padding: cellPadding }}
                         >
                           <input 
@@ -4880,13 +4880,14 @@ export default function App() {
                             value={b.name} 
                             disabled={role === 'GUEST'} 
                             onChange={(e) => renameBuilding(b.id, e.target.value)} 
-                            className={`w-full text-center bg-transparent border-none focus:ring-0 p-0 font-black text-xs tracking-tighter ${isDark ? 'text-white' : 'text-slate-900'}`} 
+                            className={`w-full text-center bg-transparent border-none focus:ring-0 p-0 font-black text-xs md:text-sm tracking-tighter ${isDark ? 'text-white' : 'text-slate-900'}`} 
+                            style={{ minWidth: '110px' }}
                           />
                           
                           {role !== 'GUEST' && (
                             <div className="flex items-center gap-1 no-print">
-                              <div className={`flex items-center gap-0.5 px-1 py-0 rounded ${isIndustrial ? 'bg-slate-800/80 border border-slate-700 text-slate-200' : 'bg-slate-200/50'}`}>
-                                <span className={`text-[8px] font-black ${isIndustrial ? 'text-slate-400' : 'text-slate-500'}`}>B</span>
+                              <div className={`flex items-center gap-0.5 px-1 py-0 rounded ${isIndustrial ? 'bg-slate-800 border border-slate-700 text-slate-200' : 'bg-slate-200/80'}`}>
+                                <span className={`text-[9px] font-black ${isIndustrial ? 'text-slate-300' : 'text-slate-700'}`}>B</span>
                                 <input 
                                   type="text" 
                                   value={Math.abs(b.minFloor !== undefined ? b.minFloor : data.settings.minFloor)} 
@@ -4899,11 +4900,11 @@ export default function App() {
                                       }));
                                     }
                                   }}
-                                  className={`w-4 h-3 text-[8px] text-center p-0 bg-transparent border-none focus:ring-0 font-black ${isIndustrial ? 'text-white' : 'text-slate-900'}`}
+                                  className={`w-4 h-3 text-[9px] text-center p-0 bg-transparent border-none focus:ring-0 font-black ${isIndustrial ? 'text-white' : 'text-slate-900'}`}
                                 />
                               </div>
-                              <div className={`flex items-center gap-0.5 px-1 py-0 rounded ${isIndustrial ? 'bg-slate-800/80 border border-slate-700 text-slate-200' : 'bg-slate-200/50'}`}>
-                                <span className={`text-[8px] font-black ${isIndustrial ? 'text-slate-400' : 'text-slate-500'}`}>F</span>
+                              <div className={`flex items-center gap-0.5 px-1 py-0 rounded ${isIndustrial ? 'bg-slate-800 border border-slate-700 text-slate-200' : 'bg-slate-200/80'}`}>
+                                <span className={`text-[9px] font-black ${isIndustrial ? 'text-slate-300' : 'text-slate-700'}`}>F</span>
                                 <input 
                                   type="text" 
                                   value={b.maxFloor !== undefined ? b.maxFloor : data.settings.maxFloor} 
@@ -4916,7 +4917,7 @@ export default function App() {
                                       }));
                                     }
                                   }}
-                                  className={`w-4 h-3 text-[8px] text-center p-0 bg-transparent border-none focus:ring-0 font-black ${isIndustrial ? 'text-white' : 'text-slate-900'}`}
+                                  className={`w-4 h-3 text-[9px] text-center p-0 bg-transparent border-none focus:ring-0 font-black ${isIndustrial ? 'text-white' : 'text-slate-900'}`}
                                 />
                               </div>
                             </div>
@@ -5144,7 +5145,7 @@ export default function App() {
                               value={b.name} 
                               disabled={role === 'GUEST'} 
                               onChange={(e) => renameBuilding(b.id, e.target.value)} 
-                              className={`font-black text-xs md:text-sm p-0 m-0 bg-transparent border-none focus:ring-0 w-20 md:w-24 ${isDark ? 'text-white' : 'text-slate-900'}`} 
+                              className={`font-black text-xs md:text-sm p-0 m-0 bg-transparent border-none focus:ring-0 w-full min-w-[110px] ${isDark ? 'text-white' : 'text-slate-900'}`} 
                             />
                             {/* Floor Information */}
                             {role !== 'GUEST' && (

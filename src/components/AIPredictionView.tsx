@@ -163,7 +163,7 @@ const AIPredictionView: React.FC<AIPredictionViewProps> = ({ data, activeTheme }
           className={`p-6 rounded-3xl border ${activeTheme.card} ${activeTheme.border} relative overflow-hidden`}
         >
           <div className="flex flex-col gap-1 relative z-10">
-            <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">AI 예측 준공일</span>
+            <span className="text-[10px] font-black uppercase tracking-widest text-slate-700 dark:text-slate-300">AI 예측 준공일</span>
             <div className="flex items-center gap-2">
               <h2 className="text-3xl font-black">{prediction.predictedCompletionDate}</h2>
               <div className={`p-1 rounded-lg ${getStatusColor(prediction.status)}`}>
@@ -177,11 +177,11 @@ const AIPredictionView: React.FC<AIPredictionViewProps> = ({ data, activeTheme }
                   <Droplets className="w-3 h-3" /> 악천후 보정 (+{weatherDelayDays}일)
                 </div>
                 <h3 className="text-lg font-black text-rose-600">{weatherAdjustedDate}</h3>
-                <p className="text-[9px] font-bold text-slate-400">강우/강풍 기록 {weatherDelayDays}회 반영됨</p>
+                <p className="text-[9px] font-bold text-slate-700 dark:text-slate-300">강우/강풍 기록 {weatherDelayDays}회 반영됨</p>
               </div>
             )}
 
-            <p className="text-[10px] font-bold text-slate-400 mt-2">
+            <p className="text-[10px] font-bold text-slate-700 dark:text-slate-300 mt-2">
               목표 준공일 대비 <span className={prediction.delayDays + weatherDelayDays > 0 ? "text-rose-500" : "text-emerald-500"}>{Math.abs(prediction.delayDays + weatherDelayDays)}일 {prediction.delayDays + weatherDelayDays > 0 ? '지연' : '선행'}</span>
             </p>
           </div>

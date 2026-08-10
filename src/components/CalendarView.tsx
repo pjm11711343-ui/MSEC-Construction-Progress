@@ -211,7 +211,7 @@ export default function CalendarView({ buildings, theme, activeTheme, getFloorTe
       <div className={`${activeTheme.card} rounded-3xl border ${activeTheme.border} shadow-xl overflow-hidden print:border-none print:shadow-none`}>
         <div className={`grid grid-cols-7 border-b ${isIndustrial ? 'border-slate-800' : 'border-slate-100'}`}>
           {['일', '월', '화', '수', '목', '금', '토'].map((d, i) => (
-            <div key={d} className={`py-4 text-center text-[10px] font-black uppercase tracking-widest ${i === 0 ? 'text-red-400' : (i === 6 ? 'text-blue-400' : 'text-slate-400')}`}>
+            <div key={d} className={`py-4 text-center text-[10px] font-black uppercase tracking-widest ${i === 0 ? 'text-red-500' : (i === 6 ? 'text-blue-500' : 'text-slate-700 dark:text-slate-300')}`}>
               {d}
             </div>
           ))}
@@ -229,7 +229,7 @@ export default function CalendarView({ buildings, theme, activeTheme, getFloorTe
             return (
               <div key={day} className={`min-h-[140px] p-2 space-y-2 group transition-all ${isToday(day) ? (isIndustrial ? 'bg-slate-800/50' : 'bg-blue-50/30') : ''}`}>
                 <div className="flex items-center justify-between">
-                  <span className={`text-xs font-black ${isToday(day) ? activeTheme.text : (idx % 7 === 0 ? 'text-red-500' : (idx % 7 === 6 ? 'text-blue-500' : 'text-slate-400'))}`}>
+                  <span className={`text-xs font-black ${isToday(day) ? activeTheme.text : (idx % 7 === 0 ? 'text-red-500' : (idx % 7 === 6 ? 'text-blue-500' : 'text-slate-800 dark:text-slate-200'))}`}>
                     {day}
                   </span>
                   {dayWeather && (
@@ -246,7 +246,7 @@ export default function CalendarView({ buildings, theme, activeTheme, getFloorTe
                         }`}
                       >
                         {dayWeather.icon}
-                        <span className="text-[8px] font-black text-slate-500 group-hover/weather:text-blue-500">{dayWeather.temp}°</span>
+                        <span className="text-[8px] font-black text-slate-800 dark:text-slate-200 group-hover/weather:text-blue-500">{dayWeather.temp}°</span>
                       </a>
                       {parseFloat(dayWeather.precip) > 0 && (
                         <span className={`text-[7px] font-bold px-1 rounded ${

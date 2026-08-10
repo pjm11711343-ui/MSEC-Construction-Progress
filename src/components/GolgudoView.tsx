@@ -656,7 +656,7 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
     if (type === '필로티') return { className: 'bg-neutral-800 text-neutral-400', style: { backgroundColor: '#262626', color: '#a3a3a3' } };
     
     const found = unitTypeConfigs.find(ut => ut.type === type);
-    if (!found) return { className: 'bg-slate-200 text-slate-600', style: { backgroundColor: '#e2e8f0', color: '#475569' } };
+    if (!found) return { className: 'bg-slate-200 text-slate-900 font-black', style: { backgroundColor: '#cbd5e1', color: '#0f172a' } };
     
     const isTailwind = found.color.startsWith('bg-');
     
@@ -770,7 +770,7 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
             <h1 className={`text-2xl md:text-4xl font-black tracking-tighter drop-shadow-sm ${isDarkTheme ? 'text-white' : 'text-slate-900'} antialiased underline-offset-8`}>
               {data.settings.projectName} 단지배치도(골구조도)
             </h1>
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest no-print">골구조도 현황판 (Golgudo Status Board)</p>
+            <p className="text-[10px] font-black text-slate-700 dark:text-slate-200 uppercase tracking-widest no-print">골구조도 현황판 (Golgudo Status Board)</p>
           </div>
           <div className="no-print flex items-center gap-3">
             <button 
@@ -1462,7 +1462,7 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
                         <div className="flex flex-col items-center justify-center min-w-[50px] border-r-2 border-slate-200 dark:border-slate-800 z-20">
                           <button 
                             onClick={() => applyTypeToFloor(b, fNum)}
-                            className={`w-full p-1 flex flex-col items-center justify-center font-black relative overflow-hidden transition-all duration-500 active:scale-95 cursor-pointer ${isWorkingFloor ? 'bg-blue-600 text-white shadow-[inset_0_0_20px_rgba(255,255,255,0.2)]' : isWireframe ? 'text-slate-400 bg-slate-50/10' : 'text-blue-600 bg-slate-100/30 dark:bg-slate-900/30'} ${showGuide ? 'text-blue-500 bg-blue-50/50 dark:bg-blue-900/30 underline decoration-blue-500/50 decoration-2' : ''}`} 
+                            className={`w-full p-1 flex flex-col items-center justify-center font-black relative overflow-hidden transition-all duration-500 active:scale-95 cursor-pointer ${isWorkingFloor ? 'bg-blue-600 text-white shadow-[inset_0_0_20px_rgba(255,255,255,0.2)]' : isWireframe ? 'text-slate-700 dark:text-slate-200 bg-slate-100/50 dark:bg-slate-800/50 font-black' : 'text-blue-700 dark:text-blue-400 bg-blue-50/50 dark:bg-slate-900/50 font-black'} ${showGuide ? 'text-blue-600 bg-blue-100/80 dark:bg-blue-900/40 underline decoration-blue-500 decoration-2' : ''}`} 
                             style={{ padding: dynamicFloorHeight ? `${Math.floor(layoutConfig.cellHeight * 0.15 * floorScale)}px 0` : `${Math.floor(layoutConfig.cellHeight * 0.15)}px 0` }}
                             title={selectedUnitType ? `${fNum}층 전체를 ${selectedUnitType} 타입으로 변경 (Alt+클릭: 전 단지 적용)` : '클릭하여 층 전체 타입 변경 (Alt+클릭: 전 단지 적용)'}
                           >

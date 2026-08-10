@@ -114,9 +114,9 @@ export const DashboardWidgets: React.FC<DashboardWidgetsProps> = ({ data, isIndu
     return alerts.sort((a, b) => a.daysToOrder - b.daysToOrder).slice(0, 4);
   }, [buildings, settings.processLeadTimes]);
 
-  const cardBg = isIndustrial ? 'bg-slate-900/50 border-slate-800' : 'bg-white border-slate-100';
+  const cardBg = isIndustrial ? 'bg-slate-900/50 border-slate-800' : 'bg-white border-slate-200 shadow-sm';
   const textColor = isIndustrial ? 'text-white' : 'text-slate-900';
-  const subTextColor = isIndustrial ? 'text-slate-400' : 'text-slate-500';
+  const subTextColor = isIndustrial ? 'text-slate-300' : 'text-slate-700 font-bold';
 
   return (
     <div className="space-y-3 md:space-y-6 mb-4 md:mb-8">
@@ -136,8 +136,8 @@ export const DashboardWidgets: React.FC<DashboardWidgetsProps> = ({ data, isIndu
             <div>
               <h3 className={`text-[10px] md:text-sm font-black ${textColor} uppercase tracking-tight`}>준공 예정일</h3>
               <div className="flex items-center gap-1 mt-0.5 md:mt-1">
-                <Clock className="w-2.5 h-2.5 md:w-3.5 md:h-3.5 text-slate-400" />
-                <p className="text-[8px] md:text-[10px] font-bold text-slate-400">{settings.endDate || '미설정'}</p>
+                <Clock className="w-2.5 h-2.5 md:w-3.5 md:h-3.5 text-blue-500" />
+                <p className={`text-[8px] md:text-[10px] font-black ${subTextColor}`}>{settings.endDate || '미설정'}</p>
               </div>
             </div>
           </div>
@@ -145,7 +145,7 @@ export const DashboardWidgets: React.FC<DashboardWidgetsProps> = ({ data, isIndu
             <div className={`text-xl md:text-3xl font-black ${dDayInfo?.status === 'urgent' ? 'text-rose-500 animate-pulse' : isIndustrial ? 'text-blue-400' : 'text-blue-600'}`}>
               {dDayInfo?.label || 'N/A'}
             </div>
-            <p className="text-[7px] md:text-[8px] font-black text-slate-400 uppercase tracking-widest mt-0.5 md:mt-1">REMAINING DAYS</p>
+            <p className={`text-[7px] md:text-[8px] font-black ${subTextColor} uppercase tracking-widest mt-0.5 md:mt-1`}>REMAINING DAYS</p>
           </div>
         </motion.div>
 
@@ -162,7 +162,7 @@ export const DashboardWidgets: React.FC<DashboardWidgetsProps> = ({ data, isIndu
                  <circle 
                   cx="56" cy="56" r="50" 
                   fill="transparent" 
-                  stroke={isIndustrial ? '#1e293b' : '#f1f5f9'} 
+                  stroke={isIndustrial ? '#1e293b' : '#e2e8f0'} 
                   strokeWidth="10" 
                  />
                  <motion.circle 
@@ -190,7 +190,7 @@ export const DashboardWidgets: React.FC<DashboardWidgetsProps> = ({ data, isIndu
                </svg>
                <div className="absolute inset-0 flex flex-col items-center justify-center">
                   <span className={`text-sm md:text-xl font-black ${textColor}`}>{Math.round(progressStats.actualAvg)}%</span>
-                  <span className="text-[6px] md:text-[7px] font-black text-slate-400 uppercase tracking-tighter text-center leading-none">ACTUAL<br/>AVG</span>
+                  <span className={`text-[6px] md:text-[7px] font-black ${subTextColor} uppercase tracking-tighter text-center leading-none`}>ACTUAL<br/>AVG</span>
                </div>
             </div>
 
@@ -199,17 +199,17 @@ export const DashboardWidgets: React.FC<DashboardWidgetsProps> = ({ data, isIndu
                 <div>
                   <div className="flex items-center gap-1.5 md:gap-2 mb-0.5 md:mb-1">
                     <Target className="w-2.5 h-2.5 md:w-3.5 md:h-3.5 text-emerald-500" />
-                    <h4 className="text-[8px] md:text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none">목표 진행률</h4>
+                    <h4 className={`text-[8px] md:text-[9px] font-black ${subTextColor} uppercase tracking-widest leading-none`}>목표 진행률</h4>
                   </div>
                   <div className={`text-base md:text-xl font-black ${textColor}`}>{Math.round(progressStats.targetAvg)}%</div>
                 </div>
                 
                 <div className={`p-1.5 md:p-2.5 rounded-lg md:rounded-xl ${
                   progressStats.status === 'ahead' 
-                    ? (isIndustrial ? 'bg-emerald-900/20 text-emerald-400' : 'bg-emerald-50 text-emerald-600')
+                    ? (isIndustrial ? 'bg-emerald-900/20 text-emerald-400' : 'bg-emerald-50 text-emerald-700 font-bold')
                     : progressStats.status === 'behind'
-                    ? (isIndustrial ? 'bg-rose-900/20 text-rose-400' : 'bg-rose-50 text-rose-600')
-                    : (isIndustrial ? 'bg-blue-900/20 text-blue-400' : 'bg-blue-50 text-blue-600')
+                    ? (isIndustrial ? 'bg-rose-900/20 text-rose-400' : 'bg-rose-50 text-rose-700 font-bold')
+                    : (isIndustrial ? 'bg-blue-900/20 text-blue-400' : 'bg-blue-50 text-blue-700 font-bold')
                 } flex items-center gap-1.5 md:gap-2`}>
                   {progressStats.status === 'ahead' ? <TrendingUp className="w-3.5 h-3.5 md:w-4 md:h-4" /> : progressStats.status === 'behind' ? <AlertCircle className="w-3.5 h-3.5 md:w-4 md:h-4" /> : <Target className="w-3.5 h-3.5 md:w-4 md:h-4" />}
                   <div className="text-[8px] md:text-[9px] font-black uppercase tracking-tighter">
@@ -222,9 +222,9 @@ export const DashboardWidgets: React.FC<DashboardWidgetsProps> = ({ data, isIndu
                  <div>
                     <div className="flex items-center gap-1.5 md:gap-2 mb-0.5 md:mb-1">
                       <Clock className="w-2.5 h-2.5 md:w-3.5 md:h-3.5 text-blue-500" />
-                      <h4 className="text-[8px] md:text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none">프로젝트 회차</h4>
+                      <h4 className={`text-[8px] md:text-[9px] font-black ${subTextColor} uppercase tracking-widest leading-none`}>프로젝트 회차</h4>
                     </div>
-                    <div className={`text-[9px] md:text-xs font-bold leading-tight ${textColor}`}>
+                    <div className={`text-[9px] md:text-xs font-black leading-tight ${textColor}`}>
                       {settings.startDate ? new Date(settings.startDate).toLocaleDateString() : '-'} ~ 
                       <br className="md:hidden" />
                       <span className="hidden md:inline"> </span>
@@ -266,17 +266,17 @@ export const DashboardWidgets: React.FC<DashboardWidgetsProps> = ({ data, isIndu
                   }`}>
                     {alert.daysToOrder <= 0 ? '발주지연' : `D-${alert.daysToOrder}`}
                   </span>
-                  <span className="text-[9px] md:text-[10px] font-bold text-slate-400">{alert.buildingName}</span>
+                  <span className={`text-[9px] md:text-[10px] font-black ${subTextColor}`}>{alert.buildingName}</span>
                 </div>
                 <h4 className={`text-xs md:text-sm font-black truncate ${textColor}`}>{alert.processName}</h4>
                 <div className="flex flex-col gap-0.5 md:gap-1 mt-1.5 md:mt-2">
-                   <div className="flex justify-between text-[8px] md:text-[9px] font-bold text-slate-500">
+                   <div className={`flex justify-between text-[8px] md:text-[9px] font-black ${subTextColor}`}>
                      <span>입고:</span>
                      <span className={textColor}>{alert.materialDate.split('-').slice(1).join('/')}</span>
                    </div>
-                   <div className="flex justify-between text-[8px] md:text-[9px] font-bold text-slate-500">
+                   <div className={`flex justify-between text-[8px] md:text-[9px] font-black ${subTextColor}`}>
                      <span>데드라인:</span>
-                     <span className={alert.status === 'critical' ? 'text-rose-500' : 'text-amber-600'}>
+                     <span className={alert.status === 'critical' ? 'text-rose-600 font-black' : 'text-amber-600 font-black'}>
                         {alert.latestOrderDate.toISOString().split('T')[0].split('-').slice(1).join('/')}
                      </span>
                    </div>
