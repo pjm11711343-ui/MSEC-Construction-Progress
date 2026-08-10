@@ -69,6 +69,7 @@ export interface ProjectSettings {
   theme: AppTheme;
   progressMode?: 'floor' | 'percent';
   processModes?: Record<string, 'floor' | 'percent'>;
+  processSchedules?: Record<string, any>;
   fontSize?: number;
   tableSpacing?: number;
   headerColor?: string;

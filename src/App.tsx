@@ -45,7 +45,14 @@ import {
   Camera,
   Filter,
   HardDrive,
-  RefreshCw
+  RefreshCw,
+  ListOrdered,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  ArrowDown,
+  RotateCcw,
+  Truck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -282,6 +289,11 @@ export default function App() {
   const [buildingToDelete, setBuildingToDelete] = useState<number | null>(null);
   const [newProcessInput, setNewProcessInput] = useState(false);
   const [newProcessName, setNewProcessName] = useState('');
+  const [showProcessOrderModal, setShowProcessOrderModal] = useState(false);
+  const [showBatchMaterialModal, setShowBatchMaterialModal] = useState(false);
+  const [batchMaterialSelectedBuildings, setBatchMaterialSelectedBuildings] = useState<number[]>([]);
+  const [batchMaterialTargetProcess, setBatchMaterialTargetProcess] = useState<string>('ALL');
+  const [batchMaterialDate, setBatchMaterialDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [analyticsSelectedProcess, setAnalyticsSelectedProcess] = useState<string>(processes[0] || '1. 건축골조');
   const [showAdminAuthModal, setShowAdminAuthModal] = useState(false);
   const [adminAuthReason, setAdminAuthReason] = useState('관리자 비밀번호 인증');
@@ -1945,10 +1957,151 @@ export default function App() {
     setPendingRestore({ data: initialDataImport as any, mode: 'INITIAL' });
   };
 
+  // Helper: Extract base process name without leading number prefix
+  const getCleanProcessName = (name: string): string => {
+    if (!name) return '';
+    return name.replace(/^\d+[\.\s]*/, '').trim();
+  };
+
+  // Helper: Auto-number array of process names based on 1-based index (left to right)
+  const autoNumberProcesses = (procList: string[]): string[] => {
+    return procList.map((p, idx) => {
+      const clean = getCleanProcessName(p);
+      return `${idx + 1}. ${clean}`;
+    });
+  };
+
+  // Reorder processes from one index to another and auto-update 1..N numbers
+  const moveProcessTo = (fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex || fromIndex < 0 || fromIndex >= processes.length || toIndex < 0 || toIndex >= processes.length) return;
+    
+    const reordered = [...processes];
+    const [movedItem] = reordered.splice(fromIndex, 1);
+    reordered.splice(toIndex, 0, movedItem);
+
+    const newNumberedProcesses = autoNumberProcesses(reordered);
+
+    // Build key mapping: oldName -> newNumberedName
+    const mapping: Record<string, string> = {};
+    reordered.forEach((oldName, idx) => {
+      mapping[oldName] = newNumberedProcesses[idx];
+    });
+
+    setProcesses(newNumberedProcesses);
+
+    // Update site data (buildings, processModes, processSchedules, processMemos)
+    setData(prev => {
+      const nextModes = Object.entries(prev.settings.processModes || {}).reduce((acc, [k, v]) => {
+        acc[mapping[k] || k] = v as 'floor' | 'percent';
+        return acc;
+      }, {} as Record<string, 'floor' | 'percent'>);
+
+      const nextSchedules = Object.entries(prev.settings.processSchedules || {}).reduce((acc, [k, v]) => {
+        acc[mapping[k] || k] = v;
+        return acc;
+      }, {} as Record<string, any>);
+
+      const nextMemos = Object.entries(prev.processMemos || {}).reduce((acc, [k, v]) => {
+        acc[mapping[k] || k] = v;
+        return acc;
+      }, {} as Record<string, string>);
+
+      const nextBuildings = prev.buildings.map(b => ({
+        ...b,
+        processes: Object.entries(b.processes || {}).reduce((acc, [k, v]) => {
+          acc[mapping[k] || k] = v;
+          return acc;
+        }, {} as Record<string, number>),
+        materialProcesses: Object.entries(b.materialProcesses || {}).reduce((acc, [k, v]) => {
+          acc[mapping[k] || k] = v;
+          return acc;
+        }, {} as Record<string, number>),
+        materialDates: Object.entries(b.materialDates || {}).reduce((acc, [k, v]) => {
+          acc[mapping[k] || k] = v;
+          return acc;
+        }, {} as Record<string, string>),
+        photos: Object.entries(b.photos || {}).reduce((acc, [k, v]) => {
+          acc[mapping[k] || k] = v;
+          return acc;
+        }, {} as Record<string, any[]>)
+      }));
+
+      return {
+        ...prev,
+        processMemos: nextMemos,
+        settings: {
+          ...prev.settings,
+          processModes: nextModes,
+          processSchedules: nextSchedules
+        },
+        buildings: nextBuildings
+      };
+    });
+  };
+
+  const moveProcess = (index: number, direction: 'left' | 'right') => {
+    const targetIndex = direction === 'left' ? index - 1 : index + 1;
+    moveProcessTo(index, targetIndex);
+  };
+
+  const handleExecuteBatchMaterialDelivery = () => {
+    if (role === 'GUEST') {
+      alert('게스트 모드에서는 수정을 할 수 없습니다.');
+      return;
+    }
+    if (batchMaterialSelectedBuildings.length === 0) {
+      alert('자재 입고를 적용할 동을 최소 1개 이상 선택해 주세요.');
+      return;
+    }
+
+    updateStateForTarget((buildings, facilities) => {
+      const nextBuildings = buildings.map(b => {
+        if (!batchMaterialSelectedBuildings.includes(b.id)) return b;
+
+        const nextMatProc = { ...(b.materialProcesses || {}) };
+        const nextMatDates = { ...(b.materialDates || {}) };
+
+        if (batchMaterialTargetProcess === 'ALL') {
+          processes.forEach(p => {
+            nextMatProc[p] = 100;
+            if (!nextMatDates[p] || nextMatDates[p] === '') {
+              nextMatDates[p] = batchMaterialDate;
+            }
+          });
+        } else if (batchMaterialTargetProcess) {
+          nextMatProc[batchMaterialTargetProcess] = 100;
+          nextMatDates[batchMaterialTargetProcess] = batchMaterialDate;
+        }
+
+        return {
+          ...b,
+          materialProcesses: nextMatProc,
+          materialDates: nextMatDates
+        };
+      });
+
+      return { buildings: nextBuildings, facilities };
+    });
+
+    const count = batchMaterialSelectedBuildings.length;
+    const procLabel = batchMaterialTargetProcess === 'ALL' ? '전체 공종' : batchMaterialTargetProcess;
+    alert(`${count}개 동의 [${procLabel}] 자재 입고 상태가 100% (입고완료)로 일괄 변경되었습니다.`);
+
+    setShowBatchMaterialModal(false);
+  };
+
   const addProcess = () => {
-    if (!newProcessName.trim() || processes.includes(newProcessName)) return;
-    const name = newProcessName.trim();
+    if (!newProcessName.trim()) return;
+    const cleanBase = getCleanProcessName(newProcessName.trim());
+    if (processes.some(p => getCleanProcessName(p) === cleanBase)) {
+      alert('이미 동일한 명칭의 공종이 존재합니다.');
+      return;
+    }
+
+    const nextNumber = processes.length + 1;
+    const name = `${nextNumber}. ${cleanBase}`;
     const newProcesses = [...processes, name];
+
     setProcesses(newProcesses);
     setData(prev => {
       const mode = prev.settings.progressMode || 'floor';
@@ -1973,54 +2126,72 @@ export default function App() {
 
   const renameProcess = (oldName: string, newName: string) => {
     const trimmedNewName = newName.trim();
-    if (!trimmedNewName || oldName === trimmedNewName) return;
-    
-    if (processes.includes(trimmedNewName)) {
-      alert('이미 존재하는 공종명입니다.');
+    if (!trimmedNewName) return;
+
+    const index = processes.indexOf(oldName);
+    if (index === -1) return;
+
+    const cleanBase = getCleanProcessName(trimmedNewName);
+    const newFullName = `${index + 1}. ${cleanBase}`;
+
+    if (oldName === newFullName) return;
+
+    if (processes.some((p, i) => i !== index && getCleanProcessName(p) === cleanBase)) {
+      alert('이미 동일한 명칭의 공종이 존재합니다.');
       return;
     }
 
-    setProcesses(prev => prev.map(p => p === oldName ? trimmedNewName : p));
+    const newProcesses = [...processes];
+    newProcesses[index] = newFullName;
+
+    setProcesses(newProcesses);
+
     setData(prev => {
       const currentModes = prev.settings.processModes || {};
       const mode = currentModes[oldName] || prev.settings.progressMode || 'floor';
       const { [oldName]: _, ...restModes } = currentModes;
-      
+
+      const currentMemos = prev.processMemos || {};
+      const memo = currentMemos[oldName] || '';
+      const { [oldName]: __, ...restMemos } = currentMemos;
+
       return {
         ...prev,
+        processMemos: { ...restMemos, [newFullName]: memo },
         settings: {
           ...prev.settings,
           processModes: {
             ...restModes,
-            [trimmedNewName]: mode
+            [newFullName]: mode
           }
         },
         buildings: prev.buildings.map(b => {
-        const currentProcesses = b.processes || {};
-        const progress = currentProcesses[oldName];
-        const { [oldName]: _, ...restProcesses } = currentProcesses;
-        
-        const currentMatProcesses = b.materialProcesses || {};
-        const matProgress = currentMatProcesses[oldName];
-        const { [oldName]: __, ...restMatProcesses } = currentMatProcesses;
-        
-        const currentMatDates = b.materialDates || {};
-        const matDate = currentMatDates[oldName];
-        const { [oldName]: ___, ...restMatDates } = currentMatDates;
-        
-        const currentPhotos = b.photos || {};
-        const photos = currentPhotos[oldName];
-        const { [oldName]: ____, ...restPhotos } = currentPhotos;
-        
-        return {
-          ...b,
-          processes: { ...restProcesses, [trimmedNewName]: progress ?? 0 },
-          materialProcesses: { ...restMatProcesses, [trimmedNewName]: matProgress ?? 0 },
-          materialDates: { ...restMatDates, [trimmedNewName]: matDate ?? '' },
-          photos: { ...restPhotos, [trimmedNewName]: photos || [] }
-        };
-      })
-    }; });
+          const currentProcesses = b.processes || {};
+          const progress = currentProcesses[oldName];
+          const { [oldName]: _, ...restProcesses } = currentProcesses;
+
+          const currentMatProcesses = b.materialProcesses || {};
+          const matProgress = currentMatProcesses[oldName];
+          const { [oldName]: __, ...restMatProcesses } = currentMatProcesses;
+
+          const currentMatDates = b.materialDates || {};
+          const matDate = currentMatDates[oldName];
+          const { [oldName]: ___, ...restMatDates } = currentMatDates;
+
+          const currentPhotos = b.photos || {};
+          const photos = currentPhotos[oldName];
+          const { [oldName]: ____, ...restPhotos } = currentPhotos;
+
+          return {
+            ...b,
+            processes: { ...restProcesses, [newFullName]: progress ?? 0 },
+            materialProcesses: { ...restMatProcesses, [newFullName]: matProgress ?? 0 },
+            materialDates: { ...restMatDates, [newFullName]: matDate ?? '' },
+            photos: { ...restPhotos, [newFullName]: photos || [] }
+          };
+        })
+      };
+    });
   };
 
   const deleteProcess = (name: string | null) => {
@@ -2029,23 +2200,60 @@ export default function App() {
 
     addToTrash('process', { name, buildings: storageState.buildings.map(b => ({ id: b.id, progress: b.processes[name] })) });
 
-    setProcesses(processes.filter(p => p !== name));
+    const remaining = processes.filter(p => p !== name);
+    const renumbered = autoNumberProcesses(remaining);
+
+    const mapping: Record<string, string> = {};
+    remaining.forEach((oldKey, idx) => {
+      mapping[oldKey] = renumbered[idx];
+    });
+
+    setProcesses(renumbered);
     setData(prev => ({
       ...prev,
-      buildings: prev.buildings.map(b => {
-        const { [name]: _, ...rest } = b.processes;
-        return { ...b, processes: rest };
-      })
+      processMemos: Object.entries(prev.processMemos || {}).reduce((acc, [k, v]) => {
+        if (k !== name) acc[mapping[k] || k] = v;
+        return acc;
+      }, {} as Record<string, string>),
+      settings: {
+        ...prev.settings,
+        processModes: Object.entries(prev.settings.processModes || {}).reduce((acc, [k, v]) => {
+          if (k !== name) acc[mapping[k] || k] = v as 'floor' | 'percent';
+          return acc;
+        }, {} as Record<string, 'floor' | 'percent'>),
+        processSchedules: Object.entries(prev.settings.processSchedules || {}).reduce((acc, [k, v]) => {
+          if (k !== name) acc[mapping[k] || k] = v;
+          return acc;
+        }, {} as Record<string, any>)
+      },
+      buildings: prev.buildings.map(b => ({
+        ...b,
+        processes: Object.entries(b.processes || {}).reduce((acc, [k, v]) => {
+          if (k !== name) acc[mapping[k] || k] = v;
+          return acc;
+        }, {} as Record<string, number>),
+        materialProcesses: Object.entries(b.materialProcesses || {}).reduce((acc, [k, v]) => {
+          if (k !== name) acc[mapping[k] || k] = v;
+          return acc;
+        }, {} as Record<string, number>),
+        materialDates: Object.entries(b.materialDates || {}).reduce((acc, [k, v]) => {
+          if (k !== name) acc[mapping[k] || k] = v;
+          return acc;
+        }, {} as Record<string, string>),
+        photos: Object.entries(b.photos || {}).reduce((acc, [k, v]) => {
+          if (k !== name) acc[mapping[k] || k] = v;
+          return acc;
+        }, {} as Record<string, any[]>)
+      }))
     }));
+
     setProcessToDelete(null);
   };
 
-  const moveProcess = (index: number, direction: 'left' | 'right') => {
-    const newProcesses = [...processes];
-    const targetIndex = direction === 'left' ? index - 1 : index + 1;
-    if (targetIndex < 0 || targetIndex >= newProcesses.length) return;
-    [newProcesses[index], newProcesses[targetIndex]] = [newProcesses[targetIndex], newProcesses[index]];
-    setProcesses(newProcesses);
+  const resetToDefaultProcesses = () => {
+    if (!window.confirm('기본 22개 표준 공정 순서 및 명칭으로 초기화하시겠습니까?')) return;
+    const defaultNumbered = autoNumberProcesses(DEFAULT_PROCESSES);
+    setProcesses(defaultNumbered);
   };
 
   const addBuilding = () => {
@@ -2332,8 +2540,8 @@ export default function App() {
     }));
   };
 
-  // Sort processes numerically for display
-  const sortedDisplayProcesses = [...processes].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  // Display processes in exact user-configured sequential order
+  const sortedDisplayProcesses = processes;
 
   const THEMES: Record<string, any> = {
     slate: {
@@ -4263,11 +4471,11 @@ export default function App() {
 
             {/* Mobile Actions Panel (Visible Only in Mobile Card View) */}
             {mobileViewType === 'card' && role !== 'GUEST' && (
-              <div className="md:hidden grid grid-cols-2 gap-3 mb-4 no-print">
+              <div className="md:hidden grid grid-cols-3 gap-2 mb-4 no-print">
                 <button
                   type="button"
                   onClick={addBuilding}
-                  className={`flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-black border transition-all ${
+                  className={`flex items-center justify-center gap-1 py-2.5 rounded-xl text-xs font-black border transition-all ${
                     data.settings.theme === 'industrial'
                       ? 'bg-[#1a1d23] border-[#2d333d] text-slate-200 hover:bg-slate-800'
                       : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
@@ -4279,7 +4487,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setNewProcessInput(true)}
-                  className={`flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-black border transition-all ${
+                  className={`flex items-center justify-center gap-1 py-2.5 rounded-xl text-xs font-black border transition-all ${
                     data.settings.theme === 'industrial'
                       ? 'bg-[#1a1d23] border-[#2d333d] text-slate-200 hover:bg-slate-800'
                       : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
@@ -4287,6 +4495,17 @@ export default function App() {
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>공종 추가</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBatchMaterialSelectedBuildings(data.buildings.map(b => b.id));
+                    setShowBatchMaterialModal(true);
+                  }}
+                  className="flex items-center justify-center gap-1 py-2.5 rounded-xl text-xs font-black border border-amber-500/30 bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 shadow-sm transition-all"
+                >
+                  <Truck className="w-3.5 h-3.5" />
+                  <span>자재 일괄 입고</span>
                 </button>
               </div>
             )}
@@ -4306,11 +4525,23 @@ export default function App() {
                     </div>
                     <div>
                       <h3 className={`text-sm font-black ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>{selectedBuildingIds.length}개 동 선택됨</h3>
-                      <p className={`text-[10px] font-bold ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>일괄 업데이트를 진행할 공종을 선택하세요</p>
+                      <p className={`text-[10px] font-bold ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>일괄 진행률 또는 자재 입고 변경을 실행하세요</p>
                     </div>
                   </div>
                   
                   <div className="flex items-center gap-2 flex-wrap">
+                    <button 
+                      onClick={() => {
+                        setBatchMaterialSelectedBuildings(selectedBuildingIds);
+                        setShowBatchMaterialModal(true);
+                      }}
+                      className="px-3.5 py-2 rounded-xl text-xs font-black bg-amber-500 hover:bg-amber-600 text-white shadow-md flex items-center gap-1.5 transition-all cursor-pointer"
+                      title="선택된 동에 대해 자재 입고 상태를 100%로 일괄 변경"
+                    >
+                      <Truck className="w-4 h-4" />
+                      <span>자재 일괄 입고 (100%)</span>
+                    </button>
+
                     <select 
                       className={`px-3 py-2 rounded-xl text-xs font-black border focus:ring-2 focus:ring-blue-500 outline-none transition-all ${
                         isDarkTheme ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-900'
@@ -4344,7 +4575,7 @@ export default function App() {
                         e.target.value = "";
                       }}
                     >
-                      <option value="">업데이트할 공종 선택...</option>
+                      <option value="">공정 진행률 일괄 수정...</option>
                       {sortedDisplayProcesses.map(p => (
                         <option key={p} value={p}>{p}</option>
                       ))}
@@ -4392,104 +4623,154 @@ export default function App() {
                   </th>
                   <th className={`border-r border-white/20 w-8 text-center font-black px-1 py-1 text-[9px] uppercase tracking-tighter sticky left-8 z-30 ${activeTheme.header}`} style={data.settings.headerColor ? { backgroundColor: data.settings.headerColor } : {}}>No.</th>
                   <th className={`border-r border-white/20 w-24 text-center font-black px-1 py-1 text-[10px] uppercase tracking-tighter sticky left-16 z-30 ${activeTheme.header}`} style={data.settings.headerColor ? { backgroundColor: data.settings.headerColor } : {}}>동 명칭</th>
-                  {sortedDisplayProcesses.map((p) => {
+                  {sortedDisplayProcesses.map((p, idx) => {
                     const diag = getProcessDiagnosis(p);
                     const isBehind = diag.isBehind;
                     
                     return (
                       <th 
                         key={p} 
-                        className={`border-r border-white/20 text-center px-1 py-1 min-w-[80px] group transition-colors relative ${isBehind ? 'bg-rose-900/40' : ''}`}
+                        className={`border-r border-white/20 text-center px-1.5 py-1.5 min-w-[110px] group transition-colors relative ${isBehind ? 'bg-rose-900/40' : ''}`}
                       >
-                        <div className="flex flex-col gap-0.5 items-center">
+                        <div className="flex flex-col gap-1 items-center">
+                          {/* Reorder Left/Right & Sequential Number Badge */}
+                          {role !== 'GUEST' && (
+                            <div className="flex items-center justify-between w-full bg-black/25 rounded px-1 py-0.5 no-print">
+                              <button 
+                                disabled={idx === 0}
+                                onClick={(e) => { e.stopPropagation(); moveProcess(idx, 'left'); }}
+                                className="p-0.5 rounded hover:bg-white/20 text-white/80 hover:text-white disabled:opacity-20 disabled:hover:bg-transparent transition-all"
+                                title="왼쪽으로 이동 (순서 번호 자동 감소)"
+                              >
+                                <ChevronLeft className="w-3.5 h-3.5" />
+                              </button>
+                              <span className="text-[9px] font-black text-amber-300 tracking-tight">
+                                #{idx + 1}
+                              </span>
+                              <button 
+                                disabled={idx === sortedDisplayProcesses.length - 1}
+                                onClick={(e) => { e.stopPropagation(); moveProcess(idx, 'right'); }}
+                                className="p-0.5 rounded hover:bg-white/20 text-white/80 hover:text-white disabled:opacity-20 disabled:hover:bg-transparent transition-all"
+                                title="오른쪽으로 이동 (순서 번호 자동 증가)"
+                              >
+                                <ChevronRight className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          )}
+
                           <div className="flex items-center justify-center gap-1 w-full relative">
                             {isBehind && (
                               <div className="absolute -top-3 left-1/2 -translate-x-1/2 whitespace-nowrap z-40">
                                 <span className="bg-rose-600 text-white text-[7px] font-black px-1 rounded animate-pulse shadow-lg">집중관리</span>
                               </div>
                             )}
-                            <div className="absolute right-1 -top-1 opacity-0 group-hover:opacity-100 transition-opacity z-10 flex gap-0.5 no-print">
-                            <button 
-                              onClick={() => {
-                                const currentMode = getProcessMode(p);
-                                const nextMode = currentMode === 'floor' ? 'percent' : 'floor';
-                                setData(prev => ({
-                                  ...prev,
-                                  settings: {
-                                    ...prev.settings,
-                                    processModes: {
-                                      ...(prev.settings.processModes || {}),
-                                      [p]: nextMode
-                                    }
-                                  }
-                                }));
-                              }}
-                              className={`p-0.5 rounded text-[7px] font-black uppercase transition-all shadow-sm ${
-                                getProcessMode(p) === 'percent' 
-                                  ? 'bg-blue-600 text-white shadow-blue-900/50' 
-                                  : 'bg-slate-500 text-white shadow-slate-900/50 hover:bg-slate-400'
-                              }`}
-                              title={getProcessMode(p) === 'floor' ? '층수 모드 (클릭하여 %로 변경)' : '% 모드 (클릭하여 층수로 변경)'}
-                            >
-                              {getProcessMode(p) === 'floor' ? <Layers className="w-2.5 h-2.5" /> : <Percent className="w-2.5 h-2.5" />}
-                            </button>
-                          </div>
-                          <input 
-                            type="text" 
-                            defaultValue={p} 
-                            disabled={role === 'GUEST'}
-                            onBlur={(e) => renameProcess(p, e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.currentTarget.blur();
-                              }
-                            }}
-                            className="bg-transparent border-none focus:ring-0 p-0 text-[11px] font-black leading-tight text-center w-full min-w-0"
-                          />
-                          {role !== 'GUEST' && (
-                            <div className="no-print flex items-center gap-1.5 opacity-60 group-hover:opacity-100 transition-opacity absolute right-1 -bottom-4 bg-slate-800/80 px-1 py-0.5 rounded-md backdrop-blur-sm">
+                            <div className="absolute right-0 -top-1 opacity-0 group-hover:opacity-100 transition-opacity z-10 flex gap-0.5 no-print">
                               <button 
                                 onClick={() => {
-                                  const mode = getProcessMode(p);
-                                  const promptMsg = mode === 'percent' 
-                                    ? `${p} 공정을 모든 동에 적용할 진행율(%)을 입력하세요:` 
-                                    : `${p} 공정을 모든 동에 적용할 층수(숫자)를 입력하세요:`;
-                                  const inputStr = prompt(promptMsg);
-                                  if (inputStr !== null && !isNaN(Number(inputStr))) {
-                                    const val = Number(inputStr);
-                                    setData(prev => ({
-                                      ...prev,
-                                      buildings: prev.buildings.map(b => ({
-                                        ...b,
-                                        processes: { ...b.processes, [p]: mode === 'percent' ? val : floorToPercent(val, b) }
-                                      }))
-                                    }));
-                                  }
-                                }} 
-                                className="text-white/80 hover:text-blue-400 transition-colors" 
-                                title="전 동 일괄 업데이트"
+                                  const currentMode = getProcessMode(p);
+                                  const nextMode = currentMode === 'floor' ? 'percent' : 'floor';
+                                  setData(prev => ({
+                                    ...prev,
+                                    settings: {
+                                      ...prev.settings,
+                                      processModes: {
+                                        ...(prev.settings.processModes || {}),
+                                        [p]: nextMode
+                                      }
+                                    }
+                                  }));
+                                }}
+                                className={`p-0.5 rounded text-[7px] font-black uppercase transition-all shadow-sm ${
+                                  getProcessMode(p) === 'percent' 
+                                    ? 'bg-blue-600 text-white shadow-blue-900/50' 
+                                    : 'bg-slate-500 text-white shadow-slate-900/50 hover:bg-slate-400'
+                                }`}
+                                title={getProcessMode(p) === 'floor' ? '층수 모드 (클릭하여 %로 변경)' : '% 모드 (클릭하여 층수로 변경)'}
                               >
-                                <Save className="w-3.5 h-3.5" />
-                              </button>
-                              <button onClick={() => deleteProcess(p)} className="text-white/80 hover:text-rose-400 transition-colors">
-                                <Trash2 className="w-3.5 h-3.5" />
+                                {getProcessMode(p) === 'floor' ? <Layers className="w-2.5 h-2.5" /> : <Percent className="w-2.5 h-2.5" />}
                               </button>
                             </div>
-                          )}
+
+                            <input 
+                              type="text" 
+                              key={p}
+                              defaultValue={p} 
+                              disabled={role === 'GUEST'}
+                              onBlur={(e) => renameProcess(p, e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.currentTarget.blur();
+                                }
+                              }}
+                              className="bg-transparent border-none focus:ring-0 p-0 text-[11px] font-black leading-tight text-center w-full min-w-0 text-white"
+                              title="클릭하여 공정명 수정 (순서 번호는 자동으로 유지됩니다)"
+                            />
+
+                            {role !== 'GUEST' && (
+                              <div className="no-print flex items-center gap-1.5 opacity-60 group-hover:opacity-100 transition-opacity absolute right-1 -bottom-4 bg-slate-800/90 px-1.5 py-0.5 rounded-md backdrop-blur-sm z-10 shadow-md">
+                                <button 
+                                  onClick={() => {
+                                    const mode = getProcessMode(p);
+                                    const promptMsg = mode === 'percent' 
+                                      ? `${p} 공정을 모든 동에 적용할 진행율(%)을 입력하세요:` 
+                                      : `${p} 공정을 모든 동에 적용할 층수(숫자)를 입력하세요:`;
+                                    const inputStr = prompt(promptMsg);
+                                    if (inputStr !== null && !isNaN(Number(inputStr))) {
+                                      const val = Number(inputStr);
+                                      setData(prev => ({
+                                        ...prev,
+                                        buildings: prev.buildings.map(b => ({
+                                          ...b,
+                                          processes: { ...b.processes, [p]: mode === 'percent' ? val : floorToPercent(val, b) }
+                                        }))
+                                      }));
+                                    }
+                                  }} 
+                                  className="text-white/80 hover:text-blue-400 transition-colors" 
+                                  title="전 동 일괄 업데이트"
+                                >
+                                  <Save className="w-3.5 h-3.5" />
+                                </button>
+                                <button onClick={() => deleteProcess(p)} className="text-white/80 hover:text-rose-400 transition-colors" title="공정 삭제">
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            )}
                           </div>
                         </div>
                       </th>
                     );
                   })}
                   {role !== 'GUEST' && (
-                    <th className="border-r border-white/10 w-24 px-2 py-1 no-print">
-                      <button 
-                        onClick={() => setNewProcessInput(true)}
-                        className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 text-[10px] font-black transition-all border border-blue-500/30 shadow-lg shadow-blue-900/20"
-                      >
-                        <Plus className="w-4 h-4" />
-                        <span>공종추가</span>
-                      </button>
+                    <th className="border-r border-white/10 w-36 px-2 py-1 no-print">
+                      <div className="flex flex-col gap-1">
+                        <button 
+                          onClick={() => setNewProcessInput(true)}
+                          className="w-full flex items-center justify-center gap-1 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 text-[10px] font-black transition-all border border-blue-500/30 shadow-md"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>공종추가</span>
+                        </button>
+                        <button 
+                          onClick={() => setShowProcessOrderModal(true)}
+                          className="w-full flex items-center justify-center gap-1 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-300 text-[10px] font-black transition-all border border-indigo-500/30 shadow-md"
+                          title="공정 위치 및 번호 일괄 관리"
+                        >
+                          <ListOrdered className="w-3.5 h-3.5" />
+                          <span>순서/번호 관리</span>
+                        </button>
+                        <button 
+                          onClick={() => {
+                            setBatchMaterialSelectedBuildings(data.buildings.map(b => b.id));
+                            setShowBatchMaterialModal(true);
+                          }}
+                          className="w-full flex items-center justify-center gap-1 py-1.5 rounded-lg bg-amber-600/20 hover:bg-amber-600/40 text-amber-300 text-[10px] font-black transition-all border border-amber-500/30 shadow-md"
+                          title="선택 또는 전체 동에 대해 자재 입고 상태를 100%로 일괄 변경"
+                        >
+                          <Truck className="w-3.5 h-3.5" />
+                          <span>자재 일괄 입고</span>
+                        </button>
+                      </div>
                     </th>
                   )}
                   <th className={`text-center font-black px-2 py-1 w-24 text-[10px] uppercase tracking-tighter ${data.settings.theme === 'industrial' ? 'bg-emerald-800' : 'bg-blue-800'}`} style={data.settings.headerColor ? { backgroundColor: data.settings.headerColor, filter: 'brightness(90%)' } : {}}>평균</th>
@@ -6649,6 +6930,144 @@ export default function App() {
           )}
         </AnimatePresence>
 
+        {/* Process Order & Name Management Modal */}
+        <AnimatePresence>
+          {showProcessOrderModal && (
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[150] flex items-center justify-center p-4 no-print">
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95, y: 10 }} 
+                animate={{ opacity: 1, scale: 1, y: 0 }} 
+                exit={{ opacity: 0, scale: 0.95, y: 10 }} 
+                className={`p-6 md:p-8 rounded-3xl shadow-2xl max-w-2xl w-full flex flex-col max-h-[85vh] ${
+                  data.settings.theme === 'industrial' ? 'bg-[#1a1d23] border border-[#2d333d] text-white' : 'bg-white text-slate-900'
+                }`}
+              >
+                <div className="flex items-center justify-between pb-4 border-b border-slate-200/20">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 rounded-2xl bg-indigo-500/20 text-indigo-400">
+                      <ListOrdered className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-black tracking-tight">공정 순서 및 명칭 관리</h3>
+                      <p className="text-xs text-slate-400 font-semibold">
+                        순서를 위아래로 이동하면 1번부터 순서대로 번호가 자동 적용됩니다
+                      </p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => setShowProcessOrderModal(false)} 
+                    className="p-2 rounded-full hover:bg-slate-500/20 text-slate-400 transition-colors"
+                  >
+                    <Plus className="w-5 h-5 rotate-45" />
+                  </button>
+                </div>
+
+                {/* Process List Container */}
+                <div className="flex-1 overflow-y-auto py-4 space-y-2 custom-scrollbar pr-1">
+                  {processes.map((p, idx) => {
+                    const cleanName = getCleanProcessName(p);
+                    return (
+                      <div 
+                        key={p} 
+                        className={`flex items-center gap-2 p-2.5 rounded-2xl border transition-all ${
+                          data.settings.theme === 'industrial' 
+                            ? 'bg-slate-800/80 border-slate-700/80 hover:bg-slate-800' 
+                            : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        {/* Sequence Badge */}
+                        <div className="flex items-center justify-center min-w-[36px] h-9 rounded-xl bg-indigo-600 text-white font-black text-xs shadow-sm">
+                          #{idx + 1}
+                        </div>
+
+                        {/* Reorder Buttons Up/Down */}
+                        <div className="flex flex-col gap-0.5">
+                          <button 
+                            disabled={idx === 0}
+                            onClick={() => moveProcess(idx, 'left')}
+                            className="p-1 rounded bg-slate-200/50 dark:bg-slate-700/50 hover:bg-indigo-500 hover:text-white disabled:opacity-20 transition-all"
+                            title="위로 이동 (순서 1 감소)"
+                          >
+                            <ArrowUp className="w-3 h-3" />
+                          </button>
+                          <button 
+                            disabled={idx === processes.length - 1}
+                            onClick={() => moveProcess(idx, 'right')}
+                            className="p-1 rounded bg-slate-200/50 dark:bg-slate-700/50 hover:bg-indigo-500 hover:text-white disabled:opacity-20 transition-all"
+                            title="아래로 이동 (순서 1 증가)"
+                          >
+                            <ArrowDown className="w-3 h-3" />
+                          </button>
+                        </div>
+
+                        {/* Process Name Input */}
+                        <div className="flex-1 flex items-center gap-2">
+                          <input 
+                            type="text" 
+                            defaultValue={cleanName} 
+                            onBlur={(e) => renameProcess(p, e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+                            className={`w-full px-3 py-1.5 rounded-xl border text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                              data.settings.theme === 'industrial' 
+                                ? 'bg-slate-900/80 border-slate-700 text-white' 
+                                : 'bg-white border-slate-200 text-slate-900'
+                            }`}
+                            placeholder="공정 명칭 입력..."
+                          />
+                        </div>
+
+                        {/* Delete Button */}
+                        <button 
+                          onClick={() => deleteProcess(p)} 
+                          className="p-2 rounded-xl text-rose-500 hover:bg-rose-500/10 transition-colors"
+                          title="공정 삭제"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Footer Controls */}
+                <div className="pt-4 border-t border-slate-200/20 flex flex-wrap items-center justify-between gap-3">
+                  <button 
+                    onClick={resetToDefaultProcesses}
+                    className="px-3.5 py-2 rounded-xl text-xs font-bold text-amber-500 bg-amber-500/10 hover:bg-amber-500/20 transition-colors flex items-center gap-1.5"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>기본 22개 공정 순서 초기화</span>
+                  </button>
+
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={() => {
+                        setShowProcessOrderModal(false);
+                        setNewProcessInput(true);
+                      }}
+                      className="px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 text-white hover:bg-blue-500 transition-colors flex items-center gap-1.5"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>신규 공정 추가</span>
+                    </button>
+
+                    <button 
+                      onClick={() => setShowProcessOrderModal(false)}
+                      className={`px-5 py-2 rounded-xl text-xs font-bold transition-colors ${
+                        data.settings.theme === 'industrial' 
+                          ? 'bg-slate-800 text-slate-200 hover:bg-slate-700' 
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      닫기
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
         {/* Building Detail Chart Modal */}
         <AnimatePresence>
           {selectedBuildingDetail && (
@@ -6658,6 +7077,209 @@ export default function App() {
               activeTheme={activeTheme}
               onClose={() => setSelectedBuildingDetail(null)}
             />
+          )}
+        </AnimatePresence>
+
+        {/* Batch Material Delivery Modal */}
+        <AnimatePresence>
+          {showBatchMaterialModal && (
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[150] flex items-center justify-center p-4 no-print">
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95, y: 10 }} 
+                animate={{ opacity: 1, scale: 1, y: 0 }} 
+                exit={{ opacity: 0, scale: 0.95, y: 10 }} 
+                className={`p-6 md:p-8 rounded-3xl shadow-2xl max-w-2xl w-full flex flex-col max-h-[85vh] ${
+                  data.settings.theme === 'industrial' ? 'bg-[#1a1d23] border border-[#2d333d] text-white' : 'bg-white text-slate-900'
+                }`}
+              >
+                {/* Header */}
+                <div className="flex items-center justify-between pb-4 border-b border-slate-200/20">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 rounded-2xl bg-amber-500/20 text-amber-500">
+                      <Truck className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-black tracking-tight">자재 일괄 입고 (100% 입고 완료)</h3>
+                      <p className="text-xs text-slate-400 font-semibold">
+                        선택한 동들의 자재 입고 상태를 일괄 100% (입고완료)로 변경합니다
+                      </p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => setShowBatchMaterialModal(false)} 
+                    className="p-2 rounded-full hover:bg-slate-500/20 text-slate-400 transition-colors"
+                  >
+                    <Plus className="w-5 h-5 rotate-45" />
+                  </button>
+                </div>
+
+                {/* Modal Body Scrollable */}
+                <div className="flex-1 overflow-y-auto py-5 space-y-5 custom-scrollbar pr-1">
+                  {/* Section 1: Buildings Selection */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-black uppercase text-amber-500 flex items-center gap-1.5">
+                        <span>1. 적용 대상 동 선택</span>
+                        <span className="text-slate-400 font-bold normal-case">
+                          ({batchMaterialSelectedBuildings.length}/{data.buildings.length}개 동 선택됨)
+                        </span>
+                      </label>
+                      <div className="flex items-center gap-1.5">
+                        <button 
+                          type="button"
+                          onClick={() => setBatchMaterialSelectedBuildings(data.buildings.map(b => b.id))}
+                          className="px-2.5 py-1 rounded-lg text-[11px] font-extrabold bg-blue-500/10 text-blue-500 hover:bg-blue-500/20 transition-all"
+                        >
+                          전체 선택
+                        </button>
+                        <button 
+                          type="button"
+                          onClick={() => setBatchMaterialSelectedBuildings([])}
+                          className="px-2.5 py-1 rounded-lg text-[11px] font-extrabold bg-slate-500/10 text-slate-400 hover:bg-slate-500/20 transition-all"
+                        >
+                          선택 해제
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Building Grid */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 pt-1">
+                      {data.buildings.map(b => {
+                        const isSelected = batchMaterialSelectedBuildings.includes(b.id);
+                        return (
+                          <button
+                            key={b.id}
+                            type="button"
+                            onClick={() => {
+                              if (isSelected) {
+                                setBatchMaterialSelectedBuildings(prev => prev.filter(id => id !== b.id));
+                              } else {
+                                setBatchMaterialSelectedBuildings(prev => [...prev, b.id]);
+                              }
+                            }}
+                            className={`flex items-center justify-between p-2.5 rounded-xl border text-xs font-black transition-all ${
+                              isSelected 
+                                ? 'bg-amber-500/20 border-amber-500 text-amber-400 shadow-sm' 
+                                : (data.settings.theme === 'industrial' ? 'bg-slate-800/60 border-slate-700/60 text-slate-400 hover:bg-slate-800' : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100')
+                            }`}
+                          >
+                            <span>{b.name}</span>
+                            <div className={`w-4 h-4 rounded-md flex items-center justify-center border text-[10px] ${
+                              isSelected ? 'bg-amber-500 border-amber-500 text-white' : 'border-slate-400/40'
+                            }`}>
+                              {isSelected && '✓'}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Section 2: Target Process Selection */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase text-amber-500">
+                      2. 적용 대상 공종 선택
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setBatchMaterialTargetProcess('ALL')}
+                        className={`flex items-center justify-center p-3 rounded-xl border text-xs font-black transition-all ${
+                          batchMaterialTargetProcess === 'ALL'
+                            ? 'bg-amber-500/20 border-amber-500 text-amber-400 shadow-sm'
+                            : (data.settings.theme === 'industrial' ? 'bg-slate-800/60 border-slate-700 text-slate-400 hover:bg-slate-800' : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100')
+                        }`}
+                      >
+                        전체 공종 (22개 모든 공종 자재 100% 입고)
+                      </button>
+
+                      <div className="relative">
+                        <select
+                          value={batchMaterialTargetProcess === 'ALL' ? '' : batchMaterialTargetProcess}
+                          onChange={(e) => {
+                            if (e.target.value) {
+                              setBatchMaterialTargetProcess(e.target.value);
+                            }
+                          }}
+                          className={`w-full p-3 rounded-xl border text-xs font-black outline-none focus:ring-2 focus:ring-amber-500 appearance-none ${
+                            batchMaterialTargetProcess !== 'ALL'
+                              ? 'bg-amber-500/20 border-amber-500 text-amber-400 shadow-sm'
+                              : (data.settings.theme === 'industrial' ? 'bg-slate-800/60 border-slate-700 text-slate-400' : 'bg-slate-50 border-slate-200 text-slate-600')
+                          }`}
+                        >
+                          <option value="" className="text-slate-500">특정 공종 선택...</option>
+                          {processes.map(p => (
+                            <option key={p} value={p} className={data.settings.theme === 'industrial' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
+                              {p}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Section 3: Delivery Date Selection */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-black uppercase text-amber-500">
+                        3. 자재 입고 완료 일자 지정
+                      </label>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setBatchMaterialDate(new Date().toISOString().split('T')[0])}
+                          className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-500/20 text-slate-300 hover:bg-slate-500/30"
+                        >
+                          오늘
+                        </button>
+                      </div>
+                    </div>
+                    <input 
+                      type="date"
+                      value={batchMaterialDate}
+                      onChange={(e) => setBatchMaterialDate(e.target.value)}
+                      className={`w-full px-3 py-2.5 rounded-xl border text-xs font-extrabold focus:outline-none focus:ring-2 focus:ring-amber-500 ${
+                        data.settings.theme === 'industrial' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-900'
+                      }`}
+                    />
+                  </div>
+
+                  {/* Confirmation Box */}
+                  <div className={`p-4 rounded-2xl border text-xs font-semibold leading-relaxed flex items-start gap-3 ${
+                    data.settings.theme === 'industrial' ? 'bg-amber-950/30 border-amber-500/30 text-amber-200' : 'bg-amber-50 border-amber-200 text-amber-900'
+                  }`}>
+                    <Truck className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-bold underline">적용 안내</span>: 선택된 <span className="font-black text-amber-500">{batchMaterialSelectedBuildings.length}개 동</span>의 <span className="font-black text-amber-500">{batchMaterialTargetProcess === 'ALL' ? '전체 공종' : batchMaterialTargetProcess}</span> 자재 입고 상태가 <span className="font-black underline">100% (입고완료)</span>로 변경되며, 입고일자가 <span className="font-black underline">{batchMaterialDate}</span>로 등록됩니다.
+                    </div>
+                  </div>
+                </div>
+
+                {/* Footer */}
+                <div className="pt-4 border-t border-slate-200/20 flex items-center justify-end gap-2">
+                  <button 
+                    type="button"
+                    onClick={() => setShowBatchMaterialModal(false)}
+                    className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-colors ${
+                      data.settings.theme === 'industrial' 
+                        ? 'bg-slate-800 text-slate-200 hover:bg-slate-700' 
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    }`}
+                  >
+                    취소
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={handleExecuteBatchMaterialDelivery}
+                    disabled={batchMaterialSelectedBuildings.length === 0}
+                    className="px-6 py-2.5 rounded-xl text-xs font-black bg-amber-500 hover:bg-amber-600 disabled:opacity-30 disabled:hover:bg-amber-500 text-white shadow-lg shadow-amber-900/20 transition-all flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Truck className="w-4 h-4" />
+                    <span>자재 100% 일괄 입고 실행</span>
+                  </button>
+                </div>
+              </motion.div>
+            </div>
           )}
         </AnimatePresence>
 
