@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Building2, Info, Trash2, Settings, X, Check, ArrowRight, Layers, Plus, Minus, Clock, Zap, Copy, ClipboardPaste, RefreshCcw, Eraser, Printer } from 'lucide-react';
+import { Building2, Info, Trash2, Settings, X, Check, ArrowRight, Layers, Plus, Minus, Clock, Zap, Copy, ClipboardPaste, RefreshCcw, Eraser, Printer, Sparkles, Sliders, Wand2, Grid } from 'lucide-react';
 import { AppState, BuildingData, UnitTypeConfig, DEFAULT_UNIT_TYPES, DEFAULT_PROCESSES } from '../types';
 
 interface GolgudoViewProps {
@@ -33,6 +33,255 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
   const [showSummary, setShowSummary] = useState(true);
   const [showRecentMods, setShowRecentMods] = useState(true);
   const [isLocked, setIsLocked] = useState(false);
+
+  // Batch Operations & Floor Merge States
+  const [showBatchModal, setShowBatchModal] = useState(false);
+  const [batchTab, setBatchTab] = useState<'range' | 'replace' | 'merge' | 'pattern' | 'types'>('range');
+  const [batchTargetBuilding, setBatchTargetBuilding] = useState<number | 'ALL'>('ALL');
+  const [batchStartFloor, setBatchStartFloor] = useState<number>(1);
+  const [batchEndFloor, setBatchEndFloor] = useState<number>(20);
+  const [batchUnitType, setBatchUnitType] = useState<string>('84A');
+  const [batchLine, setBatchLine] = useState<number | 'ALL'>('ALL');
+  const [batchMergeMode, setBatchMergeMode] = useState<number>(-1); // -1: 유지, 0: 일반분할, 1: 1세대통합, 2: 2세대합침
+
+  // Type Replace States
+  const [replaceFromType, setReplaceFromType] = useState<string>('59A');
+  const [replaceToType, setReplaceToType] = useState<string>('84A');
+  const [replaceBuildingId, setReplaceBuildingId] = useState<number | 'ALL'>('ALL');
+
+  // Top Floor Merge States
+  const [mergeTopCount, setMergeTopCount] = useState<number>(1);
+  const [mergeTypeChoice, setMergeTypeChoice] = useState<number>(1); // 1: 1세대, 2: 2세대
+  const [mergeBuildingId, setMergeBuildingId] = useState<number | 'ALL'>('ALL');
+
+  // Helper for floor merge status
+  const getFloorMergeType = (building: BuildingData, floor: number): number => {
+    return building.floorMergeMap?.[floor] || 0;
+  };
+
+  const toggleFloorMerge = (b: BuildingData, floor: number) => {
+    if (isLocked) {
+      alert('편집 잠금 상태입니다. 상단 열쇠 아이콘을 눌러 잠금을 해제하세요.');
+      return;
+    }
+    const current = getFloorMergeType(b, floor);
+    const next = (current + 1) % 3; // 0 (일반) -> 1 (1세대 통합) -> 2 (2세대 합침) -> 0
+    const currentMap = b.floorMergeMap || {};
+    const label = next === 1 ? '1개 세대 통합' : next === 2 ? '2개 세대 합침' : '일반 분할';
+
+    onUpdateBuilding(b.id, {
+      floorMergeMap: { ...currentMap, [floor]: next },
+      lastLog: {
+        type: 'floor_change',
+        description: `${floor < 0 ? `B${Math.abs(floor)}` : `${floor}F`} 세대 구성 -> ${label}`,
+        timestamp: new Date().toISOString()
+      }
+    });
+  };
+
+  // 1. Batch Range Apply
+  const handleApplyBatchRange = () => {
+    if (isLocked) {
+      alert('편집 잠금 상태입니다.');
+      return;
+    }
+
+    const targetBuildings = batchTargetBuilding === 'ALL'
+      ? data.buildings
+      : data.buildings.filter(b => b.id === batchTargetBuilding);
+
+    if (targetBuildings.length === 0) return;
+
+    let count = 0;
+    targetBuildings.forEach(b => {
+      const newUnitMap = { ...(b.unitMap || {}) };
+      const newMergeMap = { ...(b.floorMergeMap || {}) };
+      const { lines } = getBuildingUnits(b);
+
+      const minF = Math.min(batchStartFloor, batchEndFloor);
+      const maxF = Math.max(batchStartFloor, batchEndFloor);
+
+      for (let f = minF; f <= maxF; f++) {
+        if (f === 0) continue;
+
+        if (batchMergeMode !== -1) {
+          newMergeMap[f] = batchMergeMode;
+        }
+
+        const mergeType = batchMergeMode !== -1 ? batchMergeMode : getFloorMergeType(b, f);
+        const maxLines = mergeType === 1 ? 1 : mergeType === 2 ? 2 : lines;
+
+        if (batchLine === 'ALL') {
+          for (let l = 1; l <= maxLines; l++) {
+            newUnitMap[`${f}:${l}`] = batchUnitType;
+            count++;
+          }
+        } else {
+          if (batchLine <= maxLines) {
+            newUnitMap[`${f}:${batchLine}`] = batchUnitType;
+            count++;
+          }
+        }
+      }
+
+      onUpdateBuilding(b.id, {
+        unitMap: newUnitMap,
+        floorMergeMap: newMergeMap,
+        lastLog: {
+          type: 'unit_change',
+          description: `범위 일괄 설정 (${minF}F~${maxF}F -> ${batchUnitType})`,
+          timestamp: new Date().toISOString()
+        }
+      });
+    });
+
+    alert(`${targetBuildings.length}개 동 ${batchStartFloor}F~${batchEndFloor}F 범위 세대 설정 변경 완료!`);
+  };
+
+  // 2. Type Find & Replace
+  const handleApplyReplaceType = () => {
+    if (isLocked) {
+      alert('편집 잠금 상태입니다.');
+      return;
+    }
+    if (!replaceFromType || !replaceToType) {
+      alert('교체할 세대 타입을 선택하세요.');
+      return;
+    }
+
+    const targetBuildings = replaceBuildingId === 'ALL'
+      ? data.buildings
+      : data.buildings.filter(b => b.id === replaceBuildingId);
+
+    let replacedCount = 0;
+    targetBuildings.forEach(b => {
+      const newUnitMap = { ...(b.unitMap || {}) };
+      const { mainFloors, basementFloors, lines } = getBuildingUnits(b);
+      const allFloors = [...mainFloors, ...basementFloors];
+
+      allFloors.forEach(f => {
+        if (f === 0) return;
+        const merge = getFloorMergeType(b, f);
+        const maxL = merge === 1 ? 1 : merge === 2 ? 2 : lines;
+        for (let l = 1; l <= maxL; l++) {
+          const key = `${f}:${l}`;
+          const current = getUnitType(b, f, l);
+          if (current === replaceFromType) {
+            newUnitMap[key] = replaceToType;
+            replacedCount++;
+          }
+        }
+      });
+
+      onUpdateBuilding(b.id, {
+        unitMap: newUnitMap,
+        lastLog: {
+          type: 'unit_change',
+          description: `타입 일괄 교체: ${replaceFromType} -> ${replaceToType}`,
+          timestamp: new Date().toISOString()
+        }
+      });
+    });
+
+    alert(`총 ${replacedCount}개 세대의 타입이 [${replaceFromType}] -> [${replaceToType}]로 교체되었습니다.`);
+  };
+
+  // 3. Top Floor Merging
+  const handleApplyTopFloorMerge = () => {
+    if (isLocked) return;
+
+    const targetBuildings = mergeBuildingId === 'ALL'
+      ? data.buildings
+      : data.buildings.filter(b => b.id === mergeBuildingId);
+
+    targetBuildings.forEach(b => {
+      const maxF = b.maxFloor || data.settings.maxFloor;
+      const startF = Math.max(1, maxF - mergeTopCount + 1);
+      const newMergeMap = { ...(b.floorMergeMap || {}) };
+
+      for (let f = startF; f <= maxF; f++) {
+        newMergeMap[f] = mergeTypeChoice;
+      }
+
+      const label = mergeTypeChoice === 1 ? '1개 세대 통합' : '2개 세대 합침';
+      onUpdateBuilding(b.id, {
+        floorMergeMap: newMergeMap,
+        lastLog: {
+          type: 'floor_change',
+          description: `최상층 ${mergeTopCount}개층 ${label} 적용`,
+          timestamp: new Date().toISOString()
+        }
+      });
+    });
+
+    alert(`${targetBuildings.length}개 동 상위 ${mergeTopCount}개층 세대 합치기 설정 완료!`);
+  };
+
+  // 4. Standard Apartment Presets Load
+  const handleLoadStandardPresets = () => {
+    const APARTMENT_PRESETS: UnitTypeConfig[] = [
+      { type: '39A', color: 'bg-indigo-500', textColor: 'text-white' },
+      { type: '59A', color: 'bg-emerald-500', textColor: 'text-white' },
+      { type: '59B', color: 'bg-teal-500', textColor: 'text-white' },
+      { type: '74A', color: 'bg-blue-500', textColor: 'text-white' },
+      { type: '74B', color: 'bg-sky-500', textColor: 'text-white' },
+      { type: '84A', color: 'bg-amber-500', textColor: 'text-white' },
+      { type: '84B', color: 'bg-orange-500', textColor: 'text-white' },
+      { type: '84C', color: 'bg-rose-500', textColor: 'text-white' },
+      { type: '101A', color: 'bg-purple-600', textColor: 'text-white' },
+      { type: 'PH1', color: 'bg-violet-700', textColor: 'text-white' },
+    ];
+    if (window.confirm('기존 세대 타입 목록을 표준 아파트 타입(39A, 59A, 84A, PH1 등)으로 초기화하시겠습니까?')) {
+      onUpdateUnitTypeConfigs?.(APARTMENT_PRESETS);
+    }
+  };
+
+  // 5. Apply Pattern Presets
+  const handleApplyStandardPattern = (bId: number | 'ALL') => {
+    if (isLocked) return;
+    const targets = bId === 'ALL' ? data.buildings : data.buildings.filter(b => b.id === bId);
+
+    targets.forEach(b => {
+      const maxF = b.maxFloor || data.settings.maxFloor;
+      const newUnitMap = { ...(b.unitMap || {}) };
+      const newMergeMap = { ...(b.floorMergeMap || {}) };
+      const { lines } = getBuildingUnits(b);
+
+      for (let f = 1; f <= maxF; f++) {
+        if (f === 1) {
+          for (let l = 1; l <= lines; l++) {
+            newUnitMap[`1:${l}`] = '필로티';
+          }
+          newMergeMap[1] = 0;
+        } else if (f === maxF) {
+          newMergeMap[f] = 1;
+          newUnitMap[`${f}:1`] = 'PH1';
+        } else if (f >= Math.floor(maxF * 0.7)) {
+          newMergeMap[f] = 0;
+          for (let l = 1; l <= lines; l++) {
+            newUnitMap[`${f}:${l}`] = '84B';
+          }
+        } else {
+          newMergeMap[f] = 0;
+          for (let l = 1; l <= lines; l++) {
+            newUnitMap[`${f}:${l}`] = '84A';
+          }
+        }
+      }
+
+      onUpdateBuilding(b.id, {
+        unitMap: newUnitMap,
+        floorMergeMap: newMergeMap,
+        lastLog: {
+          type: 'unit_change',
+          description: '표준 층별 세대 패턴 일괄 적용 (1F 필로티, 중/고층, PH)',
+          timestamp: new Date().toISOString()
+        }
+      });
+    });
+
+    alert('표준 층별 세대 구성 및 타입 패턴 일괄 적용이 완료되었습니다!');
+  };
 
   const [layoutConfig, setLayoutConfig] = useState({
     cellHeight: 40,
@@ -554,6 +803,14 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
               title="최근 수정 로그 토글"
             >
               {showRecentMods ? 'Hide Logs' : 'Show Logs'}
+            </button>
+            <button 
+              onClick={() => setShowBatchModal(true)}
+              className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-black text-[10px] uppercase tracking-widest shadow-lg shadow-indigo-500/25 flex items-center gap-2 transition-all active:scale-95"
+              title="세대 타입 및 층별 합치기 일괄 수정 마법사 열기"
+            >
+              <Sparkles className="w-4 h-4 fill-amber-300 text-amber-300 animate-pulse" />
+              <span>세대타입/합치기 일괄 수정</span>
             </button>
             <div className="w-[2px] h-8 bg-slate-200 dark:bg-slate-800 mx-1" />
             <button 
@@ -1202,103 +1459,246 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
                           />
                         )}
 
-                        <button 
-                          onClick={() => applyTypeToFloor(b, fNum)}
-                          className={`p-2 flex flex-col items-center justify-center border-r-2 border-slate-200 dark:border-slate-800 font-black relative overflow-hidden transition-all duration-500 z-20 active:scale-95 cursor-pointer ${isWorkingFloor ? 'bg-blue-600 text-white shadow-[inset_0_0_20px_rgba(255,255,255,0.2)]' : isWireframe ? 'text-slate-400 bg-slate-50/10' : 'text-blue-600 bg-slate-100/30 dark:bg-slate-900/30'} ${showGuide ? 'text-blue-500 bg-blue-50/50 dark:bg-blue-900/30 underline decoration-blue-500/50 decoration-2' : ''}`} 
-                          style={{ minWidth: '50px', padding: dynamicFloorHeight ? `${Math.floor(layoutConfig.cellHeight * 0.25 * floorScale)}px 0` : `${Math.floor(layoutConfig.cellHeight * 0.25)}px 0` }}
-                          title={selectedUnitType ? `${fNum}층 전체를 ${selectedUnitType} 타입으로 변경 (Alt+클릭: 전 단지 적용)` : '클릭하여 층 전체 타입 변경 (Alt+클릭: 전 단지 적용)'}
-                        >
-                          {isWorkingFloor && (
-                            <motion.div 
-                              initial={{ x: "-100%" }}
-                              animate={{ x: "200%" }}
-                              transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
-                              className="absolute inset-0 bg-white/20 skew-x-12"
-                            />
-                          )}
-                          <span className={`${isWorkingFloor ? 'text-[11px] scale-110' : 'text-[10px]'} relative z-10`}>
-                            {fNum > maxFloorNum ? `PH${fNum - maxFloorNum}` : `${fNum}F`}
-                          </span>
-                          {isWorkingFloor && (
-                            <span className="text-[6px] font-black uppercase tracking-tighter opacity-90 leading-none relative z-10 mt-0.5 px-1 bg-white text-blue-600 rounded-sm">
-                              작업중
+                        <div className="flex flex-col items-center justify-center min-w-[50px] border-r-2 border-slate-200 dark:border-slate-800 z-20">
+                          <button 
+                            onClick={() => applyTypeToFloor(b, fNum)}
+                            className={`w-full p-1 flex flex-col items-center justify-center font-black relative overflow-hidden transition-all duration-500 active:scale-95 cursor-pointer ${isWorkingFloor ? 'bg-blue-600 text-white shadow-[inset_0_0_20px_rgba(255,255,255,0.2)]' : isWireframe ? 'text-slate-400 bg-slate-50/10' : 'text-blue-600 bg-slate-100/30 dark:bg-slate-900/30'} ${showGuide ? 'text-blue-500 bg-blue-50/50 dark:bg-blue-900/30 underline decoration-blue-500/50 decoration-2' : ''}`} 
+                            style={{ padding: dynamicFloorHeight ? `${Math.floor(layoutConfig.cellHeight * 0.15 * floorScale)}px 0` : `${Math.floor(layoutConfig.cellHeight * 0.15)}px 0` }}
+                            title={selectedUnitType ? `${fNum}층 전체를 ${selectedUnitType} 타입으로 변경 (Alt+클릭: 전 단지 적용)` : '클릭하여 층 전체 타입 변경 (Alt+클릭: 전 단지 적용)'}
+                          >
+                            {isWorkingFloor && (
+                              <motion.div 
+                                initial={{ x: "-100%" }}
+                                animate={{ x: "200%" }}
+                                transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+                                className="absolute inset-0 bg-white/20 skew-x-12"
+                              />
+                            )}
+                            <span className={`${isWorkingFloor ? 'text-[11px] scale-110' : 'text-[10px]'} relative z-10`}>
+                              {fNum > maxFloorNum ? `PH${fNum - maxFloorNum}` : `${fNum}F`}
                             </span>
-                          )}
-                          {!isWireframe && fNum <= maxFloorNum && !isWorkingFloor && progress > 0 && (
-                            <motion.div 
-                              initial={{ scale: 0 }}
-                              animate={{ scale: 1 }}
-                              className="absolute top-1 right-1"
-                            >
-                               <Check className={`w-2.5 h-2.5 ${isHovered || showGuide ? 'text-white bg-blue-500' : 'text-blue-500 bg-white/80 dark:bg-slate-800/80'} rounded-full shadow-sm p-0.5`} />
-                            </motion.div>
-                          )}
-                        </button>
-                        {Array.from({ length: lines }).map((_, i) => {
-                          const type = getUnitType(b, fNum, i + 1);
-                          const colorInfo = getTypeColorInfo(type);
-                          const activeFilter = selectedUnitType || hoveredUnitType;
-                          const isTypeHovered = activeFilter !== null && type === activeFilter;
-                          const isOtherTypeHovered = activeFilter !== null && type !== activeFilter;
-                          
-                          return (
-                            <button 
-                              key={i} 
-                              onMouseDown={() => {
-                                if (isLocked) return;
-                                if (selectedUnitType !== null) {
-                                  setIsPainting(true);
-                                  // Directly set type if painting instead of cycling
-                                  const currentMap = b.unitMap || {};
-                                  onUpdateBuilding(b.id, {
-                                    unitMap: { ...currentMap, [`${fNum}:${i + 1}`]: selectedUnitType },
-                                    lastLog: {
-                                      type: 'unit_change',
-                                      description: `${fNum < 0 ? `B${Math.abs(fNum)}` : `${fNum}F`} ${i + 1}호 -> ${selectedUnitType || '삭제'}`,
-                                      timestamp: new Date().toISOString()
-                                    }
-                                  });
-                                }
-                              }}
-                              onMouseEnter={() => {
-                                if (isLocked) return;
-                                if (isPainting && selectedUnitType !== null) {
-                                  if (getUnitType(b, fNum, i + 1) !== selectedUnitType) {
-                                    // Directly set type if painting
+                            {isWorkingFloor && (
+                              <span className="text-[6px] font-black uppercase tracking-tighter opacity-90 leading-none relative z-10 mt-0.5 px-1 bg-white text-blue-600 rounded-sm">
+                                작업중
+                              </span>
+                            )}
+                            {!isWireframe && fNum <= maxFloorNum && !isWorkingFloor && progress > 0 && (
+                              <motion.div 
+                                initial={{ scale: 0 }}
+                                animate={{ scale: 1 }}
+                                className="absolute top-1 right-1"
+                              >
+                                 <Check className={`w-2.5 h-2.5 ${isHovered || showGuide ? 'text-white bg-blue-500' : 'text-blue-500 bg-white/80 dark:bg-slate-800/80'} rounded-full shadow-sm p-0.5`} />
+                              </motion.div>
+                            )}
+                          </button>
+                          {/* Floor Merge Toggle Badge */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleFloorMerge(b, fNum);
+                            }}
+                            className={`mt-0.5 px-1 py-0.2 text-[7px] font-black rounded transition-all border ${
+                              getFloorMergeType(b, fNum) === 1
+                                ? 'bg-purple-600 text-white border-purple-400 shadow-sm'
+                                : getFloorMergeType(b, fNum) === 2
+                                ? 'bg-amber-600 text-white border-amber-400 shadow-sm'
+                                : 'bg-slate-200/40 dark:bg-slate-800/40 text-slate-400 hover:text-blue-500 border-transparent'
+                            }`}
+                            title="클릭하여 층 세대 합치기 변경 (일반 / 2세대 합침 / 1세대 통합)"
+                          >
+                            {getFloorMergeType(b, fNum) === 1 ? '1세대' : getFloorMergeType(b, fNum) === 2 ? '2세대' : '합침'}
+                          </button>
+                        </div>
+
+                        {/* Render Units according to Floor Merge Mode */}
+                        {(() => {
+                          const floorMerge = getFloorMergeType(b, fNum);
+
+                          if (floorMerge === 1) {
+                            // 1세대 통합 (Spans all lines)
+                            const type = getUnitType(b, fNum, 1);
+                            const colorInfo = getTypeColorInfo(type);
+                            const activeFilter = selectedUnitType || hoveredUnitType;
+                            const isTypeHovered = activeFilter !== null && type === activeFilter;
+                            const isOtherTypeHovered = activeFilter !== null && type !== activeFilter;
+
+                            return (
+                              <button
+                                style={{ gridColumn: `span ${lines}` }}
+                                onMouseDown={() => {
+                                  if (isLocked) return;
+                                  if (selectedUnitType !== null) {
+                                    setIsPainting(true);
                                     const currentMap = b.unitMap || {};
                                     onUpdateBuilding(b.id, {
-                                      unitMap: { ...currentMap, [`${fNum}:${i + 1}`]: selectedUnitType }
+                                      unitMap: { ...currentMap, [`${fNum}:1`]: selectedUnitType },
+                                      lastLog: {
+                                        type: 'unit_change',
+                                        description: `${fNum}F 전층 1세대 -> ${selectedUnitType || '삭제'}`,
+                                        timestamp: new Date().toISOString()
+                                      }
                                     });
                                   }
-                                }
-                              }}
-                              onClick={() => {
-                                if (!isPainting) cycleUnitType(b, fNum, i + 1);
-                              }}
-                              className={`p-1.5 border-r border-slate-200 dark:border-slate-800 last:border-r-0 flex items-center justify-center hover:bg-blue-500/10 transition-all cursor-pointer group/unit shadow-inner active:scale-95 px-1 ${isOtherTypeHovered ? 'opacity-20 grayscale' : 'opacity-100'}`}
-                              style={{ padding: dynamicFloorHeight ? `${Math.floor(6 * floorScale)}px 4px` : '' }}
-                              title={`${fNum}층 ${i + 1}호 타입 변경 (현재: ${type || '없음'}) ${selectedUnitType ? '- 드래그하여 페인팅 가능' : ''}`}
-                            >
-                              <div 
-                                className={`unit-cell w-full py-1.5 rounded-lg font-black text-center shadow-md uppercase tracking-tighter transition-all duration-300 flex items-center justify-center ${isTypeHovered ? 'ring-2 ring-blue-500 scale-110 z-10' : ''} ${isWireframe && type ? 'border-2 border-dashed' : colorInfo.className}`}
-                                style={{
-                                  ...colorInfo.style,
-                                  ...(isWireframe && type ? { 
-                                    backgroundColor: colorInfo.style?.backgroundColor ? `${colorInfo.style.backgroundColor}20` : 'rgba(148, 163, 184, 0.15)',
-                                    borderColor: colorInfo.style?.backgroundColor || '#94a3b8',
-                                    color: colorInfo.style?.backgroundColor || '#94a3b8',
-                                    boxShadow: 'none'
-                                  } : {}),
-                                  padding: dynamicFloorHeight ? `${Math.floor(layoutConfig.cellHeight * 0.15 * floorScale)}px 0` : `${Math.floor(layoutConfig.cellHeight * 0.15)}px 0`,
-                                  minHeight: dynamicFloorHeight ? `${Math.floor(layoutConfig.cellHeight * 0.6 * floorScale)}px` : `${Math.floor(layoutConfig.cellHeight * 0.6)}px`,
-                                  fontSize: dynamicFloorHeight ? `${Math.max(7, Math.floor(layoutConfig.fontSize * floorScale))}px` : `${layoutConfig.fontSize}px`
                                 }}
+                                onMouseEnter={() => {
+                                  if (isLocked) return;
+                                  if (isPainting && selectedUnitType !== null) {
+                                    if (getUnitType(b, fNum, 1) !== selectedUnitType) {
+                                      const currentMap = b.unitMap || {};
+                                      onUpdateBuilding(b.id, {
+                                        unitMap: { ...currentMap, [`${fNum}:1`]: selectedUnitType }
+                                      });
+                                    }
+                                  }
+                                }}
+                                onClick={() => {
+                                  if (!isPainting) cycleUnitType(b, fNum, 1);
+                                }}
+                                className={`p-1.5 border-r border-slate-200 dark:border-slate-800 flex items-center justify-center hover:bg-purple-500/10 transition-all cursor-pointer group/unit shadow-inner active:scale-95 px-2 ${isOtherTypeHovered ? 'opacity-20 grayscale' : 'opacity-100'}`}
+                                title={`${fNum}층 1세대 통합 (현재: ${type || '없음'}) - 클릭하여 타입 변경`}
                               >
-                                {type}
-                              </div>
-                            </button>
-                          );
-                        })}
+                                <div
+                                  className={`unit-cell w-full py-1.5 rounded-lg font-black text-center shadow-md uppercase tracking-tighter transition-all duration-300 flex items-center justify-center gap-2 ${isTypeHovered ? 'ring-2 ring-purple-500 scale-102 z-10' : ''} ${colorInfo.className}`}
+                                  style={colorInfo.style}
+                                >
+                                  <span className="text-[9px] bg-black/20 text-white px-1.5 py-0.5 rounded font-black">전층 1세대</span>
+                                  <span className="text-xs font-black">{type || '세대 미지정'}</span>
+                                </div>
+                              </button>
+                            );
+                          }
+
+                          if (floorMerge === 2) {
+                            // 2세대 합침 (Spans 2 half cells)
+                            const spanLeft = Math.ceil(lines / 2);
+                            const spanRight = Math.floor(lines / 2);
+                            const items = [
+                              { line: 1, span: spanLeft, label: '1호 (통합)' },
+                              { line: 2, span: spanRight, label: '2호 (통합)' }
+                            ];
+
+                            return items.map((item) => {
+                              const type = getUnitType(b, fNum, item.line);
+                              const colorInfo = getTypeColorInfo(type);
+                              const activeFilter = selectedUnitType || hoveredUnitType;
+                              const isTypeHovered = activeFilter !== null && type === activeFilter;
+                              const isOtherTypeHovered = activeFilter !== null && type !== activeFilter;
+
+                              return (
+                                <button
+                                  key={item.line}
+                                  style={{ gridColumn: `span ${item.span}` }}
+                                  onMouseDown={() => {
+                                    if (isLocked) return;
+                                    if (selectedUnitType !== null) {
+                                      setIsPainting(true);
+                                      const currentMap = b.unitMap || {};
+                                      onUpdateBuilding(b.id, {
+                                        unitMap: { ...currentMap, [`${fNum}:${item.line}`]: selectedUnitType },
+                                        lastLog: {
+                                          type: 'unit_change',
+                                          description: `${fNum}F ${item.label} -> ${selectedUnitType || '삭제'}`,
+                                          timestamp: new Date().toISOString()
+                                        }
+                                      });
+                                    }
+                                  }}
+                                  onMouseEnter={() => {
+                                    if (isLocked) return;
+                                    if (isPainting && selectedUnitType !== null) {
+                                      if (getUnitType(b, fNum, item.line) !== selectedUnitType) {
+                                        const currentMap = b.unitMap || {};
+                                        onUpdateBuilding(b.id, {
+                                          unitMap: { ...currentMap, [`${fNum}:${item.line}`]: selectedUnitType }
+                                        });
+                                      }
+                                    }
+                                  }}
+                                  onClick={() => {
+                                    if (!isPainting) cycleUnitType(b, fNum, item.line);
+                                  }}
+                                  className={`p-1.5 border-r border-slate-200 dark:border-slate-800 last:border-r-0 flex items-center justify-center hover:bg-amber-500/10 transition-all cursor-pointer group/unit shadow-inner active:scale-95 px-1.5 ${isOtherTypeHovered ? 'opacity-20 grayscale' : 'opacity-100'}`}
+                                  title={`${fNum}층 ${item.label} (현재: ${type || '없음'}) - 클릭하여 타입 변경`}
+                                >
+                                  <div
+                                    className={`unit-cell w-full py-1.5 rounded-lg font-black text-center shadow-md uppercase tracking-tighter transition-all duration-300 flex items-center justify-center gap-1.5 ${isTypeHovered ? 'ring-2 ring-amber-500 scale-102 z-10' : ''} ${colorInfo.className}`}
+                                    style={colorInfo.style}
+                                  >
+                                    <span className="text-[8px] bg-black/20 text-white px-1 py-0.5 rounded font-bold">{item.label}</span>
+                                    <span className="text-xs font-black">{type || '미지정'}</span>
+                                  </div>
+                                </button>
+                              );
+                            });
+                          }
+
+                          // Unmerged standard lines
+                          return Array.from({ length: lines }).map((_, i) => {
+                            const type = getUnitType(b, fNum, i + 1);
+                            const colorInfo = getTypeColorInfo(type);
+                            const activeFilter = selectedUnitType || hoveredUnitType;
+                            const isTypeHovered = activeFilter !== null && type === activeFilter;
+                            const isOtherTypeHovered = activeFilter !== null && type !== activeFilter;
+
+                            return (
+                              <button 
+                                key={i} 
+                                onMouseDown={() => {
+                                  if (isLocked) return;
+                                  if (selectedUnitType !== null) {
+                                    setIsPainting(true);
+                                    const currentMap = b.unitMap || {};
+                                    onUpdateBuilding(b.id, {
+                                      unitMap: { ...currentMap, [`${fNum}:${i + 1}`]: selectedUnitType },
+                                      lastLog: {
+                                        type: 'unit_change',
+                                        description: `${fNum < 0 ? `B${Math.abs(fNum)}` : `${fNum}F`} ${i + 1}호 -> ${selectedUnitType || '삭제'}`,
+                                        timestamp: new Date().toISOString()
+                                      }
+                                    });
+                                  }
+                                }}
+                                onMouseEnter={() => {
+                                  if (isLocked) return;
+                                  if (isPainting && selectedUnitType !== null) {
+                                    if (getUnitType(b, fNum, i + 1) !== selectedUnitType) {
+                                      const currentMap = b.unitMap || {};
+                                      onUpdateBuilding(b.id, {
+                                        unitMap: { ...currentMap, [`${fNum}:${i + 1}`]: selectedUnitType }
+                                      });
+                                    }
+                                  }
+                                }}
+                                onClick={() => {
+                                  if (!isPainting) cycleUnitType(b, fNum, i + 1);
+                                }}
+                                className={`p-1.5 border-r border-slate-200 dark:border-slate-800 last:border-r-0 flex items-center justify-center hover:bg-blue-500/10 transition-all cursor-pointer group/unit shadow-inner active:scale-95 px-1 ${isOtherTypeHovered ? 'opacity-20 grayscale' : 'opacity-100'}`}
+                                style={{ padding: dynamicFloorHeight ? `${Math.floor(6 * floorScale)}px 4px` : '' }}
+                                title={`${fNum}층 ${i + 1}호 타입 변경 (현재: ${type || '없음'}) ${selectedUnitType ? '- 드래그하여 페인팅 가능' : ''}`}
+                              >
+                                <div 
+                                  className={`unit-cell w-full py-1.5 rounded-lg font-black text-center shadow-md uppercase tracking-tighter transition-all duration-300 flex items-center justify-center ${isTypeHovered ? 'ring-2 ring-blue-500 scale-110 z-10' : ''} ${isWireframe && type ? 'border-2 border-dashed' : colorInfo.className}`}
+                                  style={{
+                                    ...colorInfo.style,
+                                    ...(isWireframe && type ? { 
+                                      backgroundColor: colorInfo.style?.backgroundColor ? `${colorInfo.style.backgroundColor}20` : 'rgba(148, 163, 184, 0.15)',
+                                      borderColor: colorInfo.style?.backgroundColor || '#94a3b8',
+                                      color: colorInfo.style?.backgroundColor || '#94a3b8',
+                                      boxShadow: 'none'
+                                    } : {}),
+                                    padding: dynamicFloorHeight ? `${Math.floor(layoutConfig.cellHeight * 0.15 * floorScale)}px 0` : `${Math.floor(layoutConfig.cellHeight * 0.15)}px 0`,
+                                    minHeight: dynamicFloorHeight ? `${Math.floor(layoutConfig.cellHeight * 0.6 * floorScale)}px` : `${Math.floor(layoutConfig.cellHeight * 0.6)}px`,
+                                    fontSize: dynamicFloorHeight ? `${Math.max(7, Math.floor(layoutConfig.fontSize * floorScale))}px` : `${layoutConfig.fontSize}px`
+                                  }}
+                                >
+                                  {type}
+                                </div>
+                              </button>
+                            );
+                          });
+                        })()}
                       </motion.div>
                       
                       <div className="w-[60px] no-print border-l border-b border-slate-200/50 dark:border-slate-800/50 bg-slate-50/10 dark:bg-slate-900/10 flex items-center justify-center gap-0.5 px-0.5 py-1">
@@ -1490,6 +1890,586 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
           <p className="text-[10px] font-bold text-slate-500 mt-2 opacity-60">동 정보를 추가하여 배치도를 확장하세요</p>
         </motion.button>
       </div>
+
+      {/* Batch Operations & Unit Merge Modal */}
+      <AnimatePresence>
+        {showBatchModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-md">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className={`w-full max-w-4xl ${activeTheme.card} rounded-[2.5rem] border-2 ${activeTheme.border} shadow-2xl overflow-hidden flex flex-col max-h-[92vh]`}
+            >
+              {/* Modal Header */}
+              <div className={`p-6 md:p-8 bg-gradient-to-r from-blue-700 via-indigo-700 to-purple-800 text-white flex justify-between items-center shadow-lg`}>
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center shadow-inner">
+                    <Sparkles className="w-6 h-6 text-amber-300 fill-amber-300" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl md:text-2xl font-black tracking-tight">세대 타입 & 층 세대 합치기 일괄 관리</h3>
+                    <p className="text-[10px] md:text-xs font-bold opacity-80 uppercase tracking-wider mt-0.5">Batch Unit Type Assignment & Floor Merge Control System</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setShowBatchModal(false)}
+                  className="p-2.5 hover:bg-white/10 rounded-2xl transition-colors active:scale-95"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              {/* Navigation Tabs */}
+              <div className="flex border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/80 p-2 gap-2 overflow-x-auto">
+                <button
+                  onClick={() => setBatchTab('range')}
+                  className={`flex items-center gap-2 px-5 py-3 rounded-2xl text-xs font-black transition-all ${
+                    batchTab === 'range' 
+                      ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20' 
+                      : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  <Zap className="w-4 h-4 text-amber-400" />
+                  <span>층 범위 일괄 적용</span>
+                </button>
+
+                <button
+                  onClick={() => setBatchTab('replace')}
+                  className={`flex items-center gap-2 px-5 py-3 rounded-2xl text-xs font-black transition-all ${
+                    batchTab === 'replace' 
+                      ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20' 
+                      : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  <RefreshCcw className="w-4 h-4" />
+                  <span>타입 일괄 교체</span>
+                </button>
+
+                <button
+                  onClick={() => setBatchTab('merge')}
+                  className={`flex items-center gap-2 px-5 py-3 rounded-2xl text-xs font-black transition-all ${
+                    batchTab === 'merge' 
+                      ? 'bg-purple-600 text-white shadow-md shadow-purple-500/20' 
+                      : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  <Layers className="w-4 h-4 text-amber-300" />
+                  <span>층 세대 합치기</span>
+                </button>
+
+                <button
+                  onClick={() => setBatchTab('pattern')}
+                  className={`flex items-center gap-2 px-5 py-3 rounded-2xl text-xs font-black transition-all ${
+                    batchTab === 'pattern' 
+                      ? 'bg-emerald-600 text-white shadow-md shadow-emerald-500/20' 
+                      : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  <Wand2 className="w-4 h-4" />
+                  <span>표준 패턴 적용</span>
+                </button>
+
+                <button
+                  onClick={() => setBatchTab('types')}
+                  className={`flex items-center gap-2 px-5 py-3 rounded-2xl text-xs font-black transition-all ${
+                    batchTab === 'types' 
+                      ? 'bg-slate-800 text-white shadow-md' 
+                      : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  <Settings className="w-4 h-4" />
+                  <span>세대 타입 목록 관리</span>
+                </button>
+              </div>
+
+              {/* Modal Body */}
+              <div className="p-6 md:p-8 overflow-y-auto custom-scrollbar space-y-6 flex-1">
+                {/* TAB 1: RANGE BATCH APPLY */}
+                {batchTab === 'range' && (
+                  <div className="space-y-6">
+                    <div className="bg-blue-50 dark:bg-blue-950/30 p-4 rounded-2xl border border-blue-200 dark:border-blue-900/50 flex items-start gap-3">
+                      <Info className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" />
+                      <p className="text-xs font-bold text-blue-800 dark:text-blue-300 leading-relaxed">
+                        선택한 동의 특정 층 범위(예: 1층~10층)에 세대 타입 및 층 세대 합치기 모드를 1클릭으로 한 번에 변경합니다.
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {/* Target Building */}
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-500 uppercase tracking-widest">적용 대상 동 (Target Building)</label>
+                        <select
+                          value={batchTargetBuilding}
+                          onChange={(e) => setBatchTargetBuilding(e.target.value === 'ALL' ? 'ALL' : parseInt(e.target.value))}
+                          className="w-full bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 font-black text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="ALL">전체 동 (All Buildings)</option>
+                          {data.buildings.map(b => (
+                            <option key={b.id} value={b.id}>{b.name}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Line Selector */}
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-500 uppercase tracking-widest">적용 호수 (Line / Unit)</label>
+                        <select
+                          value={batchLine}
+                          onChange={(e) => setBatchLine(e.target.value === 'ALL' ? 'ALL' : parseInt(e.target.value))}
+                          className="w-full bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 font-black text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="ALL">전체 호수 (All Lines)</option>
+                          <option value={1}>1호</option>
+                          <option value={2}>2호</option>
+                          <option value={3}>3호</option>
+                          <option value={4}>4호</option>
+                        </select>
+                      </div>
+
+                      {/* Floor Range */}
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-500 uppercase tracking-widest">시작 층 (Start Floor)</label>
+                        <input
+                          type="number"
+                          value={batchStartFloor}
+                          onChange={(e) => setBatchStartFloor(parseInt(e.target.value) || 1)}
+                          className="w-full bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 font-black text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="1"
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-500 uppercase tracking-widest">종료 층 (End Floor)</label>
+                        <input
+                          type="number"
+                          value={batchEndFloor}
+                          onChange={(e) => setBatchEndFloor(parseInt(e.target.value) || 20)}
+                          className="w-full bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 font-black text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="20"
+                        />
+                      </div>
+
+                      {/* Unit Type Choice */}
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-500 uppercase tracking-widest">적용할 세대 타입 (Unit Type)</label>
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          {unitTypeConfigs.map(ut => {
+                            const colorInfo = getTypeColorInfo(ut.type);
+                            const isSelected = batchUnitType === ut.type;
+                            return (
+                              <button
+                                key={ut.type}
+                                type="button"
+                                onClick={() => setBatchUnitType(ut.type)}
+                                className={`px-3 py-2 rounded-xl text-xs font-black transition-all ${
+                                  isSelected ? 'ring-2 ring-offset-2 ring-blue-500 scale-105 shadow-md' : 'opacity-80 hover:opacity-100'
+                                }`}
+                                style={colorInfo.style}
+                              >
+                                {ut.type}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Floor Merge Mode Choice */}
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-500 uppercase tracking-widest">세대 합치기 설정 (Floor Merge Mode)</label>
+                        <div className="grid grid-cols-2 gap-2 pt-1">
+                          {[
+                            { value: -1, label: '현재 설정 유지', desc: '합치기 상태 변경 없음' },
+                            { value: 0, label: '일반 분할 (기본)', desc: '호수별 1세대씩 독립' },
+                            { value: 2, label: '2개 세대 합침', desc: '1층 세대를 2개로 합침' },
+                            { value: 1, label: '1개 세대 통합', desc: '1층 세대를 1개로 통합' }
+                          ].map(opt => (
+                            <button
+                              key={opt.value}
+                              type="button"
+                              onClick={() => setBatchMergeMode(opt.value)}
+                              className={`p-3 rounded-xl border text-left transition-all ${
+                                batchMergeMode === opt.value
+                                  ? 'bg-blue-600 text-white border-blue-600 shadow-md'
+                                  : 'bg-slate-100 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-blue-400'
+                              }`}
+                            >
+                              <div className="text-xs font-black">{opt.label}</div>
+                              <div className="text-[10px] opacity-70 mt-0.5">{opt.desc}</div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-4 flex justify-end">
+                      <button
+                        onClick={handleApplyBatchRange}
+                        className="px-8 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-2xl font-black text-sm uppercase tracking-wider shadow-lg shadow-blue-500/25 active:scale-95 transition-all flex items-center gap-2"
+                      >
+                        <Zap className="w-4 h-4 fill-amber-300 text-amber-300" />
+                        <span>선택 범위 일괄 적용하기</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* TAB 2: FIND & REPLACE */}
+                {batchTab === 'replace' && (
+                  <div className="space-y-6">
+                    <div className="bg-indigo-50 dark:bg-indigo-950/30 p-4 rounded-2xl border border-indigo-200 dark:border-indigo-900/50 flex items-start gap-3">
+                      <RefreshCcw className="w-5 h-5 text-indigo-500 shrink-0 mt-0.5" />
+                      <p className="text-xs font-bold text-indigo-800 dark:text-indigo-300 leading-relaxed">
+                        배치도 전체에서 특정 세대 타입(예: 59A)을 다른 세대 타입(예: 84A)으로 1클릭에 일괄 변경합니다.
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-500 uppercase tracking-widest">적용 대상 동</label>
+                        <select
+                          value={replaceBuildingId}
+                          onChange={(e) => setReplaceBuildingId(e.target.value === 'ALL' ? 'ALL' : parseInt(e.target.value))}
+                          className="w-full bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 font-black text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                        >
+                          <option value="ALL">전체 동 (All Buildings)</option>
+                          {data.buildings.map(b => (
+                            <option key={b.id} value={b.id}>{b.name}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-500 uppercase tracking-widest">기존 세대 타입 (From)</label>
+                        <select
+                          value={replaceFromType}
+                          onChange={(e) => setReplaceFromType(e.target.value)}
+                          className="w-full bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 font-black text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                        >
+                          {unitTypeConfigs.map(ut => (
+                            <option key={ut.type} value={ut.type}>{ut.type}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-500 uppercase tracking-widest">변경할 세대 타입 (To)</label>
+                        <select
+                          value={replaceToType}
+                          onChange={(e) => setReplaceToType(e.target.value)}
+                          className="w-full bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 font-black text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                        >
+                          {unitTypeConfigs.map(ut => (
+                            <option key={ut.type} value={ut.type}>{ut.type}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="pt-4 flex justify-end">
+                      <button
+                        onClick={handleApplyReplaceType}
+                        className="px-8 py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-black text-sm uppercase tracking-wider shadow-lg shadow-indigo-500/25 active:scale-95 transition-all flex items-center gap-2"
+                      >
+                        <RefreshCcw className="w-4 h-4" />
+                        <span>타입 일괄 교체 실행하기</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* TAB 3: FLOOR MERGING */}
+                {batchTab === 'merge' && (
+                  <div className="space-y-6">
+                    <div className="bg-purple-50 dark:bg-purple-950/30 p-4 rounded-2xl border border-purple-200 dark:border-purple-900/50 flex items-start gap-3">
+                      <Layers className="w-5 h-5 text-purple-500 shrink-0 mt-0.5" />
+                      <p className="text-xs font-bold text-purple-800 dark:text-purple-300 leading-relaxed">
+                        1개 층 세대를 1개 세대로 통합하거나 2개 세대로 합치는 구성을 일괄 적용합니다. (펜트하우스, 상위층 대형 평형 배치에 용이)
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-500 uppercase tracking-widest">적용 대상 동</label>
+                        <select
+                          value={mergeBuildingId}
+                          onChange={(e) => setMergeBuildingId(e.target.value === 'ALL' ? 'ALL' : parseInt(e.target.value))}
+                          className="w-full bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 font-black text-sm outline-none focus:ring-2 focus:ring-purple-500"
+                        >
+                          <option value="ALL">전체 동 (All Buildings)</option>
+                          {data.buildings.map(b => (
+                            <option key={b.id} value={b.id}>{b.name}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-500 uppercase tracking-widest">최상층 적용 층수 (Top N Floors)</label>
+                        <select
+                          value={mergeTopCount}
+                          onChange={(e) => setMergeTopCount(parseInt(e.target.value))}
+                          className="w-full bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 font-black text-sm outline-none focus:ring-2 focus:ring-purple-500"
+                        >
+                          <option value={1}>최상층 1개층 (Top 1 Floor)</option>
+                          <option value={2}>최상층 2개층 (Top 2 Floors)</option>
+                          <option value={3}>최상층 3개층 (Top 3 Floors)</option>
+                        </select>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-500 uppercase tracking-widest">합치기 방식</label>
+                        <div className="grid grid-cols-2 gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => setMergeTypeChoice(1)}
+                            className={`p-3 rounded-xl border text-center font-black text-xs transition-all ${
+                              mergeTypeChoice === 1 ? 'bg-purple-600 text-white border-purple-600 shadow-md' : 'bg-slate-100 dark:bg-slate-900 border-slate-200 dark:border-slate-800'
+                            }`}
+                          >
+                            1개 세대 통합
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setMergeTypeChoice(2)}
+                            className={`p-3 rounded-xl border text-center font-black text-xs transition-all ${
+                              mergeTypeChoice === 2 ? 'bg-amber-600 text-white border-amber-600 shadow-md' : 'bg-slate-100 dark:bg-slate-900 border-slate-200 dark:border-slate-800'
+                            }`}
+                          >
+                            2개 세대 합침
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-4 flex justify-end">
+                      <button
+                        onClick={handleApplyTopFloorMerge}
+                        className="px-8 py-4 bg-purple-600 hover:bg-purple-500 text-white rounded-2xl font-black text-sm uppercase tracking-wider shadow-lg shadow-purple-500/25 active:scale-95 transition-all flex items-center gap-2"
+                      >
+                        <Layers className="w-4 h-4 text-amber-300" />
+                        <span>최상층 세대 합치기 일괄 적용</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* TAB 4: STANDARD PATTERNS */}
+                {batchTab === 'pattern' && (
+                  <div className="space-y-6">
+                    <div className="bg-emerald-50 dark:bg-emerald-950/30 p-4 rounded-2xl border border-emerald-200 dark:border-emerald-900/50 flex items-start gap-3">
+                      <Wand2 className="w-5 h-5 text-emerald-500 shrink-0 mt-0.5" />
+                      <p className="text-xs font-bold text-emerald-800 dark:text-emerald-300 leading-relaxed">
+                        일반 아파트 단지 배치 표준 패턴(1F 필로티, 중층 84A, 고층 84B, 최상층 PH1 1세대 통합)을 1클릭으로 구성합니다.
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <button
+                        onClick={() => handleApplyStandardPattern('ALL')}
+                        className="p-6 bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-2xl text-left hover:scale-102 transition-all shadow-xl group border border-slate-700"
+                      >
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-sm font-black text-emerald-400">전체 동 표준 패턴 자동 배치</span>
+                          <Sparkles className="w-5 h-5 text-emerald-400 group-hover:rotate-45 transition-transform" />
+                        </div>
+                        <p className="text-xs text-slate-300 leading-relaxed">
+                          모든 동에 대해 1층은 필로티, 중층은 84A, 고층은 84B, 최상층은 1세대 PH1을 자동으로 완성합니다.
+                        </p>
+                      </button>
+
+                      <div className="space-y-2 p-4 bg-slate-100 dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
+                        <label className="text-xs font-black text-slate-500 uppercase tracking-widest">개별 동 선택 적용</label>
+                        <div className="flex gap-2">
+                          <select
+                            id="singlePatternSelect"
+                            className="flex-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold"
+                          >
+                            {data.buildings.map(b => (
+                              <option key={b.id} value={b.id}>{b.name}</option>
+                            ))}
+                          </select>
+                          <button
+                            onClick={() => {
+                              const el = document.getElementById('singlePatternSelect') as HTMLSelectElement;
+                              if (el) handleApplyStandardPattern(parseInt(el.value));
+                            }}
+                            className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-black"
+                          >
+                            적용
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* TAB 5: UNIT TYPES CONFIG & PRESETS */}
+                {batchTab === 'types' && (
+                  <div className="space-y-6">
+                    <div className="flex justify-between items-center bg-slate-100 dark:bg-slate-900 p-4 rounded-2xl">
+                      <div>
+                        <h4 className="text-sm font-black">세대 타입 목록 및 색상 관리</h4>
+                        <p className="text-xs font-bold text-slate-400">타입명을 추가, 수정, 삭제하거나 표준 프리셋을 불러옵니다.</p>
+                      </div>
+                      <button
+                        onClick={handleLoadStandardPresets}
+                        className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-xl text-xs font-black shadow-md hover:scale-105 active:scale-95 transition-all flex items-center gap-1.5"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" />
+                        표준 아파트 프리셋 불러오기
+                      </button>
+                    </div>
+
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="border-b border-slate-200 dark:border-slate-800">
+                          <th className="pb-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">세대 타입 (Type)</th>
+                          <th className="pb-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">색상 코드 / 선택 (Color)</th>
+                          <th className="pb-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">색상 프리셋 (Presets)</th>
+                          <th className="pb-3 text-[10px] font-black text-slate-500 uppercase tracking-widest text-center">미리보기 (Preview)</th>
+                          <th className="pb-3 text-right"></th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {unitTypeConfigs.map((ut, idx) => {
+                          const colorInfo = getTypeColorInfo(ut.type);
+                          const isTailwind = ut.color.startsWith('bg-');
+                          const hexVal = isTailwind ? (colorInfo.style?.backgroundColor || '#3b82f6') : ut.color;
+                          return (
+                            <tr key={idx} className="group">
+                              <td className="py-3">
+                                <input 
+                                  type="text"
+                                  value={ut.type}
+                                  onChange={(e) => {
+                                    const newConfigs = [...unitTypeConfigs];
+                                    newConfigs[idx] = { ...ut, type: e.target.value };
+                                    onUpdateUnitTypeConfigs?.(newConfigs);
+                                  }}
+                                  placeholder="예: 84A"
+                                  className="bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-1.5 outline-none font-black text-blue-500 focus:ring-2 focus:ring-blue-500/20 w-24 text-xs"
+                                />
+                              </td>
+                              <td className="py-3">
+                                <div className="flex items-center gap-2">
+                                  <div 
+                                    className="relative w-7 h-7 rounded-lg cursor-pointer overflow-hidden border border-slate-300 dark:border-slate-700 shadow-md flex items-center justify-center shrink-0" 
+                                    style={{ backgroundColor: hexVal }}
+                                  >
+                                    <input 
+                                      type="color" 
+                                      value={hexVal.startsWith('#') && hexVal.length === 7 ? hexVal : '#3b82f6'}
+                                      onChange={(e) => {
+                                        const newConfigs = [...unitTypeConfigs];
+                                        newConfigs[idx] = { ...ut, color: e.target.value };
+                                        onUpdateUnitTypeConfigs?.(newConfigs);
+                                      }}
+                                      className="absolute inset-0 opacity-0 cursor-pointer w-full h-full scale-150"
+                                    />
+                                  </div>
+                                  <input 
+                                    type="text"
+                                    value={ut.color}
+                                    onChange={(e) => {
+                                      const newConfigs = [...unitTypeConfigs];
+                                      newConfigs[idx] = { ...ut, color: e.target.value };
+                                      onUpdateUnitTypeConfigs?.(newConfigs);
+                                    }}
+                                    className="bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1.5 outline-none font-bold text-slate-700 dark:text-slate-300 w-28 text-xs"
+                                  />
+                                </div>
+                              </td>
+                              <td className="py-3">
+                                <div className="flex flex-wrap gap-1 max-w-[150px]">
+                                  {[
+                                    { bg: '#3b82f6', tw: 'bg-blue-500' },
+                                    { bg: '#10b981', tw: 'bg-emerald-500' },
+                                    { bg: '#f59e0b', tw: 'bg-amber-500' },
+                                    { bg: '#ef4444', tw: 'bg-rose-500' },
+                                    { bg: '#06b6d4', tw: 'bg-cyan-500' },
+                                    { bg: '#6366f1', tw: 'bg-indigo-500' },
+                                    { bg: '#a855f7', tw: 'bg-purple-500' },
+                                    { bg: '#ec4899', tw: 'bg-pink-500' }
+                                  ].map((p) => (
+                                    <button
+                                      key={p.tw}
+                                      type="button"
+                                      onClick={() => {
+                                        const newConfigs = [...unitTypeConfigs];
+                                        newConfigs[idx] = { ...ut, color: p.tw };
+                                        onUpdateUnitTypeConfigs?.(newConfigs);
+                                      }}
+                                      className={`w-4 h-4 rounded-md border ${ut.color === p.tw ? 'ring-2 ring-blue-500' : 'border-slate-200 dark:border-slate-800'}`}
+                                      style={{ backgroundColor: p.bg }}
+                                    />
+                                  ))}
+                                </div>
+                              </td>
+                              <td className="py-3 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const newConfigs = [...unitTypeConfigs];
+                                    const isDarkText = ut.textColor === 'text-slate-900';
+                                    newConfigs[idx] = { 
+                                      ...ut, 
+                                      textColor: isDarkText ? 'text-white' : 'text-slate-900' 
+                                    };
+                                    onUpdateUnitTypeConfigs?.(newConfigs);
+                                  }}
+                                  className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-tighter shadow-md ${colorInfo.className}`}
+                                  style={colorInfo.style}
+                                >
+                                  {ut.type || 'N/A'}
+                                </button>
+                              </td>
+                              <td className="py-3 text-right">
+                                <button 
+                                  type="button"
+                                  onClick={() => {
+                                    if (!window.confirm(`'${ut.type}' 타입을 삭제하시겠습니까?`)) return;
+                                    const newConfigs = unitTypeConfigs.filter((_, i) => i !== idx);
+                                    onUpdateUnitTypeConfigs?.(newConfigs);
+                                  }}
+                                  className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+
+                    <button 
+                      onClick={() => {
+                        const colors = ['bg-red-500', 'bg-orange-500', 'bg-yellow-500', 'bg-green-500', 'bg-blue-500', 'bg-purple-500', 'bg-pink-500'];
+                        const randomColor = colors[Math.floor(Math.random() * colors.length)];
+                        onUpdateUnitTypeConfigs?.([...unitTypeConfigs, { type: 'New', color: randomColor, textColor: 'text-white' }]);
+                      }}
+                      className="w-full py-3 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl text-slate-400 hover:text-blue-500 hover:border-blue-500 transition-all font-black uppercase text-[10px] tracking-widest flex items-center justify-center gap-2"
+                    >
+                      <Plus className="w-4 h-4" />
+                      새 세대 타입 추가
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Footer */}
+              <div className="p-6 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex justify-end gap-3">
+                <button 
+                  onClick={() => setShowBatchModal(false)}
+                  className="px-8 py-3 bg-slate-800 text-white rounded-2xl font-black uppercase text-xs tracking-wider shadow-lg active:scale-95 transition-all"
+                >
+                  닫기
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Unit Type Configuration Modal */}
       <AnimatePresence>

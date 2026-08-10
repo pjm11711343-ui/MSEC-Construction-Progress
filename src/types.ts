@@ -21,6 +21,7 @@ export interface BuildingData {
   maxFloor?: number;
   lines?: number; // Number of units per floor for golgudo
   unitMap?: Record<string, string>; // "floor:line" -> unit type (e.g. "84A")
+  floorMergeMap?: Record<number, number>; // floor -> 1 (1세대 합침), 2 (2세대 합침), 0/undefined (기본)
   lastLog?: {
     type: 'type_change' | 'floor_change' | 'unit_change';
     description: string;
