@@ -43,7 +43,9 @@ import {
   CheckSquare,
   Activity,
   Camera,
-  Filter
+  Filter,
+  HardDrive,
+  RefreshCw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -263,6 +265,9 @@ export default function App() {
   const [newSiteName, setNewSiteName] = useState('');
   const [newSitePassword, setNewSitePassword] = useState('');
   const [showBackupToast, setShowBackupToast] = useState(false);
+  const [backupToastText, setBackupToastText] = useState<string>('성공적으로 로컬 데이터가 저장되었습니다');
+  const [lastAutoBackupTime, setLastAutoBackupTime] = useState<string | null>(null);
+  const [autoBackupLogs, setAutoBackupLogs] = useState<Array<{ id: string; time: string; siteName: string; size: string; data: any }>>([]);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [shareSiteId, setShareSiteId] = useState<string | null>(null);
   const [copiedLinkType, setCopiedLinkType] = useState<'admin' | 'field' | 'guest' | null>(null);
@@ -278,6 +283,58 @@ export default function App() {
   const [newProcessInput, setNewProcessInput] = useState(false);
   const [newProcessName, setNewProcessName] = useState('');
   const [analyticsSelectedProcess, setAnalyticsSelectedProcess] = useState<string>(processes[0] || '1. 건축골조');
+  const [showAdminAuthModal, setShowAdminAuthModal] = useState(false);
+  const [adminAuthReason, setAdminAuthReason] = useState('관리자 비밀번호 인증');
+  const [adminAuthInput, setAdminAuthInput] = useState('');
+  const [adminAuthError, setAdminAuthError] = useState('');
+  const [adminAuthAction, setAdminAuthAction] = useState<(() => void) | null>(null);
+
+  const triggerAdminAuth = (action: () => void, reason = '관리자 비밀번호 인증') => {
+    setAdminAuthReason(reason);
+    setAdminAuthInput('');
+    setAdminAuthError('');
+    setAdminAuthAction(() => action);
+    setShowAdminAuthModal(true);
+  };
+
+  const handleAdminAuthSubmit = () => {
+    const targetPassword = multiData.adminPassword || '4714';
+    if (adminAuthInput === targetPassword) {
+      setShowAdminAuthModal(false);
+      if (adminAuthAction) {
+        adminAuthAction();
+      }
+    } else {
+      setAdminAuthError('관리자 비밀번호가 일치하지 않습니다. (기본 비밀번호: 4714)');
+      setAdminAuthInput('');
+    }
+  };
+
+  const handleSaveBasicInfo = () => {
+    triggerAdminAuth(async () => {
+      const updatedSites = multiData.sites.map(s => s.id === storageState.id ? storageState : s);
+      const updatedMulti = {
+        ...multiData,
+        sites: updatedSites.length > 0 ? updatedSites : [storageState]
+      };
+      setMultiData(updatedMulti);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedMulti));
+
+      try {
+        await fetch('/api/project-data', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data: updatedMulti }),
+        });
+      } catch (e) {
+        console.warn("Cloud save error, saved locally", e);
+      }
+
+      setBackupToastText('✅ 현장명 및 기본정보가 관리자 인증으로 성공적으로 저장되었습니다.');
+      setShowBackupToast(true);
+      setTimeout(() => setShowBackupToast(false), 3500);
+    }, '현장명 및 기본정보 저장');
+  };
   const [photoTarget, setPhotoTarget] = useState<{ buildingId: number, processName: string } | null>(null);
   const [galleryTarget, setGalleryTarget] = useState<{ buildingId: number, processName: string } | null>(null);
   const [quickEditCell, setQuickEditCell] = useState<{
@@ -1299,8 +1356,108 @@ export default function App() {
     linkElement.click();
 
     // Show success toast
+    setBackupToastText('성공적으로 로컬 데이터가 저장되었습니다');
     setShowBackupToast(true);
     setTimeout(() => setShowBackupToast(false), 3000);
+  };
+
+  const executeAutoBackup = React.useCallback((isManualTrigger: boolean = false) => {
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const dateStr = now.toISOString().split('T')[0];
+    
+    let exportData;
+    let fileName;
+    if (role === 'ADMIN' && !isLockedToSite) {
+      exportData = multiData;
+      fileName = `자동백업_전체현장_${dateStr}_${now.getHours()}시${now.getMinutes()}분.json`;
+    } else {
+      exportData = { sites: [storageState], activeSiteId: storageState.id };
+      fileName = `자동백업_${(storageState.settings.projectName || '현장').trim()}_${dateStr}_${now.getHours()}시${now.getMinutes()}분.json`;
+    }
+
+    const jsonStr = JSON.stringify(exportData, null, 2);
+    const sizeKB = (jsonStr.length / 1024).toFixed(1) + ' KB';
+
+    try {
+      const existingStr = localStorage.getItem('msec_auto_backup_snapshots');
+      let snapshots: any[] = existingStr ? JSON.parse(existingStr) : [];
+      const newEntry = {
+        id: Date.now().toString(),
+        time: `${dateStr} ${timeStr}`,
+        siteName: storageState.settings.projectName || '현장',
+        size: sizeKB,
+        data: exportData
+      };
+      snapshots = [newEntry, ...snapshots].slice(0, 10);
+      localStorage.setItem('msec_auto_backup_snapshots', JSON.stringify(snapshots));
+      setAutoBackupLogs(snapshots);
+    } catch (err) {
+      console.warn("Auto backup snapshot storage failed:", err);
+    }
+
+    if (storageState.settings.autoBackupDownload || isManualTrigger) {
+      const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
+
+    setLastAutoBackupTime(timeStr);
+    setBackupToastText(`자동 백업 완료 (${timeStr})${storageState.settings.autoBackupDownload || isManualTrigger ? ' - 파일 다운로드됨' : ' - 캐시 저장됨'}`);
+    setShowBackupToast(true);
+    setTimeout(() => setShowBackupToast(false), 4000);
+  }, [multiData, storageState, role, isLockedToSite]);
+
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem('msec_auto_backup_snapshots');
+      if (cached) {
+        setAutoBackupLogs(JSON.parse(cached));
+      }
+    } catch (e) {}
+  }, []);
+
+  useEffect(() => {
+    const intervalSetting = storageState.settings.autoBackupInterval;
+    if (!intervalSetting || intervalSetting === 'off') return;
+
+    let ms = 0;
+    if (intervalSetting === '5m') ms = 5 * 60 * 1000;
+    else if (intervalSetting === '30m') ms = 30 * 60 * 1000;
+    else if (intervalSetting === '1h') ms = 60 * 60 * 1000;
+
+    if (ms <= 0) return;
+
+    const timer = setInterval(() => {
+      executeAutoBackup(false);
+    }, ms);
+
+    return () => clearInterval(timer);
+  }, [storageState.settings.autoBackupInterval, executeAutoBackup]);
+
+  const handleDeleteBackupSnapshot = (id: string) => {
+    const updated = autoBackupLogs.filter(item => item.id !== id);
+    setAutoBackupLogs(updated);
+    localStorage.setItem('msec_auto_backup_snapshots', JSON.stringify(updated));
+  };
+
+  const handleDownloadSnapshot = (snapshot: { time: string; siteName: string; data: any }) => {
+    const jsonStr = JSON.stringify(snapshot.data, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `백업스냅샷_${snapshot.siteName}_${snapshot.time.replace(/[: ]/g, '_')}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   const handleConfirmRestore = () => {
@@ -2834,14 +2991,35 @@ export default function App() {
               </div>
 
               {/* Edit Mode & Role Toggles */}
-              {role === 'ADMIN' && (
+              {role === 'ADMIN' ? (
                 <button 
                   type="button"
-                  onClick={() => setIsEditMode(!isEditMode)}
+                  onClick={() => {
+                    if (!isEditMode) {
+                      triggerAdminAuth(() => setIsEditMode(true), '수정 모드 접속 (관리자 비밀번호)');
+                    } else {
+                      setIsEditMode(false);
+                    }
+                  }}
                   className={`flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-xl transition-all ${isEditMode ? 'bg-amber-100 text-amber-800 border border-amber-300' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'}`}
                 >
                   <SettingsIcon className={`w-3.5 h-3.5 ${isEditMode ? 'animate-spin-slow text-amber-600' : ''}`} />
                   {isEditMode ? '수정중' : '수정'}
+                </button>
+              ) : (
+                <button 
+                  type="button"
+                  onClick={() => {
+                    triggerAdminAuth(() => {
+                      setRole('ADMIN');
+                      setIsEditMode(true);
+                    }, '관리자 수정 권한 인증');
+                  }}
+                  className="flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-xl transition-all bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-amber-50 dark:hover:bg-amber-950/40"
+                  title="관리자 비밀번호 인증 후 수정"
+                >
+                  <Lock className="w-3.5 h-3.5 text-amber-600" />
+                  <span>수정 (관리자전용)</span>
                 </button>
               )}
 
@@ -2849,9 +3027,14 @@ export default function App() {
                 <button 
                   type="button"
                   onClick={() => {
-                    const nextRole = role === 'ADMIN' ? 'FIELD' : 'ADMIN';
-                    setRole(nextRole);
-                    if (nextRole === 'FIELD') setSiteAuthenticatedId(null);
+                    if (role === 'ADMIN') {
+                      setRole('FIELD');
+                      setSiteAuthenticatedId(null);
+                    } else {
+                      triggerAdminAuth(() => {
+                        setRole('ADMIN');
+                      }, '관리자 모드 접속');
+                    }
                   }}
                   className={`flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-xl transition-all ${role === 'ADMIN' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'}`}
                 >
@@ -3209,9 +3392,38 @@ export default function App() {
 
              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                 <div className="space-y-4">
-                   <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">{role === 'ADMIN' ? '기본 정보' : '비밀번호 설정'}</h3>
+                   <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider flex items-center justify-between">
+                     <span>기본 정보 &amp; 현장명 설정</span>
+                     <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold flex items-center gap-1 normal-case">
+                       <Lock className="w-3 h-3" /> 관리자 전용
+                     </span>
+                   </h3>
                    <div className="space-y-3">
-                      {role === 'ADMIN' && (
+                      {role !== 'ADMIN' ? (
+                        <div className="p-5 rounded-2xl border border-amber-200 bg-amber-50/50 dark:bg-amber-950/20 dark:border-amber-800 space-y-3">
+                          <div className="flex items-center gap-2 text-amber-800 dark:text-amber-300">
+                            <Lock className="w-4 h-4 text-amber-600" />
+                            <span className="text-xs font-black">현장명 및 기본정보 수정 제한</span>
+                          </div>
+                          <div className="space-y-1.5 text-xs text-slate-700 dark:text-slate-300 font-medium">
+                            <div>• 현장명: <span className="font-bold text-slate-900 dark:text-white">{data.settings.projectName}</span></div>
+                            <div>• 업체명: <span className="font-bold text-slate-900 dark:text-white">{data.settings.companyName || '미설정'}</span></div>
+                            <div>• 공사기간: <span className="font-bold text-slate-900 dark:text-white">{data.settings.startDate} ~ {data.settings.endDate || '미정'}</span></div>
+                            <div>• 전체 규모: <span className="font-bold text-slate-900 dark:text-white">{data.settings.buildingCount}개동 / {data.settings.unitCount || 0}세대</span></div>
+                          </div>
+                          <p className="text-[11px] text-amber-700 dark:text-amber-400 leading-relaxed font-semibold">
+                            현장명 및 기본정보는 관리자 비밀번호 접속 시에만 수정할 수 있습니다.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => triggerAdminAuth(() => setRole('ADMIN'), '현장명 및 기본정보 수정을 위한 관리자 인증')}
+                            className="w-full py-2.5 px-4 bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2"
+                          >
+                            <ShieldCheck className="w-4 h-4" />
+                            관리자 비밀번호 입력 후 수정 접속
+                          </button>
+                        </div>
+                      ) : (
                         <>
                           <label className="block">
                             <span className="text-xs font-semibold text-slate-400 mb-1 block">현장명</span>
@@ -3242,6 +3454,16 @@ export default function App() {
                             </label>
                           </div>
                         </>
+                      )}
+                      {role === 'ADMIN' && (
+                        <button
+                          type="button"
+                          onClick={handleSaveBasicInfo}
+                          className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-indigo-500/20 transition-all flex items-center justify-center gap-2 mb-3"
+                        >
+                          <Save className="w-4 h-4" />
+                          현장명 및 기본정보 저장 (관리자 비밀번호 확인)
+                        </button>
                       )}
                       <label className="block">
                         <span className="text-xs font-semibold text-slate-400 mb-1 block">{role === 'ADMIN' ? '현장 접속 비밀번호' : '현장 접속 비밀번호 변경'}</span>
@@ -3515,6 +3737,190 @@ export default function App() {
 
              {role !== 'GUEST' && (
                 <div className="space-y-8">
+                  {/* Auto Backup & Snapshot Section */}
+                  {role === 'ADMIN' && (
+                    <div className="mt-8 pt-8 border-t border-slate-200/40 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <HardDrive className={`w-5 h-5 ${activeTheme.text}`} />
+                          <h3 className="text-sm font-black text-slate-500 uppercase tracking-tight">자동 백업 주기 설정 및 브라우저 캐시 보존</h3>
+                        </div>
+                        {lastAutoBackupTime && (
+                          <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-1 rounded-lg border border-emerald-200 dark:border-emerald-800 flex items-center gap-1">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                            최근 자동 백업: {lastAutoBackupTime}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className={`p-6 rounded-3xl border ${activeTheme.border} ${data.settings.theme === 'industrial' ? 'bg-slate-900/50' : 'bg-slate-50/50'} backdrop-blur-sm space-y-6`}>
+                        {/* 주기 선택 */}
+                        <div className="space-y-2">
+                          <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
+                            자동 백업 주기 선택 (5분 / 30분 / 1시간)
+                          </label>
+                          <div className="flex flex-wrap gap-2">
+                            {[
+                              { label: '끄기 (수동)', val: 'off' },
+                              { label: '⚡ 5분 마다', val: '5m' },
+                              { label: '⏱️ 30분 마다', val: '30m' },
+                              { label: '🕒 1시간 마다', val: '1h' }
+                            ].map((item) => {
+                              const current = data.settings.autoBackupInterval || 'off';
+                              const isActive = current === item.val;
+                              return (
+                                <button
+                                  key={item.val}
+                                  type="button"
+                                  onClick={() => {
+                                    setData({
+                                      ...data,
+                                      settings: {
+                                        ...data.settings,
+                                        autoBackupInterval: item.val as any
+                                      }
+                                    });
+                                  }}
+                                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all border ${
+                                    isActive
+                                      ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-500/20'
+                                      : `${activeTheme.border} ${data.settings.theme === 'industrial' ? 'bg-slate-800 text-slate-400 hover:text-white' : 'bg-white text-slate-600 hover:bg-slate-100'}`
+                                  }`}
+                                >
+                                  {item.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <p className="text-[10px] text-slate-400 leading-relaxed">
+                            선택한 주기마다 현재 전체 프로젝트 및 현장 공정 데이터 스냅샷을 브라우저 캐시에 안전하게 자동 보존합니다.
+                          </p>
+                        </div>
+
+                        {/* 옵션 및 즉시 실행 */}
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pt-3 border-t border-slate-200/50 dark:border-slate-800/50">
+                          <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={!!data.settings.autoBackupDownload}
+                              onChange={(e) => {
+                                setData({
+                                  ...data,
+                                  settings: {
+                                    ...data.settings,
+                                    autoBackupDownload: e.target.checked
+                                  }
+                                });
+                              }}
+                              className="rounded text-blue-600 border-slate-300 w-4 h-4 focus:ring-blue-500"
+                            />
+                            <div className="flex flex-col">
+                              <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                                백업 주기 실행 시 JSON 파일 자동 다운로드 포함
+                              </span>
+                              <span className="text-[10px] text-slate-400">
+                                켜두면 주기가 도래할 때 브라우저에서 다운로드 파일(.json) 생성이 함께 이루어집니다.
+                              </span>
+                            </div>
+                          </label>
+
+                          <button
+                            type="button"
+                            onClick={() => executeAutoBackup(true)}
+                            className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md shadow-indigo-500/20 flex items-center gap-1.5 transition-all active:scale-95 whitespace-nowrap self-stretch sm:self-auto justify-center"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            지금 즉시 백업 실행
+                          </button>
+                        </div>
+
+                        {/* 최근 자동 백업 캐시 스냅샷 목록 */}
+                        <div className="space-y-3 pt-3 border-t border-slate-200/50 dark:border-slate-800/50">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                              <History className="w-3.5 h-3.5" />
+                              보존된 캐시 스냅샷 목록 (최근 {autoBackupLogs.length}개)
+                            </span>
+                            {autoBackupLogs.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (window.confirm('저장된 자동 백업 캐시 스냅샷 목록을 모두 비우시겠습니까?')) {
+                                    setAutoBackupLogs([]);
+                                    localStorage.removeItem('msec_auto_backup_snapshots');
+                                  }
+                                }}
+                                className="text-[10px] text-rose-500 hover:underline font-bold"
+                              >
+                                목록 전체 삭제
+                              </button>
+                            )}
+                          </div>
+
+                          {autoBackupLogs.length === 0 ? (
+                            <div className="text-center py-6 bg-white dark:bg-slate-800/50 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700 text-slate-400 text-xs">
+                              아직 보존된 백업 스냅샷이 없습니다. 자동 백업 주기를 설정하거나 [지금 즉시 백업 실행]을 클릭해 보세요.
+                            </div>
+                          ) : (
+                            <div className="space-y-2 max-h-[220px] overflow-y-auto custom-scrollbar pr-1">
+                              {autoBackupLogs.map((log) => (
+                                <div
+                                  key={log.id}
+                                  className="flex items-center justify-between p-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 shadow-sm gap-2"
+                                >
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
+                                        {log.siteName}
+                                      </span>
+                                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 font-mono">
+                                        {log.size}
+                                      </span>
+                                    </div>
+                                    <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                                      {log.time}
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDownloadSnapshot(log)}
+                                      className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg text-slate-600 dark:text-slate-300 text-xs font-bold flex items-center gap-1"
+                                      title="JSON 파일 다운로드"
+                                    >
+                                      <Download className="w-3.5 h-3.5 text-blue-500" />
+                                      <span className="hidden sm:inline text-[11px]">다운로드</span>
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => setPendingRestore({ data: log.data, mode: 'FULL' })}
+                                      className="p-1.5 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded-lg text-emerald-600 dark:text-emerald-400 text-xs font-bold flex items-center gap-1"
+                                      title="이 백업 스냅샷으로 복원"
+                                    >
+                                      <RefreshCw className="w-3.5 h-3.5" />
+                                      <span className="hidden sm:inline text-[11px]">복원</span>
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteBackupSnapshot(log.id)}
+                                      className="p-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg text-rose-500 text-xs font-bold"
+                                      title="삭제"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Storage & Data Health Section */}
                   {role === 'ADMIN' && (
                     <div className="mt-8 pt-8 border-t border-slate-200/40 space-y-4">
@@ -6467,6 +6873,73 @@ export default function App() {
       </AnimatePresence>
 
       <AnimatePresence>
+        {showAdminAuthModal && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4 no-print">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className={`p-6 sm:p-8 rounded-3xl shadow-2xl max-w-md w-full space-y-5 border ${
+                data.settings.theme === 'industrial' ? 'bg-[#1a1d23] border-[#2d333d] text-white' : 'bg-white border-slate-200 text-slate-900'
+              }`}
+            >
+              <div className="flex items-center gap-3 border-b border-slate-100 dark:border-slate-800 pb-4">
+                <div className="p-3 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400">
+                  <ShieldCheck className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black tracking-tight">{adminAuthReason || '관리자 비밀번호 인증'}</h3>
+                  <p className="text-xs text-slate-400 font-medium">현장명 및 기본정보 수정/저장은 관리자 인증이 필요합니다.</p>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <label className="block text-xs font-bold text-slate-500 uppercase">관리자 비밀번호</label>
+                <div className="relative">
+                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input
+                    type="password"
+                    autoFocus
+                    placeholder="비밀번호 입력 (기본: 4714)"
+                    value={adminAuthInput}
+                    onChange={(e) => {
+                      setAdminAuthInput(e.target.value);
+                      setAdminAuthError('');
+                    }}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAdminAuthSubmit()}
+                    className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                  />
+                </div>
+                {adminAuthError && (
+                  <p className="text-xs font-bold text-rose-500 animate-pulse flex items-center gap-1">
+                    ⚠️ {adminAuthError}
+                  </p>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAdminAuthModal(false)}
+                  className="flex-1 py-3 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all"
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAdminAuthSubmit}
+                  className="flex-1 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-lg shadow-indigo-500/20 transition-all flex items-center justify-center gap-1.5"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  인증 및 진행
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
         {showBackupToast && (
           <motion.div
             initial={{ opacity: 0, y: 50, scale: 0.9 }}
@@ -6478,8 +6951,8 @@ export default function App() {
               <CheckCircle2 className="w-5 h-5 text-blue-400" />
             </div>
             <div className="flex flex-col">
-              <span className="text-xs font-black uppercase tracking-wider">백업 완료</span>
-              <span className="text-[10px] font-bold text-slate-400">성공적으로 로컬 데이터가 저장되었습니다</span>
+              <span className="text-xs font-black uppercase tracking-wider">백업 알림</span>
+              <span className="text-[10px] font-bold text-slate-300">{backupToastText}</span>
             </div>
           </motion.div>
         )}

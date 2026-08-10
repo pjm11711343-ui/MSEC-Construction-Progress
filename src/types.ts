@@ -80,6 +80,8 @@ export interface ProjectSettings {
   unitCount?: number;
   processLeadTimes?: Record<string, number>;
   unitTypeConfigs?: UnitTypeConfig[];
+  autoBackupInterval?: 'off' | '5m' | '30m' | '1h';
+  autoBackupDownload?: boolean;
 }
 
 export interface ProgressSnapshot {
