@@ -434,7 +434,7 @@ export default function App() {
             finalSites = [...updatedSites, ...additional];
           }
 
-          const mData = { ...parsed, sites: finalSites, adminPassword: parsed.adminPassword || '4714' };
+          const mData = { ...parsed, sites: finalSites, adminPassword: parsed.adminPassword || '4714', syncMode: parsed.syncMode || 'auto' };
           setMultiData(mData);
           if (mData.trash) setTrash(mData.trash);
           

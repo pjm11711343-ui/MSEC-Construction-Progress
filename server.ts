@@ -196,15 +196,36 @@ async function loadProjectData() {
   return null;
 }
 
-// High-reliability synchronizing read helper (returns instant low-latency in-memory cache)
+// High-reliability synchronizing read helper (returns instant low-latency in-memory cache or fetches from Cloud Firestore)
 async function syncLoadProjectData() {
   if (serverProjectDataMemory) {
+    serverProjectDataMemory.syncMode = 'auto';
     return serverProjectDataMemory;
   }
 
-  // Fallback to local files if memory is not yet seeded
+  // Try loading from Cloud Firestore first if initialized
+  if (firestoreDb && !isFirestoreSuspended) {
+    try {
+      const docRef = doc(firestoreDb, FIRESTORE_DOC_PATH);
+      const snapshot = await getDoc(docRef);
+      if (snapshot.exists()) {
+        const firestoreData = snapshot.data();
+        if (firestoreData) {
+          firestoreData.syncMode = 'auto';
+          serverProjectDataMemory = firestoreData;
+          console.log("[Firebase Sync] Successfully loaded fresh project data from Cloud Firestore.");
+          return serverProjectDataMemory;
+        }
+      }
+    } catch (err: any) {
+      console.error("[Firebase Sync] Failed to load data from Firestore, falling back to disk:", err?.message || err);
+    }
+  }
+
+  // Fallback to local files if memory/Firestore is not available
   const localData = await loadProjectData();
   if (localData) {
+    localData.syncMode = 'auto';
     serverProjectDataMemory = localData;
     return localData;
   }
@@ -237,12 +258,12 @@ async function syncSaveProjectData(data: any) {
   const timeSinceLastWrite = now - lastFirestoreWriteTime;
 
   const performWrite = async () => {
-    if (isFirestoreSuspended) return;
+    if (isFirestoreSuspended || !firestoreDb) return;
     try {
       const docRef = doc(firestoreDb, FIRESTORE_DOC_PATH);
       await setDoc(docRef, data);
       lastFirestoreWriteTime = Date.now();
-      console.log("[Firebase Sync] [Throttled] Successfully persisted to Cloud Firestore.");
+      console.log("[Firebase Sync] Successfully persisted to Cloud Firestore.");
     } catch (error: any) {
       console.error("[Firebase Sync] Failed to write data to Firestore:", error);
       const errMsg = String(error.message || error).toLowerCase();
@@ -250,17 +271,16 @@ async function syncSaveProjectData(data: any) {
         console.warn("[Firebase Sync] Quota / permission limits reached during write. Gracefully suspending Cloud Firestore updates.");
         isFirestoreSuspended = true;
         firestoreSuspensionReason = "QUOTA_EXHAUSTED";
-    if (process.env.VERCEL) {
-      // Don't try to write flag on Vercel read-only FS
-      console.warn("[Firebase Sync] Quota exceeded. Skipping flag write on Vercel.");
-    } else {
-      try {
-        fs.writeFileSync(QUOTA_MARKER_FILE, String(Date.now()), "utf-8");
-        console.log("[Firebase Sync] Persisted write quota suspension flag to disk.");
-      } catch (fileErr) {
-        console.error("[Firebase Sync] Failed to write quota marker file:", fileErr);
-      }
-    }
+        if (process.env.VERCEL) {
+          console.warn("[Firebase Sync] Quota exceeded. Skipping flag write on Vercel.");
+        } else {
+          try {
+            fs.writeFileSync(QUOTA_MARKER_FILE, String(Date.now()), "utf-8");
+            console.log("[Firebase Sync] Persisted write quota suspension flag to disk.");
+          } catch (fileErr) {
+            console.error("[Firebase Sync] Failed to write quota marker file:", fileErr);
+          }
+        }
         if (unsubscribeRealtime) {
           try {
             unsubscribeRealtime();
@@ -286,8 +306,8 @@ async function syncSaveProjectData(data: any) {
     }
   };
 
-  if (timeSinceLastWrite >= MIN_WRITE_INTERVAL_MS) {
-    // Write immediately if the interval since the last write is larger than the threshold
+  // On Vercel or when interval elapsed, perform write immediately so serverless function awaits write before returning
+  if (process.env.VERCEL || timeSinceLastWrite >= MIN_WRITE_INTERVAL_MS) {
     await performWrite();
   } else {
     // Save write operation request and schedule write with a delayed timer
