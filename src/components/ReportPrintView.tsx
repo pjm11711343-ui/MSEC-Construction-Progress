@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { AppState, BuildingData } from '../types';
 import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
@@ -30,7 +30,7 @@ interface ReportPrintViewProps {
 }
 
 const ReportPrintView: React.FC<ReportPrintViewProps> = ({ data, sortedProcesses }) => {
-  const [selectedBuildingId, setSelectedBuildingId] = React.useState<number | string>(data.buildings[0]?.id ?? '');
+  const [selectedBuildingId, setSelectedBuildingId] = useState<number | string>(data.buildings[0]?.id ?? '');
 
   // Helper to format progress text consistently with App.tsx logic
   const getProgressText = (val: number, b: BuildingData, p: string) => {

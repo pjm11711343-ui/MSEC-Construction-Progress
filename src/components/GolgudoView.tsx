@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Building2, Info, Trash2, Settings, X, Check, ArrowRight, Layers, Plus, Minus, Clock, Zap, Copy, ClipboardPaste, RefreshCcw, Eraser, Printer, Sparkles, Sliders, Wand2, Grid } from 'lucide-react';
 import { AppState, BuildingData, UnitTypeConfig, DEFAULT_UNIT_TYPES, DEFAULT_PROCESSES } from '../types';
@@ -319,7 +319,7 @@ const GolgudoView: React.FC<GolgudoViewProps> = ({ data, activeTheme, isDarkThem
   });
 
   // Keyboard Shortcuts for Efficiency
-  React.useEffect(() => {
+  useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // 1-9 Keys to select unit types
       if (e.key >= '1' && e.key <= '9') {

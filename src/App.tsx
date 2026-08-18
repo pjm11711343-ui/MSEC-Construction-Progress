@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { 
   Plus, 
@@ -112,6 +112,11 @@ import {
   AppTheme,
   DEFAULT_UNIT_TYPES
 } from './types';
+import { 
+  subscribeRemoteProjectData, 
+  persistRemoteProjectData, 
+  fetchRemoteProjectData 
+} from './lib/firebase';
 
 import initialDataImport from './data/initial_data.json';
 
@@ -331,6 +336,11 @@ export default function App() {
       };
       setMultiData(updatedMulti);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedMulti));
+
+      // Direct Firestore push for instant cross-device synchronization
+      persistRemoteProjectData(updatedMulti).catch(err => {
+        console.warn("[SaveBasicInfo] Firestore sync note:", err);
+      });
 
       try {
         await fetch('/api/project-data', {
@@ -552,8 +562,50 @@ export default function App() {
   const lastSyncedContentRef = useRef<string>('');
   const hasFetchedFromServer = useRef<boolean>(false);
 
-  // 1. Initial load from server-side database
+  // 1. Initial load from Cloud Firestore & server database
   useEffect(() => {
+    let isMounted = true;
+
+    // Direct real-time listener to Cloud Firestore for immediate cross-PC updates
+    const unsubscribe = subscribeRemoteProjectData((remoteMulti) => {
+      if (!isMounted || !remoteMulti || !remoteMulti.sites || remoteMulti.sites.length === 0) return;
+      
+      const serverMulti = { ...remoteMulti };
+      serverMulti.sites = serverMulti.sites.map(migrateSite);
+      const serialized = JSON.stringify(serverMulti);
+      
+      if (serialized !== lastSyncedContentRef.current) {
+        console.log("[Firebase Realtime] Remote update received across devices from Cloud Firestore.");
+        lastSyncedContentRef.current = serialized;
+        
+        setMultiData(serverMulti);
+        if (serverMulti.trash) setTrash(serverMulti.trash);
+        
+        const urlParams = new URLSearchParams(window.location.search);
+        const siteParam = urlParams.get('site');
+        const targetId = siteParam || serverMulti.activeSiteId;
+        const activeSite = serverMulti.sites.find((s: any) => s.id === targetId) || serverMulti.sites[0];
+        
+        if (activeSite) {
+          lastSavedContent.current = JSON.stringify({
+            id: activeSite.id,
+            settings: activeSite.settings,
+            buildings: activeSite.buildings,
+            facilities: activeSite.facilities,
+            approval: activeSite.approval,
+            processMemos: activeSite.processMemos
+          });
+          setData(activeSite);
+          if (activeSite.buildings?.[0]?.processes) {
+            setProcesses(Object.keys(activeSite.buildings[0].processes));
+          }
+        }
+        
+        localStorage.setItem(STORAGE_KEY, serialized);
+        setIsCloudSuspended(false);
+      }
+    });
+
     const fetchInitialData = async () => {
       try {
         const response = await fetch('/api/project-data');
@@ -569,42 +621,41 @@ export default function App() {
           } else {
             setIsCloudSuspended(false);
           }
-          if (res.data) {
+          if (res.data && res.data.sites && res.data.sites.length > 0) {
             const serverMulti = res.data;
-            if (serverMulti.sites) {
-              serverMulti.sites = serverMulti.sites.map(migrateSite);
-            }
+            serverMulti.sites = serverMulti.sites.map(migrateSite);
             const serialized = JSON.stringify(serverMulti);
-            lastSyncedContentRef.current = serialized;
             
-            const urlParams = new URLSearchParams(window.location.search);
-            const siteParam = urlParams.get('site');
-            
-            setMultiData(serverMulti);
-            if (serverMulti.trash) setTrash(serverMulti.trash);
-            
-            const targetId = siteParam || serverMulti.activeSiteId;
-            const activeSite = serverMulti.sites.find((s: any) => s.id === targetId) || serverMulti.sites[0];
-            
-            if (activeSite) {
-              lastSavedContent.current = JSON.stringify({
-                id: activeSite.id,
-                settings: activeSite.settings,
-                buildings: activeSite.buildings,
-                facilities: activeSite.facilities,
-                approval: activeSite.approval,
-                processMemos: activeSite.processMemos
-              });
-              setData(activeSite);
-              if (activeSite.buildings?.[0]?.processes) {
-                setProcesses(Object.keys(activeSite.buildings[0].processes));
+            if (serialized !== lastSyncedContentRef.current) {
+              lastSyncedContentRef.current = serialized;
+              
+              const urlParams = new URLSearchParams(window.location.search);
+              const siteParam = urlParams.get('site');
+              
+              setMultiData(serverMulti);
+              if (serverMulti.trash) setTrash(serverMulti.trash);
+              
+              const targetId = siteParam || serverMulti.activeSiteId;
+              const activeSite = serverMulti.sites.find((s: any) => s.id === targetId) || serverMulti.sites[0];
+              
+              if (activeSite) {
+                lastSavedContent.current = JSON.stringify({
+                  id: activeSite.id,
+                  settings: activeSite.settings,
+                  buildings: activeSite.buildings,
+                  facilities: activeSite.facilities,
+                  approval: activeSite.approval,
+                  processMemos: activeSite.processMemos
+                });
+                setData(activeSite);
+                if (activeSite.buildings?.[0]?.processes) {
+                  setProcesses(Object.keys(activeSite.buildings[0].processes));
+                }
               }
+              
+              localStorage.setItem(STORAGE_KEY, serialized);
+              console.log("[Sync] Initial project data sync from server succeeded.");
             }
-            
-            localStorage.setItem(STORAGE_KEY, serialized);
-            console.log("[Sync] Initial project data sync from server succeeded.");
-          } else {
-            console.log("[Sync] Server has no project data yet, using local storage or fallback.");
           }
         }
       } catch (err) {
@@ -614,9 +665,14 @@ export default function App() {
       }
     };
     fetchInitialData();
+
+    return () => {
+      isMounted = false;
+      if (unsubscribe) unsubscribe();
+    };
   }, []);
 
-  // 2. Auto-save multiData to Express server when it changes
+  // 2. Auto-save multiData to Cloud Firestore & Express server when it changes
   useEffect(() => {
     if (!hasFetchedFromServer.current) return;
     if (multiData.syncMode === 'manual') return;
@@ -625,6 +681,12 @@ export default function App() {
     if (serialized === lastSyncedContentRef.current) return;
 
     const timer = setTimeout(() => {
+      // Direct Cloud Firestore write
+      persistRemoteProjectData(multiData).catch(err => {
+        console.warn("[Sync] Cloud Firestore save warning:", err);
+      });
+
+      // Express server backend save
       fetch('/api/project-data', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -649,7 +711,7 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [multiData]);
 
-  // 3. Real-time polling for changes from other tabs/iframes
+  // 3. Real-time polling for changes as fallback
   useEffect(() => {
     if (multiData.syncMode === 'manual') return;
     const interval = setInterval(async () => {
@@ -657,7 +719,6 @@ export default function App() {
         // Only pull update if there are no local unsaved changes
         const currentLocalStr = JSON.stringify(multiData);
         if (currentLocalStr !== lastSyncedContentRef.current) {
-          // Local changes are pending save, do not overwrite them with server data yet
           return;
         }
 
@@ -665,7 +726,6 @@ export default function App() {
         if (response.ok) {
           const contentType = response.headers.get('content-type');
           if (!contentType || !contentType.includes('application/json')) {
-            // Ignore non-json responses gracefully (such as proxy/restart warning screens)
             return;
           }
           const res = await response.json();
@@ -674,11 +734,9 @@ export default function App() {
           } else {
             setIsCloudSuspended(false);
           }
-          if (res.data) {
+          if (res.data && res.data.sites && res.data.sites.length > 0) {
             const serverMulti = res.data;
-            if (serverMulti.sites) {
-              serverMulti.sites = serverMulti.sites.map(migrateSite);
-            }
+            serverMulti.sites = serverMulti.sites.map(migrateSite);
             const serialized = JSON.stringify(serverMulti);
             
             if (serialized !== lastSyncedContentRef.current) {
@@ -720,7 +778,7 @@ export default function App() {
           console.error("[Sync] Error during real-time polling:", err);
         }
       }
-    }, 3000); // Poll every 3 seconds for fast real-time synchronization
+    }, 3000);
 
     return () => clearInterval(interval);
   }, [multiData]);
@@ -813,55 +871,50 @@ export default function App() {
       const payloadSize = JSON.stringify(multiData).length;
       console.log(`[Manual Sync] Payload size: ${(payloadSize / 1024 / 1024).toFixed(2)} MB`);
       
-      // 1. First, save our current local data to the server
-      const responsePost = await fetch('/api/project-data', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: multiData }),
-      });
-      
-      if (!responsePost.ok) {
-        const errorText = await responsePost.text();
-        console.error("[Manual Sync] POST failed:", responsePost.status, errorText);
-        let msg = `서버 저장 실패 (${responsePost.status})`;
-        if (responsePost.status === 413) msg += ": 데이터 용량이 너무 큽니다 (이미지를 줄여주세요)";
-        throw new Error(msg);
-      }
+      // 1. Direct Cloud Firestore Push for instant multi-device sync
+      await persistRemoteProjectData(multiData);
 
-      const postContentType = responsePost.headers.get('content-type');
-      if (postContentType && postContentType.includes('application/json')) {
-        const postJson = await responsePost.json();
-        if (postJson && postJson.firestoreSuspended) {
-          setIsCloudSuspended(true);
-        } else {
-          setIsCloudSuspended(false);
+      // 2. Also save to server endpoint
+      let serverSaved = false;
+      try {
+        const responsePost = await fetch('/api/project-data', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data: multiData }),
+        });
+        if (responsePost.ok) {
+          serverSaved = true;
+          const postContentType = responsePost.headers.get('content-type');
+          if (postContentType && postContentType.includes('application/json')) {
+            const postJson = await responsePost.json();
+            if (postJson && postJson.firestoreSuspended) {
+              setIsCloudSuspended(true);
+            } else {
+              setIsCloudSuspended(false);
+            }
+          }
         }
-      }
-      lastSyncedContentRef.current = JSON.stringify(multiData);
-      console.log("[Manual Sync] Project data pushed to server successfully.");
-
-      // 2. Then, pull latest changes from the server
-      const responseGet = await fetch('/api/project-data');
-      if (!responseGet.ok) {
-        const errorText = await responseGet.text();
-        console.error("[Manual Sync] GET failed:", responseGet.status, errorText);
-        throw new Error(`서버 데이터 로드 실패 (${responseGet.status}): ${errorText.substring(0, 50)}`);
-      }
-
-      const getContentType = responseGet.headers.get('content-type');
-      if (!getContentType || !getContentType.includes('application/json')) {
-        throw new Error('서버가 올바른 JSON 데이터를 반환하지 않았습니다 (현재 서버가 준비 중이거나 점검 중일 수 있습니다).');
-      }
-
-      const res = await responseGet.json();
-      if (res.firestoreSuspended) {
-        setIsCloudSuspended(true);
-      } else {
-        setIsCloudSuspended(false);
+      } catch (postErr) {
+        console.warn("[Manual Sync] Server POST warning (Firestore direct push already completed):", postErr);
       }
       
-      if (res.data) {
-        const serverMulti = res.data;
+      lastSyncedContentRef.current = JSON.stringify(multiData);
+      console.log("[Manual Sync] Project data pushed to Cloud & server successfully.");
+
+      // 3. Pull latest remote data from Firestore or Server
+      let latestData = await fetchRemoteProjectData();
+      if (!latestData) {
+        try {
+          const responseGet = await fetch('/api/project-data');
+          if (responseGet.ok) {
+            const res = await responseGet.json();
+            if (res.data) latestData = res.data;
+          }
+        } catch (e) {}
+      }
+
+      if (latestData) {
+        const serverMulti = latestData;
         if (serverMulti.sites) {
           serverMulti.sites = serverMulti.sites.map(migrateSite);
         }
@@ -995,6 +1048,7 @@ export default function App() {
         activeSiteId: newSite.id
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(nextMulti));
+      persistRemoteProjectData(nextMulti).catch(err => console.warn("Firestore sync note:", err));
       return nextMulti;
     });
     setData(newSite);
@@ -1035,10 +1089,13 @@ export default function App() {
       
       setData(nextData);
       setDeleteConfirmId(null);
-      return { activeSiteId: nextActive, sites: filtered, trash: [
+      const nextMulti = { activeSiteId: nextActive, sites: filtered, trash: [
         ...(prev.trash || []),
         { id: Math.random().toString(36).substr(2, 9), type: 'site', data: siteToDelete, deletedAt: Date.now() }
       ]};
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(nextMulti));
+      persistRemoteProjectData(nextMulti).catch(err => console.warn("Firestore sync note:", err));
+      return nextMulti;
     });
   };
 
@@ -1373,7 +1430,7 @@ export default function App() {
     setTimeout(() => setShowBackupToast(false), 3000);
   };
 
-  const executeAutoBackup = React.useCallback((isManualTrigger: boolean = false) => {
+  const executeAutoBackup = useCallback((isManualTrigger: boolean = false) => {
     const now = new Date();
     const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     const dateStr = now.toISOString().split('T')[0];
@@ -2618,7 +2675,7 @@ export default function App() {
     }
   };
 
-  const displayData = React.useMemo(() => {
+  const displayData = useMemo(() => {
     const today = new Date().toISOString().split('T')[0];
     if (viewDate === today) return { ...storageState, isHistorical: false };
     
@@ -2639,7 +2696,7 @@ export default function App() {
   const activeTheme = THEMES[data.settings.theme] || THEMES.slate;
   const isDarkTheme = activeTheme.isDark;
 
-  const previousEntry = React.useMemo(() => {
+  const previousEntry = useMemo(() => {
     if (!storageState.history || storageState.history.length === 0) return null;
     
     const currentIndex = storageState.history.findIndex((h: any) => h.date === viewDate);

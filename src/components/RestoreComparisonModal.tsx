@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AlertTriangle, CheckCircle2, XCircle, Info, ArrowRight, Building2, Layers, ShieldAlert } from 'lucide-react';
 import { AppState, MultiProjectData } from '../types';
@@ -23,7 +23,7 @@ interface RestoreComparisonModalProps {
 }
 
 export default function RestoreComparisonModal({ currentData, backupData, onConfirm, onCancel }: RestoreComparisonModalProps) {
-  const diff = React.useMemo(() => {
+  const diff = useMemo(() => {
     const summary: DiffSummary = {
       newSites: [],
       removedSites: [],

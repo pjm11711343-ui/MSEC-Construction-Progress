@@ -74,6 +74,17 @@ if (!process.env.VERCEL) {
 }
 
 // Firebase configuration loading & initialization
+const STATIC_FIREBASE_CONFIG = {
+  projectId: "gen-lang-client-0383119283",
+  appId: "1:720741657034:web:beb0b9c5333f07ce1ac733",
+  apiKey: "AIzaSyAEG04rwHQpuVzyysoWtWesl0yEfg3_TmY",
+  authDomain: "gen-lang-client-0383119283.firebaseapp.com",
+  firestoreDatabaseId: "ai-studio-16938f66-fc4f-4bd3-ab8d-07f08e825e33",
+  storageBucket: "gen-lang-client-0383119283.firebasestorage.app",
+  messagingSenderId: "720741657034",
+  measurementId: ""
+};
+
 let firestoreDb: any = null;
 let isFirestoreSuspended = false;
 let firestoreSuspensionReason: string | null = null;
@@ -101,22 +112,21 @@ if (fs.existsSync(QUOTA_MARKER_FILE)) {
   }
 }
 
-if (fs.existsSync(configPath)) {
-  try {
-    if (!isFirestoreSuspended) {
+try {
+  let firebaseConfig = STATIC_FIREBASE_CONFIG;
+  if (fs.existsSync(configPath)) {
+    try {
       const configContent = fs.readFileSync(configPath, "utf-8");
-      const firebaseConfig = JSON.parse(configContent);
-      const firebaseApp = initializeApp(firebaseConfig);
-      firestoreDb = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
-      console.log("[Firebase] Successfully initialized Firestore inside server.ts with Database ID:", firebaseConfig.firestoreDatabaseId);
-    } else {
-      console.log("[Firebase] Local replication active.");
-    }
-  } catch (error) {
-    console.log("[Firebase] Connection info status:", error instanceof Error ? error.message : "Offline mode fallback enabled.");
+      firebaseConfig = JSON.parse(configContent);
+    } catch (e) {}
   }
-} else {
-  console.log("[Firebase] Local offline data mode active.");
+  if (!isFirestoreSuspended) {
+    const firebaseApp = initializeApp(firebaseConfig);
+    firestoreDb = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
+    console.log("[Firebase] Successfully initialized Firestore inside server.ts with Database ID:", firebaseConfig.firestoreDatabaseId);
+  }
+} catch (error) {
+  console.log("[Firebase] Connection status note:", error instanceof Error ? error.message : "Offline fallback.");
 }
 
 // Error handling structures as mandated by firebase-integration skill
@@ -452,11 +462,11 @@ const genAI = new GoogleGenAI({
 });
 
 // API routes
-app.get("/api/health", (req, res) => {
+app.get(["/api/health", "/health"], (req, res) => {
   res.json({ status: "ok", env: process.env.NODE_ENV, timestamp: new Date().toISOString() });
 });
 
-app.get("/api/project-data", async (req, res) => {
+app.get(["/api/project-data", "/project-data"], async (req, res) => {
   try {
     const data = await syncLoadProjectData();
     res.json({ 
@@ -469,7 +479,7 @@ app.get("/api/project-data", async (req, res) => {
   }
 });
 
-app.post("/api/project-data", async (req, res) => {
+app.post(["/api/project-data", "/project-data"], async (req, res) => {
   try {
     const { data } = req.body;
     if (!data) {
@@ -488,7 +498,7 @@ app.post("/api/project-data", async (req, res) => {
   }
 });
 
-app.get("/api/weather", async (req, res) => {
+app.get(["/api/weather", "/weather"], async (req, res) => {
   const { location, date } = req.query;
   if (!location) {
     return res.status(400).json({ error: "Location is required" });

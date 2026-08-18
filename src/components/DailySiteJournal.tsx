@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, FC } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Calendar, 
@@ -117,7 +117,7 @@ export const DailySiteJournal: React.FC<DailySiteJournalProps> = ({
   };
 
   // Get days in the week view around current week offset
-  const weekDays = React.useMemo(() => {
+  const weekDays = useMemo(() => {
     const days = [];
     const today = new Date();
     // Start of the week (Sunday based)
@@ -263,7 +263,7 @@ ${milestones || '실적 없음'}
   };
 
   // Recent 5 entries timeline lookup
-  const recentEntries = React.useMemo(() => {
+  const recentEntries = useMemo(() => {
     return Object.entries(dailyJournals)
       .filter(([_, entry]) => entry.notes || entry.issues || entry.milestones)
       .sort((a, b) => b[0].localeCompare(a[0])) // Descending date

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, FC } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   TrendingUp, 
@@ -77,7 +77,7 @@ const AIPredictionView: React.FC<AIPredictionViewProps> = ({ data, activeTheme }
     }
   }, []);
 
-  const weatherDelays = React.useMemo(() => {
+  const weatherDelays = useMemo(() => {
     const reports = data.dailyReports || [];
     // Thresholds for considering a day as "non-working" or "delayed"
     const DELAY_RAIN_THRESHOLD = 5; // 5mm
@@ -93,7 +93,7 @@ const AIPredictionView: React.FC<AIPredictionViewProps> = ({ data, activeTheme }
 
   const weatherDelayDays = weatherDelays.length;
 
-  const weatherAdjustedDate = React.useMemo(() => {
+  const weatherAdjustedDate = useMemo(() => {
     if (!prediction?.predictedCompletionDate) return null;
     const date = new Date(prediction.predictedCompletionDate);
     date.setDate(date.getDate() + weatherDelayDays);

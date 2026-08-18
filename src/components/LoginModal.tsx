@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { User, ShieldCheck, Lock, Eye } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { UserRole } from '../types';
@@ -14,9 +14,9 @@ interface LoginModalProps {
 }
 
 export default function LoginModal({ onLogin, adminPassword = '4714' }: LoginModalProps) {
-  const [password, setPassword] = React.useState('');
-  const [selectedRole, setSelectedRole] = React.useState<UserRole | null>(null);
-  const [error, setError] = React.useState('');
+  const [password, setPassword] = useState('');
+  const [selectedRole, setSelectedRole] = useState<UserRole | null>(null);
+  const [error, setError] = useState('');
 
   const handleLogin = () => {
     if (password === adminPassword) {
